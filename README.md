@@ -22,9 +22,10 @@ MCP Aggregator  :8100
     ├── opcua-mcp     :8002 ──► OPC-UA server (in simulator)
     └── influxdb-mcp  :8003 ──► InfluxDB  :8086
                                     ▲
-Simulator ──────────────────────────┘
-  publishes to MQTT + OPC-UA simultaneously
-  Chat backend writes AI_Metrics to InfluxDB per turn
+Simulator ──────────────────────────┤  publishes to MQTT + OPC-UA simultaneously
+                                    │
+MQTT → InfluxDB bridge ─────────────┘  subscribes Plant/WTP/# → writes wtp_process
+  Chat backend also writes AI_Metrics to InfluxDB per turn
 ```
 
 The simulator runs a configurable fault injection engine. Inject a fault mid-session and ask the AI to diagnose it — it reads live values, correlates anomalies across instruments, and explains what it sees.
@@ -52,12 +53,13 @@ cp .env.example .env
 Each component gets its own virtualenv. Run this once to create and populate all of them:
 
 ```bash
-(cd simulator           && uv venv && uv pip install -r requirements.txt)
+(cd simulator              && uv venv && uv pip install -r requirements.txt)
 (cd mcp-servers/mqtt-mcp  && uv venv && uv pip install -r requirements.txt)
 (cd mcp-servers/opcua-mcp && uv venv && uv pip install -r requirements.txt)
 (cd influxdb-mcp           && uv venv && uv pip install -r requirements.txt)
 (cd mcp-aggregator/server  && uv venv && uv pip install -r requirements.txt)
 (cd chat-ui                && uv venv && uv pip install -r requirements.txt)
+(cd mqtt-influx-bridge     && uv venv && uv pip install -r requirements.txt)
 ```
 
 Then open six terminals (or a terminal multiplexer) and run each in order:
@@ -81,7 +83,10 @@ cd influxdb-mcp && .venv/bin/python server.py
 # 6 — MCP Aggregator  (our backends.json, upstream server code)
 cd mcp-aggregator/server && BACKENDS_FILE=../backends.json .venv/bin/python server.py
 
-# 7 — Chat UI
+# 7 — MQTT → InfluxDB bridge  (writes process data to InfluxDB for historical queries)
+cd mqtt-influx-bridge && .venv/bin/python bridge.py
+
+# 8 — Chat UI
 cd chat-ui && .venv/bin/python backend.py
 ```
 
@@ -179,6 +184,8 @@ waterworks-ai/
 │   ├── audit.py            JSONL audit log
 │   ├── providers.json      LLM provider and model configuration
 │   └── static/             index.html + app.js (no framework, no bundler)
+├── mqtt-influx-bridge/     Subscribes Plant/WTP/# → writes wtp_process to InfluxDB
+│   └── bridge.py           Paho subscriber + batched InfluxDB write
 ├── mcp-servers/            Git submodule — mqtt-mcp (:8001) and opcua-mcp (:8002)
 ├── mcp-aggregator/
 │   ├── server/             Git submodule — aggregator server code (:8100)
