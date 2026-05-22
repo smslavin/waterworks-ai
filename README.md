@@ -25,7 +25,7 @@ No staged demos. No proprietary licenses. No trust us.
 ## Screenshots
 
 **Natural language fault diagnosis**
-![Fault diagnosis](docs/images/screenshot_01.png)
+![Fault diagnosis](docs/images/Screenshot_01.png)
 *Suction starvation injected on RawWater_01. The AI reads live sensor 
 data, queries fault history from InfluxDB, and identifies the condition 
 without being told where to look. Fault history shows the condition 
@@ -33,28 +33,29 @@ occurred twice — the AI notes the root cause may not have been
 fully resolved the first time.*
 
 **Plant health overview**
-![Health overview](docs/images/screenshot_02.png)
+![Health overview](docs/images/Screenshot_02.png)
 *Full plant health check across all process units. The AI identifies 
 run-status discrepancies on three pumps from a prior session — 
 pumps reporting stopped while delivering flow, pressure, and power.*
 
 **Process monitoring dashboard**
-![Process dashboard](docs/images/screenshot_03.png)
+![Process dashboard](docs/images/Screenshot_03.png)
 *Grafana process dashboard with fault injection annotations. Red dashed 
 lines mark fault events across all panels simultaneously. Inlet flow KPI 
 in red — the flow drop is visible in the pump flow rates trend.*
 
 **AI session observability**
-![AI metrics](docs/images/screenshot_04.png)
+![AI metrics](docs/images/Screenshot_04.png)
 *AI session telemetry alongside fault events. Tool call count and latency 
 spike at fault injection timestamps — the AI working harder during fault 
 conditions is visible in the data. Estimated session cost: $4.58.*
 
 **Interface**
-![UI overview](docs/images/screenshot_05.png)
+![UI overview](docs/images/Screenshot_05.png)
 *Clean interface with fault injection panel, server status indicators, 
 and fault status panel. Deep Reasoning toggle enables extended thinking 
 for complex diagnostic scenarios.*
+
 ---
 
 ## How it works
