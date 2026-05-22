@@ -33,11 +33,15 @@ services:
       - grafana-data:/var/lib/grafana
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
-      GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-waterworks}
-      INFLUXDB_TOKEN:             ${INFLUXDB_TOKEN:-waterworks-dev-token}
-      INFLUXDB_ORG:               ${INFLUXDB_ORG:-waterworks}
-      INFLUXDB_BUCKET:            ${INFLUXDB_BUCKET:-waterworks}
+      GF_SECURITY_ADMIN_USER:          ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD:      ${GRAFANA_PASSWORD:-waterworks}
+      GF_AUTH_ANONYMOUS_ENABLED:       "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME:      "Main Org."
+      GF_AUTH_ANONYMOUS_ORG_ROLE:      "Viewer"
+      GF_SECURITY_ALLOW_EMBEDDING:     "true"
+      INFLUXDB_TOKEN:                  ${INFLUXDB_TOKEN:-waterworks-dev-token}
+      INFLUXDB_ORG:                    ${INFLUXDB_ORG:-waterworks}
+      INFLUXDB_BUCKET:                 ${INFLUXDB_BUCKET:-waterworks}
     depends_on:
       - influxdb
     restart: unless-stopped
