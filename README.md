@@ -10,13 +10,13 @@ Everything in this stack is open source. No proprietary historians, SCADA platfo
 
 ## Why this exists
 
-Most industrial AI demonstrations require proprietary SCADA licenses, historian software, or cloud connectors to reproduce. The interesting work, natural language diagnostics, agentic tool use, observability, gets buried under vendor access requirements.
+Exploring natural language interfaces for industrial systems raises a practical problem. Most demonstrations require proprietary SCADA licenses, historian software or cloud connectors to reproduce. The architecture and reasoning patterns are interesting. The access requirements get in the way of evaluating them.
 
 This stack uses only open source components. MQTT, OPC-UA, InfluxDB, Grafana, Python. Clone it, run it, see exactly how every layer works.
 
-The fault injection engine makes diagnostic quality verifiable rather than claimed. Inject a known fault, ask the AI what's happening, evaluate the reasoning yourself. The AI doesn't know what was injected. It reads live sensor data, cross-references historical trends, and tells you what it found. The Grafana dashboards show the AI working harder during fault conditions (more tool calls, higher latency, more tokens) alongside the process data it was reasoning about.
+The fault injection engine makes diagnostic quality verifiable rather than claimed. Inject a known fault, ask the AI what's happening, evaluate the reasoning yourself. The AI doesn't know what was injected. It reads live sensor data, cross-references historical trends and tells you what it found. The Grafana dashboards show AI session behavior alongside process data. Tool calls, latency and token usage alongside the sensor readings the model was reasoning about.
 
-No staged demos. No proprietary licenses. No trust us.
+The water treatment plant is a starting point. The architecture transfers to any industrial system with MQTT or OPC-UA data sources.
 
 ---
 
