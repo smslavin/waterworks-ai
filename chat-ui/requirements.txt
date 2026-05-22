@@ -1,0 +1,9 @@
+anthropic>=0.40.0
+openai>=1.0.0
+mcp
+starlette
+uvicorn
+sse-starlette
+python-dotenv
+httpx
+influxdb-client>=1.43.0

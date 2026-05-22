@@ -1,0 +1,6 @@
+[submodule "mcp-servers"]
+	path = mcp-servers
+	url = git@github.com:smslavin/mcp-servers.git
+[submodule "mcp-aggregator/server"]
+	path = mcp-aggregator/server
+	url = git@github.com:smslavin/mcp-aggregator.git

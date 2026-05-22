@@ -1,0 +1,49 @@
+services:
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    restart: unless-stopped
+
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE:     setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-waterworks-admin}
+      DOCKER_INFLUXDB_INIT_ORG:      ${INFLUXDB_ORG:-waterworks}
+      DOCKER_INFLUXDB_INIT_BUCKET:   ${INFLUXDB_BUCKET:-waterworks}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-waterworks-dev-token}
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-waterworks}
+      INFLUXDB_TOKEN:             ${INFLUXDB_TOKEN:-waterworks-dev-token}
+      INFLUXDB_ORG:               ${INFLUXDB_ORG:-waterworks}
+      INFLUXDB_BUCKET:            ${INFLUXDB_BUCKET:-waterworks}
+    depends_on:
+      - influxdb
+    restart: unless-stopped
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  influxdb-data:
+  grafana-data:
