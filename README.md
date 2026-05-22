@@ -1,3 +1,5 @@
+<img src="chat-ui/static/icon-light.png" alt="Waterworks AI" width="80">
+
 # waterworks-ai
 
 Open source demonstration of natural language industrial process diagnostics. A simulated water treatment plant publishes live sensor data over MQTT and OPC-UA; an AI assistant reads that data through MCP tool calls and diagnoses process conditions in plain English.

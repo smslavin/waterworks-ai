@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Waterworks AI</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
 <style>
 :root {
   --color-background-primary:   #ffffff;
@@ -80,7 +81,9 @@ header {
   background: var(--color-background-secondary);
   flex-shrink: 0;
 }
-header h1 { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; flex: 1; }
+header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; flex: 1; }
+#header-logo { width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0; }
+@media (prefers-color-scheme: dark) { #header-logo { content: url("/static/icon-dark.png"); } }
 #model-select {
   font-size: 12px; padding: 4px 8px;
   border: 1px solid var(--color-border-tertiary); border-radius: 6px;
@@ -260,7 +263,9 @@ main { display: flex; flex: 1; min-height: 0; }
 <body>
 
 <header>
+  <img id="header-logo" src="/static/icon-light.png" alt="Waterworks AI">
   <h1>Waterworks AI</h1>
+  <label for="model-select" style="font-size:13px;color:var(--color-text-secondary);white-space:nowrap;">Model:</label>
   <select id="model-select"><option>Loading…</option></select>
 </header>
 
