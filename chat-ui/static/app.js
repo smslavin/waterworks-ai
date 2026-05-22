@@ -2,18 +2,63 @@
 
 // ── State ──────────────────────────────────────────────────────────────────
 
-const messages = [];   // [{role, content}]
+const messages = [];
 let streaming  = false;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
-const messagesEl   = document.getElementById("messages");
-const inputEl      = document.getElementById("user-input");
-const sendBtn      = document.getElementById("send-btn");
-const modelSelect  = document.getElementById("model-select");
-const faultTarget  = document.getElementById("fault-target");
-const faultMode    = document.getElementById("fault-mode");
-const faultList    = document.getElementById("fault-status-list");
+const messagesEl  = document.getElementById("messages");
+const inputEl     = document.getElementById("user-input");
+const sendBtn     = document.getElementById("send-btn");
+const modelSelect = document.getElementById("model-select");
+const faultTarget = document.getElementById("fault-target");
+const faultMode   = document.getElementById("fault-mode");
+const faultList   = document.getElementById("fault-status-list");
+
+// ── Markdown renderer ──────────────────────────────────────────────────────
+// Adapted from graccess-mcp. Handles tables, code blocks, inline formatting,
+// headings, lists, and horizontal rules. HTML-escapes first, then parses.
+
+function renderMarkdown(text) {
+  // Ensure a blank line before and after table blocks so they parse as their
+  // own block — the model often omits these newlines.
+  text = text.replace(/([^|\n])\n(\|)/g, "$1\n\n$2");
+  text = text.replace(/(\|[^\n]*)\n([^|\n])/g, "$1\n\n$2");
+
+  return text
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/```[\w]*\n?([\s\S]*?)```/g, (_, c) => `<pre><code>${c.trim()}</code></pre>`)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm,  "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm,   "<h1>$1</h1>")
+    .replace(/^[-*] (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>")
+    .replace(/^---$/gm, "<hr>")
+    .split(/\n\n+/)
+    .map(b => {
+      b = b.trim();
+      if (!b) return "";
+      if (/^<(h[1-3]|pre|ul|ol|hr|li)/.test(b)) return b;
+      if (b.startsWith("|")) {
+        const rows = b.split("\n").filter(r => r.trim().startsWith("|"));
+        if (rows.length >= 2 && /^\|[-| :]+\|$/.test(rows[1].trim())) {
+          const hdrs = rows[0].split("|").slice(1,-1)
+            .map(c => `<th>${c.trim()}</th>`).join("");
+          const body = rows.slice(2).map(r => {
+            const cells = r.split("|").slice(1,-1)
+              .map(c => `<td>${c.trim()}</td>`).join("");
+            return `<tr>${cells}</tr>`;
+          }).join("");
+          return `<table><thead><tr>${hdrs}</tr></thead><tbody>${body}</tbody></table>`;
+        }
+      }
+      return `<p>${b.replace(/\n/g, "<br>")}</p>`;
+    })
+    .join("\n");
+}
 
 // ── Model loader ───────────────────────────────────────────────────────────
 
@@ -56,13 +101,16 @@ async function loadModels() {
 async function checkHealth() {
   try {
     const data = await fetch("/api/health").then(r => r.json());
-    ["aggregator", "influxdb", "mqtt", "simulator"].forEach(k => {
+    ["aggregator","influxdb","mqtt","simulator"].forEach(k => {
       const el = document.getElementById(`dot-${k}`);
-      if (el) {
-        el.className = "dot " + (data[k] === "ok" ? "ok" : "error");
-      }
+      if (el) el.className = "dot " + (data[k] === "ok" ? "ok" : "error");
     });
-  } catch { /* health check failed silently */ }
+  } catch {
+    ["aggregator","influxdb","mqtt","simulator"].forEach(k => {
+      const el = document.getElementById(`dot-${k}`);
+      if (el) el.className = "dot error";
+    });
+  }
 }
 
 // ── Fault status sidebar ───────────────────────────────────────────────────
@@ -70,41 +118,47 @@ async function checkHealth() {
 async function refreshFaultStatus() {
   try {
     const data = await fetch("/api/fault/status").then(r => r.json());
-    if (data.error) { faultList.innerHTML = `<div style="color:var(--color-error)">${data.error}</div>`; return; }
+    if (data.error) {
+      faultList.innerHTML = `<div style="color:var(--color-error);font-size:12px">${data.error}</div>`;
+      return;
+    }
     faultList.innerHTML = Object.entries(data).map(([name, mode]) => `
       <div class="status-row">
         <span class="status-name">${name}</span>
-        <span class="status-mode${mode !== 'normal' ? ' fault' : ''}">${mode}</span>
+        <span class="status-mode${mode !== "normal" ? " fault" : ""}">${mode}</span>
       </div>`).join("");
   } catch {
-    faultList.innerHTML = `<div style="color:var(--color-text-secondary)">Simulator offline</div>`;
+    faultList.innerHTML = `<div style="color:var(--color-text-secondary);font-size:12px">Simulator offline</div>`;
   }
 }
 
 // ── Fault injection ────────────────────────────────────────────────────────
 
 async function injectFault() {
-  const target = faultTarget.value;
-  const mode   = faultMode.value;
   await fetch("/api/fault", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target, mode }),
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({target: faultTarget.value, mode: faultMode.value}),
   });
   refreshFaultStatus();
 }
 
 async function clearFault() {
-  const target = faultTarget.value;
   await fetch("/api/fault", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target, mode: "normal" }),
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({target: faultTarget.value, mode: "normal"}),
   });
   refreshFaultStatus();
 }
 
 // ── Message rendering ──────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
 
 function appendUserMessage(text) {
   const div = document.createElement("div");
@@ -112,81 +166,105 @@ function appendUserMessage(text) {
   div.innerHTML = `<div class="bubble">${escHtml(text)}</div>`;
   messagesEl.appendChild(div);
   scrollToBottom();
-  return div;
 }
 
-function appendAssistantMessage() {
-  const div = document.createElement("div");
-  div.className = "message assistant";
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
-  div.appendChild(bubble);
-  messagesEl.appendChild(div);
+function createAssistantMessage() {
+  const wrap = document.createElement("div");
+  wrap.className = "message assistant";
+
+  // Tool strip — hidden until first tool call arrives
+  const strip   = document.createElement("div");
+  strip.className = "tool-strip";
+  const chevron = document.createElement("span");
+  chevron.className = "chevron";
+  chevron.textContent = "▶";
+  const stripLabel = document.createElement("span");
+  stripLabel.textContent = "0 tool calls";
+  strip.appendChild(chevron);
+  strip.appendChild(stripLabel);
+
+  const detail = document.createElement("div");
+  detail.className = "tool-detail-block";
+  strip.addEventListener("click", () => {
+    strip.classList.toggle("open");
+    detail.classList.toggle("open");
+  });
+
+  wrap.appendChild(strip);
+  wrap.appendChild(detail);
+  messagesEl.appendChild(wrap);
   scrollToBottom();
-  return { container: div, bubble };
-}
 
-function appendToolBlock(tool, args, container) {
-  const block = document.createElement("div");
-  block.className = "tool-block";
+  let toolCount    = 0;
+  let activeBubble = null;
+  let needNewBubble = false;
 
-  const argsStr = JSON.stringify(args, null, 2);
-  const header  = document.createElement("div");
-  header.className = "tool-header";
-  header.innerHTML = `<span class="tool-chevron">▶</span><span>${escHtml(tool)}</span>`;
-  header.onclick = () => {
-    const body = block.querySelector(".tool-body");
-    const chev = block.querySelector(".tool-chevron");
-    const open = body.classList.toggle("open");
-    chev.classList.toggle("open", open);
-  };
-
-  const body = document.createElement("div");
-  body.className = "tool-body";
-  body.innerHTML = `
-    <div class="tool-label">Arguments</div>
-    <div class="tool-content">${escHtml(argsStr)}</div>
-    <div class="tool-label" style="margin-top:6px">Result</div>
-    <div class="tool-content result-placeholder" style="color:var(--color-text-secondary)">waiting…</div>`;
-
-  block.appendChild(header);
-  block.appendChild(body);
-  container.appendChild(block);
-  scrollToBottom();
-  return block;
-}
-
-function updateToolResult(block, result) {
-  const placeholder = block.querySelector(".result-placeholder");
-  if (placeholder) {
-    placeholder.textContent = result;
-    placeholder.classList.remove("result-placeholder");
-    placeholder.style.color = "";
+  function ensureBubble() {
+    if (!activeBubble || needNewBubble) {
+      activeBubble = document.createElement("div");
+      activeBubble.className = "bubble";
+      activeBubble.innerHTML =
+        `<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>`;
+      activeBubble._rawText = "";
+      wrap.appendChild(activeBubble);
+      scrollToBottom();
+      needNewBubble = false;
+    }
+    return activeBubble;
   }
-}
 
-function escHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  ensureBubble();
+
+  return {
+    addToken(text) {
+      const b = ensureBubble();
+      b._rawText += text;
+      b.innerHTML = renderMarkdown(b._rawText);
+      scrollToBottom();
+    },
+    addToolCall(tool, args) {
+      toolCount++;
+      stripLabel.textContent = `${toolCount} tool call${toolCount > 1 ? "s" : ""}`;
+      strip.style.display = "flex";
+
+      const item = document.createElement("div");
+      item.className = "tool-call-item";
+      item.innerHTML = `<span class="tool-name">${escHtml(tool)}</span>\n${escHtml(JSON.stringify(args, null, 2))}`;
+      detail.appendChild(item);
+
+      // Next text segment gets a fresh bubble so it appears below the tool strip
+      needNewBubble = true;
+    },
+    addToolResult(tool, result) {
+      const items = detail.querySelectorAll(".tool-call-item");
+      const last  = items[items.length - 1];
+      if (last) {
+        const r = document.createElement("span");
+        r.className = "tool-result-text";
+        r.textContent = `→ ${result.length > 400 ? result.slice(0, 400) + "…" : result}`;
+        last.appendChild(r);
+      }
+      scrollToBottom();
+    },
+    addError(text) {
+      const b = ensureBubble();
+      b._rawText += `\n\n[Error: ${text}]`;
+      b.innerHTML = renderMarkdown(b._rawText);
+      scrollToBottom();
+    },
+    finalize() {
+      wrap.querySelectorAll(".bubble").forEach(b => {
+        if (!b._rawText?.trim()) b.remove();
+      });
+    },
+    getRawText() {
+      return wrap.querySelectorAll(".bubble")[0]?._rawText ?? "";
+    },
+  };
 }
 
 function scrollToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-// ── SSE parser ─────────────────────────────────────────────────────────────
-
-function* parseSSEChunk(buffer) {
-  const lines = buffer.split("\n");
-  for (const line of lines) {
-    if (line.startsWith("data: ")) {
-      const raw = line.slice(6).trim();
-      if (raw && raw !== "[DONE]") {
-        try { yield JSON.parse(raw); } catch { /* partial chunk, skip */ }
-      }
-    }
-  }
 }
 
 // ── Send message ───────────────────────────────────────────────────────────
@@ -197,96 +275,82 @@ async function sendMessage() {
 
   inputEl.value = "";
   inputEl.style.height = "";
-
-  messages.push({ role: "user", content: text });
+  messages.push({role: "user", content: text});
   appendUserMessage(text);
 
   streaming = true;
   sendBtn.disabled = true;
 
-  const { container: assistantEl, bubble } = appendAssistantMessage();
+  const msg = createAssistantMessage();
   let assistantText = "";
-  let pendingToolBlock = null;
-  const pendingToolBlocks = {};
 
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, model: modelSelect.value }),
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({messages, model: modelSelect.value}),
     });
 
     if (!response.ok) {
-      bubble.textContent = `Error ${response.status}`;
+      msg.addError(`HTTP ${response.status}`);
       return;
     }
 
     const reader  = response.body.getReader();
     const decoder = new TextDecoder();
-    let   buf     = "";
+    let   buffer  = "";
 
     while (true) {
-      const { done, value } = await reader.read();
+      const {done, value} = await reader.read();
       if (done) break;
-      buf += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split("\n");
+      buffer = lines.pop(); // keep incomplete trailing line
 
-      for (const chunk of parseSSEChunk(buf)) {
-        buf = "";  // clear after successful parse pass
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        let chunk;
+        try { chunk = JSON.parse(line.slice(6)); } catch { continue; }
 
         switch (chunk.type) {
           case "text":
             assistantText += chunk.text;
-            bubble.textContent = assistantText;
-            scrollToBottom();
+            msg.addToken(chunk.text);
             break;
-
           case "tool_call":
-            pendingToolBlock = appendToolBlock(chunk.tool, chunk.args, assistantEl);
-            pendingToolBlocks[chunk.tool] = pendingToolBlock;
+            msg.addToolCall(chunk.tool, chunk.args);
             break;
-
           case "tool_result":
-            if (pendingToolBlocks[chunk.tool]) {
-              updateToolResult(pendingToolBlocks[chunk.tool], chunk.result);
-            }
+            msg.addToolResult(chunk.tool, chunk.result);
             break;
-
           case "error":
-            bubble.textContent += `\n\n[Error: ${chunk.error}]`;
-            scrollToBottom();
+            msg.addError(chunk.error);
             break;
-
           case "done":
-            if (assistantText) {
-              messages.push({ role: "assistant", content: assistantText });
-            }
             break;
         }
       }
     }
   } catch (err) {
-    bubble.textContent = `Connection error: ${err.message}`;
+    msg.addError(err.message);
   } finally {
-    streaming     = false;
+    msg.finalize();
+    if (assistantText) messages.push({role: "assistant", content: assistantText});
+    streaming = false;
     sendBtn.disabled = false;
     inputEl.focus();
   }
 }
 
-// ── Auto-resize textarea ───────────────────────────────────────────────────
+// ── Input events ───────────────────────────────────────────────────────────
 
 inputEl.addEventListener("input", () => {
   inputEl.style.height = "";
   inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
 });
-
 inputEl.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
-
 sendBtn.addEventListener("click", sendMessage);
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -294,5 +358,5 @@ sendBtn.addEventListener("click", sendMessage);
 loadModels();
 checkHealth();
 refreshFaultStatus();
-setInterval(checkHealth,         15_000);
-setInterval(refreshFaultStatus,   5_000);
+setInterval(checkHealth,        15_000);
+setInterval(refreshFaultStatus,  5_000);
