@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: waterworks
+    orgId: 1
+    folder: Waterworks
+    folderUid: waterworks
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -1,0 +1,270 @@
+{
+  "title": "WTP Process Data",
+  "uid": "wtp-process",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "graphTooltip": 1,
+  "tags": ["waterworks", "process"],
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Pump Flow (L/min)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Pump\")\n  |> filter(fn: (r) => r.attribute == \"Flow\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Pump Pressure (bar)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Pump\")\n  |> filter(fn: (r) => r.attribute == \"Pressure\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Pump Power (kW)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Pump\")\n  |> filter(fn: (r) => r.attribute == \"Power\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Pump Running Status (1 = running)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 15, "w": 24, "h": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Pump\")\n  |> filter(fn: (r) => r.attribute == \"Running\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> yield(name: \"last\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1.1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": true,
+            "lineInterpolation": "stepBefore"
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "right", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Tank Levels (%)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 20, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Tank\")\n  |> filter(fn: (r) => r.attribute == \"Level\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "lineWidth": 1.5, "fillOpacity": 15, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Turbidity (NTU)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 8, "y": 20, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Tank\")\n  |> filter(fn: (r) => r.attribute == \"Turbidity\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Finished Water pH",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 16, "y": 20, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.instance == \"FinishedWater_01\")\n  |> filter(fn: (r) => r.attribute == \"pH\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 6,
+          "max": 9,
+          "custom": { "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 6.5 },
+              { "color": "red",   "value": 8.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "UV Intensity (%)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"UV\")\n  |> filter(fn: (r) => r.attribute == \"Intensity\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "lineWidth": 1.5, "fillOpacity": 10, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Chemical Dosing Flow (L/h)",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Dosing\")\n  |> filter(fn: (r) => r.attribute == \"FlowRate\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"mean\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    }
+
+  ]
+}

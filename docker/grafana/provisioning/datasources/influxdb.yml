@@ -2,6 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: InfluxDB-Waterworks
+    uid: waterworks-influx
     type: influxdb
     access: proxy
     url: http://influxdb:8086
