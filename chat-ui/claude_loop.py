@@ -59,6 +59,7 @@ async def run_chat(
     *,
     base_url: str,
     api_key: str | None = None,
+    thinking_enabled: bool = False,
     **kwargs,
 ) -> AsyncIterator[str]:
     session_id = str(uuid.uuid4())
@@ -71,6 +72,7 @@ async def run_chat(
 
     audit.log("session_start", session_id=session_id, model=model, user_message=user_message)
 
+    effective_model = "claude-opus-4-7" if thinking_enabled else model
     client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
 
     mcp_tools = await list_mcp_tools()
@@ -88,19 +90,49 @@ async def run_chat(
     try:
         while True:
             stream_kwargs: dict = dict(
-                model=model,
-                max_tokens=4096,
+                model=effective_model,
+                max_tokens=8192,
                 system=SYSTEM_PROMPT,
                 messages=conv_messages,
             )
             if tools:
                 stream_kwargs["tools"] = tools
+            if thinking_enabled:
+                stream_kwargs["thinking"]      = {"type": "adaptive"}
+                stream_kwargs["output_config"] = {"effort": "high"}
 
             async with client.messages.stream(**stream_kwargs) as stream:
-                async for text in stream.text_stream:
-                    yield json.dumps({"type": "text", "text": text})
+                if thinking_enabled:
+                    _in_thinking = False
+                    _thinking_streamed = False
+                    async for event in stream:
+                        if event.type == "content_block_start":
+                            cb = getattr(event, "content_block", None)
+                            if cb and getattr(cb, "type", None) == "thinking":
+                                _in_thinking = True
+                        elif event.type == "content_block_stop":
+                            if _in_thinking:
+                                _in_thinking = False
+                                _thinking_streamed = True
+                                yield json.dumps({"type": "thinking_stop"})
+                        elif event.type == "content_block_delta":
+                            delta = event.delta
+                            if _in_thinking and hasattr(delta, "thinking"):
+                                yield json.dumps({"type": "thinking_delta", "text": delta.thinking})
+                            elif not _in_thinking and hasattr(delta, "text"):
+                                yield json.dumps({"type": "text", "text": delta.text})
+                else:
+                    async for text in stream.text_stream:
+                        yield json.dumps({"type": "text", "text": text})
 
                 final = await stream.get_final_message()
+
+                if thinking_enabled and not _thinking_streamed:
+                    for block in final.content:
+                        if hasattr(block, "thinking") and block.thinking:
+                            yield json.dumps({"type": "thinking_delta", "text": block.thinking})
+                            yield json.dumps({"type": "thinking_stop"})
+                            break
 
             input_tokens  += final.usage.input_tokens
             output_tokens += final.usage.output_tokens

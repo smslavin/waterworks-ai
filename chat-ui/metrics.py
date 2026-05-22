@@ -1,7 +1,11 @@
-"""AI_Metrics writer — logs per-turn telemetry to InfluxDB measurement ai_metrics."""
+"""AI_Metrics writer — logs per-turn telemetry to InfluxDB (for Grafana)
+and a local SQLite store (for the /metrics display page)."""
 
 import logging
 import os
+import sqlite3
+import threading
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient, Point
@@ -16,16 +20,43 @@ INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
 logger = logging.getLogger(__name__)
 
-_client: InfluxDBClient | None = None
+_influx_client: InfluxDBClient | None = None
+_DB_PATH = os.path.join(os.path.dirname(__file__), "metrics.db")
+_lock = threading.Lock()
 
 
-def _get_client() -> InfluxDBClient:
-    global _client
-    if _client is None:
-        _client = InfluxDBClient(
+def _get_influx_client() -> InfluxDBClient:
+    global _influx_client
+    if _influx_client is None:
+        _influx_client = InfluxDBClient(
             url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG
         )
-    return _client
+    return _influx_client
+
+
+def _conn() -> sqlite3.Connection:
+    c = sqlite3.connect(_DB_PATH)
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _init_db() -> None:
+    with _lock, _conn() as c:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS turns (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts               TEXT    NOT NULL,
+                session_id       TEXT    NOT NULL,
+                model            TEXT    NOT NULL,
+                input_tokens     INTEGER,
+                output_tokens    INTEGER,
+                tool_call_count  INTEGER NOT NULL DEFAULT 0,
+                error_count      INTEGER NOT NULL DEFAULT 0,
+                latency_ms       INTEGER,
+                user_message     TEXT
+            )
+        """)
+        c.commit()
 
 
 def log_turn(
@@ -39,6 +70,7 @@ def log_turn(
     latency_ms: int,
     user_message: str,
 ) -> None:
+    # Write to InfluxDB — best-effort, for Grafana dashboards
     try:
         point = (
             Point("ai_metrics")
@@ -51,9 +83,55 @@ def log_turn(
             .field("latency_ms",      int(latency_ms))
             .field("user_message",    (user_message or "")[:200])
         )
-        _get_client().write_api(write_options=SYNCHRONOUS).write(
+        _get_influx_client().write_api(write_options=SYNCHRONOUS).write(
             bucket=INFLUXDB_BUCKET, record=point
         )
     except Exception as exc:
-        # Metrics are best-effort — never let a write failure break the chat loop.
-        logger.warning("Metrics write failed: %s", exc)
+        logger.warning("InfluxDB metrics write failed: %s", exc)
+
+    # Write to SQLite — for the /metrics display page
+    try:
+        with _lock, _conn() as c:
+            c.execute(
+                """INSERT INTO turns
+                   (ts, session_id, model, input_tokens, output_tokens,
+                    tool_call_count, error_count, latency_ms, user_message)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    session_id, model,
+                    input_tokens, output_tokens,
+                    tool_call_count, error_count, latency_ms,
+                    (user_message or "")[:200],
+                ),
+            )
+            c.commit()
+    except Exception as exc:
+        logger.warning("SQLite metrics write failed: %s", exc)
+
+
+def get_recent_turns(limit: int = 100) -> list[dict]:
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM turns ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_summary() -> dict:
+    with _lock, _conn() as c:
+        row = c.execute("""
+            SELECT
+                COUNT(*)                   AS total_turns,
+                COUNT(DISTINCT session_id) AS total_sessions,
+                SUM(input_tokens)          AS total_input_tokens,
+                SUM(output_tokens)         AS total_output_tokens,
+                SUM(tool_call_count)       AS total_tool_calls,
+                SUM(error_count)           AS total_errors,
+                ROUND(AVG(latency_ms))     AS avg_latency_ms
+            FROM turns
+        """).fetchone()
+        return dict(row) if row else {}
+
+
+_init_db()

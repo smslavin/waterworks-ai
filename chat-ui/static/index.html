@@ -29,6 +29,10 @@
   --color-ok:                   #16a34a;
   --color-error:                #dc2626;
   --color-warn:                 #d97706;
+  --color-thinking-bg:          #fefce8;
+  --color-thinking-border:      #fde68a;
+  --color-thinking-text:        #78350f;
+  --color-thinking-hdr:         #fef9c3;
   --radius:                     10px;
   --font-mono:                  "Cascadia Code", "Fira Code", "Consolas", monospace;
   --font-sans:                  system-ui, -apple-system, sans-serif;
@@ -56,6 +60,10 @@
     --color-ok:                   #4ade80;
     --color-error:                #f87171;
     --color-warn:                 #fbbf24;
+    --color-thinking-bg:          #1c1a0a;
+    --color-thinking-border:      #3a3010;
+    --color-thinking-text:        #c8a32a;
+    --color-thinking-hdr:         #221f08;
   }
 }
 
@@ -258,6 +266,49 @@ main { display: flex; flex: 1; min-height: 0; }
 @media (prefers-color-scheme: dark) { .status-mode.fault { background: #2d1d02; color: #fbbf24; } }
 
 @media (max-width: 700px) { #sidebar { display: none; } }
+
+/* ── Thinking block ── */
+.thinking-block {
+  background: var(--color-thinking-bg); border: 1px solid var(--color-thinking-border);
+  border-radius: 8px; margin-bottom: 4px; overflow: hidden; width: 100%;
+}
+.thinking-header {
+  display: flex; align-items: center; gap: 6px; padding: 5px 10px;
+  cursor: pointer; user-select: none; background: var(--color-thinking-hdr);
+  font-size: 11px; font-weight: 600; color: var(--color-thinking-text);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.thinking-header .chevron { font-size: 9px; transition: transform 0.15s; }
+.thinking-block.open .thinking-header .chevron { transform: rotate(90deg); }
+.thinking-body {
+  display: none; padding: 8px 10px 10px;
+  font-size: 12px; color: var(--color-thinking-text); font-style: italic;
+  line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  max-height: 280px; overflow-y: auto;
+}
+.thinking-block.open .thinking-body { display: block; }
+
+/* ── Sidebar action buttons ── */
+.sidebar-actions { display: flex; flex-direction: column; gap: 5px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--color-border-tertiary); }
+.side-btn {
+  width: 100%; padding: 6px 8px; font-size: 11px; text-align: center;
+  border: 1px solid var(--color-border-tertiary); border-radius: 6px;
+  background: var(--color-background-primary); color: var(--color-text-primary);
+  cursor: pointer; text-decoration: none; display: block;
+}
+.side-btn:hover { background: var(--color-background-tertiary); }
+.side-btn.danger { border-color: var(--color-error); color: var(--color-error); }
+.side-btn.danger:hover { background: var(--color-background-tertiary); }
+
+/* ── Deep Reasoning button ── */
+#thinking-toggle {
+  padding: 9px 12px; background: var(--color-background-primary); color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-tertiary); border-radius: var(--radius);
+  font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; align-self: flex-end;
+}
+#thinking-toggle:hover { background: var(--color-background-tertiary); }
+#thinking-toggle.active { background: #6b04a8; color: #fff; border-color: #6b04a8; }
+#thinking-toggle.active:hover { background: #560d8a; }
 </style>
 </head>
 <body>
@@ -275,6 +326,7 @@ main { display: flex; flex: 1; min-height: 0; }
     <div id="input-area">
       <div id="input-row">
         <textarea id="user-input" rows="1" placeholder="Ask about the water treatment plant…"></textarea>
+        <button id="thinking-toggle" onclick="toggleThinking()" title="Enable extended reasoning (Opus 4.7)">Deep Reasoning</button>
         <button id="send-btn">Send</button>
       </div>
       <div id="fault-row">
@@ -312,6 +364,12 @@ main { display: flex; flex: 1; min-height: 0; }
     <div class="sidebar-section">
       <h2>Fault Status</h2>
       <div id="fault-status-list"><div style="color:var(--color-text-secondary);font-size:12px">Loading…</div></div>
+    </div>
+    <div class="sidebar-actions">
+      <button class="side-btn" onclick="newConversation()">New Conversation</button>
+      <a class="side-btn" href="/audit" target="_blank">Audit Log</a>
+      <a class="side-btn" href="/metrics" target="_blank">Metrics</a>
+      <button class="side-btn danger" onclick="clearAuditLog()">Clear Audit Log</button>
     </div>
   </aside>
 </main>

@@ -3,7 +3,8 @@
 // ── State ──────────────────────────────────────────────────────────────────
 
 const messages = [];
-let streaming  = false;
+let streaming       = false;
+let thinkingEnabled = false;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -58,6 +59,23 @@ function renderMarkdown(text) {
       return `<p>${b.replace(/\n/g, "<br>")}</p>`;
     })
     .join("\n");
+}
+
+// ── Conversation management ────────────────────────────────────────────────
+
+function newConversation() {
+  messages.length = 0;
+  messagesEl.innerHTML = "";
+}
+
+function toggleThinking() {
+  thinkingEnabled = !thinkingEnabled;
+  document.getElementById("thinking-toggle").classList.toggle("active", thinkingEnabled);
+}
+
+async function clearAuditLog() {
+  if (!confirm("Clear the audit log? This cannot be undone.")) return;
+  await fetch("/api/audit/clear", {method: "POST"});
 }
 
 // ── Model loader ───────────────────────────────────────────────────────────
@@ -195,6 +213,37 @@ function createAssistantMessage() {
   messagesEl.appendChild(wrap);
   scrollToBottom();
 
+  // Thinking block — created lazily when first thinking_delta arrives
+  let thinkingBlock   = null;
+  let thinkingBodyEl  = null;
+  let thinkingLabelEl = null;
+  let thinkingText    = "";
+
+  function ensureThinkingBlock() {
+    if (thinkingBlock) return;
+    thinkingBlock = document.createElement("div");
+    thinkingBlock.className = "thinking-block";
+
+    const hdr  = document.createElement("div");
+    hdr.className = "thinking-header";
+    const chev = document.createElement("span");
+    chev.className = "chevron";
+    chev.textContent = "▶";
+    thinkingLabelEl = document.createElement("span");
+    thinkingLabelEl.textContent = "Thinking…";
+    hdr.appendChild(chev);
+    hdr.appendChild(thinkingLabelEl);
+    hdr.addEventListener("click", () => thinkingBlock.classList.toggle("open"));
+
+    thinkingBodyEl = document.createElement("div");
+    thinkingBodyEl.className = "thinking-body";
+
+    thinkingBlock.appendChild(hdr);
+    thinkingBlock.appendChild(thinkingBodyEl);
+    wrap.insertBefore(thinkingBlock, strip);
+    scrollToBottom();
+  }
+
   let toolCount    = 0;
   let activeBubble = null;
   let needNewBubble = false;
@@ -246,6 +295,16 @@ function createAssistantMessage() {
       }
       scrollToBottom();
     },
+    addThinkingDelta(text) {
+      ensureThinkingBlock();
+      thinkingText += text;
+      thinkingBodyEl.textContent = thinkingText;
+      scrollToBottom();
+    },
+    finalizeThinking() {
+      if (!thinkingBlock) return;
+      if (thinkingLabelEl) thinkingLabelEl.textContent = "Claude's reasoning";
+    },
     addError(text) {
       const b = ensureBubble();
       b._rawText += `\n\n[Error: ${text}]`;
@@ -288,7 +347,7 @@ async function sendMessage() {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({messages, model: modelSelect.value}),
+      body: JSON.stringify({messages, model: modelSelect.value, thinking: thinkingEnabled}),
     });
 
     if (!response.ok) {
@@ -316,6 +375,12 @@ async function sendMessage() {
           case "text":
             assistantText += chunk.text;
             msg.addToken(chunk.text);
+            break;
+          case "thinking_delta":
+            msg.addThinkingDelta(chunk.text);
+            break;
+          case "thinking_stop":
+            msg.finalizeThinking();
             break;
           case "tool_call":
             msg.addToolCall(chunk.tool, chunk.args);
