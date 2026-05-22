@@ -128,7 +128,7 @@ async def _build_opcua_server() -> tuple[Server, dict[str, dict[str, any]]]:
 
 # ── HTTP control plane ────────────────────────────────────────────────────────
 
-async def _start_control_plane() -> None:
+async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
     """Start aiohttp server for fault injection. Returns immediately after bind."""
 
     async def handle_fault(request: web.Request) -> web.Response:
@@ -159,6 +159,10 @@ async def _start_control_plane() -> None:
             )
 
         fault_registry[target].set_mode(mode)
+        mqtt_client.publish(
+            "Plant/WTP/Events/FaultInjected",
+            json.dumps({"target": target, "mode": mode.value}),
+        )
         logger.info("Fault: %s → %s", target, mode.value)
         return web.Response(
             text=json.dumps({"target": target, "mode": mode.value}),
@@ -195,7 +199,7 @@ async def main() -> None:
     logger.info("  Units   %d instances  %d attributes  %.1fs interval",
                 len(INSTANCES), attr_count, INTERVAL)
 
-    await _start_control_plane()
+    await _start_control_plane(mqtt_client)
 
     async with opcua_server:
         while True:

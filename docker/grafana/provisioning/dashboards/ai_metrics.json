@@ -2,12 +2,42 @@
   "title": "AI Metrics",
   "uid": "ai-metrics",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": { "from": "now-24h", "to": "now" },
   "timezone": "browser",
   "graphTooltip": 1,
   "tags": ["waterworks", "ai"],
+
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "lineWidth": 2,
+        "name": "Fault Events",
+        "target": {
+          "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_fault_events\")\n  |> filter(fn: (r) => r._field == \"mode\")\n  |> keep(columns: [\"_time\", \"_value\", \"target\"])",
+          "refId": "Anno"
+        },
+        "titleFormat": "Fault: ${target}",
+        "textFormat": "${_value}"
+      }
+    ]
+  },
+
   "panels": [
 
     {
@@ -43,69 +73,9 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Total Input Tokens",
-      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
-      "targets": [
-        {
-          "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> sum()"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "fixedColor": "#2563eb", "mode": "fixed" },
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "#2563eb", "value": null }] }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
-        "textMode": "auto"
-      }
-    },
-
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Total Output Tokens",
-      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
-      "targets": [
-        {
-          "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"output_tokens\")\n  |> sum()"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "fixedColor": "#2563eb", "mode": "fixed" },
-          "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "#2563eb", "value": null }] }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false },
-        "textMode": "auto"
-      }
-    },
-
-    {
-      "id": 4,
-      "type": "stat",
       "title": "Avg Latency",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "targets": [
         {
           "refId": "A",
@@ -131,11 +101,11 @@
     },
 
     {
-      "id": 5,
+      "id": 3,
       "type": "stat",
       "title": "Total Tool Calls",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
       "targets": [
         {
           "refId": "A",
@@ -161,11 +131,11 @@
     },
 
     {
-      "id": 6,
+      "id": 4,
       "type": "stat",
       "title": "Errors",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
       "targets": [
         {
           "refId": "A",
@@ -187,7 +157,7 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
+        "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "center",
         "orientation": "auto",
@@ -197,25 +167,126 @@
     },
 
     {
+      "id": 5,
+      "type": "stat",
+      "title": "Est. Cost (Sonnet 4.6)",
+      "description": "input × $3/1M + output × $15/1M",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\" or r._field == \"output_tokens\")\n  |> toFloat()\n  |> map(fn: (r) => if r._field == \"input_tokens\" then {r with _value: r._value * 3.0 / 1000000.0} else {r with _value: r._value * 15.0 / 1000000.0})\n  |> group()\n  |> sum()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#2563eb", "mode": "fixed" },
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "#2563eb", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["last"], "fields": "", "values": false },
+        "textMode": "auto"
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "AI Activity During Faults — Tool Calls & Latency",
+      "description": "Higher tool call counts and latency during fault injection events reveals the AI working harder to diagnose problems.",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 9 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"tool_call_count\")\n  |> yield(name: \"tool_calls\")"
+        },
+        {
+          "refId": "B",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"latency_ms\")\n  |> yield(name: \"latency_ms\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1.5,
+            "fillOpacity": 10,
+            "showPoints": "always",
+            "pointSize": 5,
+            "spanNulls": false
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "A" },
+            "properties": [
+              { "id": "custom.drawStyle",   "value": "bars" },
+              { "id": "custom.lineWidth",   "value": 0 },
+              { "id": "custom.fillOpacity", "value": 70 },
+              { "id": "custom.showPoints",  "value": "never" },
+              { "id": "displayName",        "value": "Tool Calls" },
+              { "id": "unit",               "value": "short" },
+              { "id": "color",              "value": { "fixedColor": "#2563eb", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.drawStyle",     "value": "line" },
+              { "id": "custom.lineWidth",     "value": 2 },
+              { "id": "custom.fillOpacity",   "value": 5 },
+              { "id": "custom.showPoints",    "value": "always" },
+              { "id": "custom.pointSize",     "value": 4 },
+              { "id": "displayName",          "value": "Latency (ms)" },
+              { "id": "unit",                 "value": "ms" },
+              { "id": "color",                "value": { "fixedColor": "orange", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
       "id": 7,
       "type": "timeseries",
       "title": "Token Usage per Turn",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 7 },
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> yield(name: \"input_tokens\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> map(fn: (r) => ({r with _field: \"in:\" + strings.substring(v: r.session_id, start: 0, end: 8)}))\n  |> yield(name: \"input_tokens\")"
         },
         {
           "refId": "B",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"output_tokens\")\n  |> yield(name: \"output_tokens\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"output_tokens\")\n  |> map(fn: (r) => ({r with _field: \"out:\" + strings.substring(v: r.session_id, start: 0, end: 8)}))\n  |> yield(name: \"output_tokens\")"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "lineWidth": 1.5, "fillOpacity": 10, "showPoints": "always", "pointSize": 4, "spanNulls": false },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 5,
+            "spanNulls": false
+          },
           "color": { "mode": "palette-classic" }
         },
         "overrides": []
@@ -229,39 +300,13 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Latency per Turn (ms)",
-      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
-      "targets": [
-        {
-          "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"latency_ms\")\n  |> yield(name: \"latency_ms\")"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "custom": { "lineWidth": 1.5, "fillOpacity": 10, "showPoints": "always", "pointSize": 4, "spanNulls": false },
-          "color": { "mode": "palette-classic" }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "none" }
-      }
-    },
-
-    {
-      "id": 9,
-      "type": "timeseries",
       "title": "Tool Calls per Turn",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 7 },
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 7 },
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"tool_call_count\")\n  |> yield(name: \"tool_call_count\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"tool_call_count\")\n  |> map(fn: (r) => ({r with _field: strings.substring(v: r.session_id, start: 0, end: 8)}))\n  |> yield(name: \"tool_calls\")"
         }
       ],
       "fieldConfig": {
@@ -269,10 +314,10 @@
           "unit": "short",
           "custom": {
             "lineWidth": 0,
-            "fillOpacity": 80,
+            "fillOpacity": 70,
             "showPoints": "never",
             "drawStyle": "bars",
-            "barMaxWidth": 10
+            "barMaxWidth": 8
           },
           "color": { "mode": "palette-classic" }
         },
@@ -280,32 +325,6 @@
       },
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "none" }
-      }
-    },
-
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Token Usage by Model",
-      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 7 },
-      "targets": [
-        {
-          "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> group(columns: [\"model\"])\n  |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)\n  |> yield(name: \"input_tokens_by_model\")"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": { "lineWidth": 1.5, "fillOpacity": 20, "showPoints": "never", "spanNulls": true },
-          "color": { "mode": "palette-classic" }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["sum"] },
         "tooltip": { "mode": "multi", "sort": "none" }
       }
     }

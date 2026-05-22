@@ -10,6 +10,7 @@ InfluxDB schema
   field       : value  (float; booleans arrive as 0/1 from the simulator)
 """
 
+import json
 import logging
 import os
 import signal
@@ -28,7 +29,8 @@ INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
 INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
 INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
-MEASUREMENT     = "wtp_process"
+MEASUREMENT       = "wtp_process"
+FAULT_MEASUREMENT = "wtp_fault_events"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,9 +60,33 @@ def on_connect(client, userdata, flags, rc, properties=None):
         logger.error("MQTT connect failed  rc=%d", rc)
 
 
+def _handle_fault_event(payload_str: str) -> None:
+    try:
+        data   = json.loads(payload_str)
+        target = data.get("target", "")
+        mode   = data.get("mode", "")
+        if not target or not mode:
+            return
+        point = (
+            Point(FAULT_MEASUREMENT)
+            .tag("target", target)
+            .field("mode", mode)
+        )
+        write_api.write(bucket=INFLUXDB_BUCKET, record=point)
+        logger.info("Fault event: %s → %s", target, mode)
+    except (json.JSONDecodeError, KeyError) as exc:
+        logger.warning("Bad fault event payload: %s", exc)
+
+
 def on_message(client, userdata, msg):
     parts = msg.topic.split("/")
-    # Expected: Plant / WTP / <Type> / <Instance> / <Attribute>
+
+    # Fault event: Plant/WTP/Events/FaultInjected
+    if len(parts) == 4 and parts[2] == "Events" and parts[3] == "FaultInjected":
+        _handle_fault_event(msg.payload.decode("utf-8", errors="ignore"))
+        return
+
+    # Process data: Plant / WTP / <Type> / <Instance> / <Attribute>
     if len(parts) != 5:
         return
     _, _, type_, instance, attribute = parts
