@@ -119,7 +119,7 @@ with measurement `ai_metrics` and tags `model`, `session_id`.
 - [x] **Phase 2** — Infrastructure: `docker-compose.yml` (Mosquitto + InfluxDB + Grafana)
 - [x] **Phase 3** — `influxdb-mcp/server.py`
 - [x] **Phase 4** — Chat UI: `backend.py`, loops, `providers.json`, `static/`
-- [ ] **Phase 5** — Wire-up: submodules, `backends.json`, `.env.example`, end-to-end smoke test
+- [x] **Phase 5** — Wire-up: submodules, `backends.json`, `.env.example`, end-to-end smoke test
 
 ## Key Decisions
 
