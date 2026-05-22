@@ -11,6 +11,9 @@ import audit
 import metrics
 from mcp_client import call_mcp_tool, list_mcp_tools
 
+TOOL_RESULT_MAX_CHARS = 8_000
+MAX_HISTORY_MESSAGES  = 20   # ~10 conversation turns
+
 CLAUDE_MODELS = [
     "claude-sonnet-4-6",
     "claude-opus-4-7",
@@ -86,6 +89,10 @@ async def run_chat(
     ]
 
     conv_messages = list(messages)
+    if len(conv_messages) > MAX_HISTORY_MESSAGES:
+        conv_messages = conv_messages[-MAX_HISTORY_MESSAGES:]
+        while conv_messages and conv_messages[0]["role"] != "user":
+            conv_messages = conv_messages[1:]
 
     try:
         while True:
@@ -174,10 +181,14 @@ async def run_chat(
                     audit.log("tool_result", session_id=session_id, tool=block.name, result=result)
                     yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
 
+                    stored = (
+                        result if len(result) <= TOOL_RESULT_MAX_CHARS
+                        else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]"
+                    )
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
-                        "content": result,
+                        "content": stored,
                     })
 
                 conv_messages = conv_messages + [
