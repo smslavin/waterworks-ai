@@ -33,6 +33,7 @@ The simulator runs a configurable fault injection engine. Inject a fault mid-ses
 
 - **Docker Desktop** — runs Mosquitto, InfluxDB, and Grafana
 - **Python 3.11+** — all components are pure Python
+- **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
 
 ---
@@ -40,10 +41,21 @@ The simulator runs a configurable fault injection engine. Inject a fault mid-ses
 ## Quick start
 
 ```bash
-git clone --recurse-submodules <repo-url> waterworks-ai
+git clone --recurse-submodules https://github.com/smslavin/waterworks-ai
 cd waterworks-ai
 cp .env.example .env
 # edit .env: set ANTHROPIC_API_KEY
+```
+
+Each component gets its own virtualenv. Run this once to create and populate all of them:
+
+```bash
+(cd simulator           && uv venv && uv pip install -r requirements.txt)
+(cd mcp-servers/mqtt-mcp  && uv venv && uv pip install -r requirements.txt)
+(cd mcp-servers/opcua-mcp && uv venv && uv pip install -r requirements.txt)
+(cd influxdb-mcp           && uv venv && uv pip install -r requirements.txt)
+(cd mcp-aggregator/server  && uv venv && uv pip install -r requirements.txt)
+(cd chat-ui                && uv venv && uv pip install -r requirements.txt)
 ```
 
 Then open six terminals (or a terminal multiplexer) and run each in order:
@@ -53,28 +65,22 @@ Then open six terminals (or a terminal multiplexer) and run each in order:
 docker compose up -d
 
 # 2 — Simulator  (MQTT + OPC-UA, fault control on :8090)
-cd simulator && pip install -r requirements.txt
-python simulator.py
+cd simulator && .venv/bin/python simulator.py
 
 # 3 — MQTT MCP server
-cd mcp-servers/mqtt-mcp && pip install -r requirements.txt
-FASTMCP_PORT=8001 python server.py
+cd mcp-servers/mqtt-mcp && FASTMCP_PORT=8001 .venv/bin/python server.py
 
 # 4 — OPC-UA MCP server
-cd mcp-servers/opcua-mcp && pip install -r requirements.txt
-FASTMCP_PORT=8002 python server.py
+cd mcp-servers/opcua-mcp && FASTMCP_PORT=8002 .venv/bin/python server.py
 
 # 5 — InfluxDB MCP server
-cd influxdb-mcp && pip install -r requirements.txt
-python server.py
+cd influxdb-mcp && .venv/bin/python server.py
 
 # 6 — MCP Aggregator  (our backends.json, upstream server code)
-cd mcp-aggregator/server && pip install -r requirements.txt
-BACKENDS_FILE=../backends.json python server.py
+cd mcp-aggregator/server && BACKENDS_FILE=../backends.json .venv/bin/python server.py
 
 # 7 — Chat UI
-cd chat-ui && pip install -r requirements.txt
-python backend.py
+cd chat-ui && .venv/bin/python backend.py
 ```
 
 Open **http://localhost:8080** in a browser.
