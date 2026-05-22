@@ -29,30 +29,29 @@ No staged demos. No proprietary licenses. No trust us.
 *Suction starvation injected on RawWater_01. The AI reads live sensor 
 data, queries fault history from InfluxDB, and identifies the condition 
 without being told where to look. Fault history shows the condition 
-occurred twice — the AI notes the root cause may not have been 
+occurred twice. The AI notes the root cause may not have been 
 fully resolved the first time.*
 
 **Plant health overview**
 ![Health overview](docs/images/Screenshot_02.png)
 *Full plant health check across all process units. The AI identifies 
-run-status discrepancies on three pumps from a prior session — 
-pumps reporting stopped while delivering flow, pressure, and power.*
+run-status discrepancies on three pumps from a prior session. Pumps reporting stopped while delivering flow, pressure, and power.*
 
 **Process monitoring dashboard**
 ![Process dashboard](docs/images/Screenshot_03.png)
 *Grafana process dashboard with fault injection annotations. Red dashed 
 lines mark fault events across all panels simultaneously. Inlet flow KPI 
-in red — the flow drop is visible in the pump flow rates trend.*
+in red. The flow drop is visible in the pump flow rates trend.*
 
 **AI session observability**
 ![AI metrics](docs/images/Screenshot_04.png)
 *AI session telemetry alongside fault events. Tool call count and latency 
-spike at fault injection timestamps — the AI working harder during fault 
+spike at fault injection timestamps. The AI working harder during fault 
 conditions is visible in the data. Estimated session cost: $4.58.*
 
 **Interface**
 ![UI overview](docs/images/Screenshot_05.png)
-*Clean interface with fault injection panel, server status indicators, 
+*Clean interface with fault injection panel, server status indicators 
 and fault status panel. Deep Reasoning toggle enables extended thinking 
 for complex diagnostic scenarios.*
 
@@ -78,7 +77,7 @@ MQTT → InfluxDB bridge ─────────────┘  subscribes 
   Chat backend also writes AI_Metrics to InfluxDB per turn
 ```
 
-The simulator runs a configurable fault injection engine. Inject a fault mid-session and ask the AI to diagnose it — it reads live values, correlates anomalies across instruments, and explains what it sees.
+The simulator runs a configurable fault injection engine. Inject a fault mid-session and ask the AI to diagnose it. It reads live values, correlates anomalies across instruments and explains what it sees.
 
 ---
 
@@ -113,7 +112,7 @@ Each component gets its own virtualenv. Run this once to create and populate all
 (cd mqtt-influx-bridge     && uv venv && uv pip install -r requirements.txt)
 ```
 
-Then open six terminals (or a terminal multiplexer) and run each in order:
+Then open eight terminals (or a terminal multiplexer) and run each in order:
 
 ```bash
 # 1 — Infrastructure
@@ -178,12 +177,38 @@ curl -X POST "http://localhost:8090/fault?target=RawWater_01&mode=normal"
 curl http://localhost:8090/status
 ```
 
+Fault modes are equipment-specific. The injection panel only shows modes valid for the selected instance.
+
+**Pump** (RawWater_01, RawWater_02, HighService_01, HighService_02)
+
 | Mode | What it simulates |
 |---|---|
 | `suction_starvation` | Supply cut to a running pump. Flow ramps toward zero over ~50 s; pressure becomes erratic. Running stays True. |
 | `run_status_fault` | Feedback bit stuck True while pump is actually off. Flow and Power read near zero. |
 | `pressure_drift` | Transmitter calibration drift. Reported pressure diverges progressively from true value. |
 | `cavitation` | Intermittent vapor formation. Flow collapses unpredictably; pressure spikes and dips rapidly. |
+
+**Tank** (Clarifier_01, FinishedWater_01)
+
+| Mode | What it simulates |
+|---|---|
+| `level_sensor_fault` | Level transmitter noise. Reported level oscillates ±20% around true value. |
+| `turbidity_spike` | Contamination or filter breakthrough. Turbidity climbs to 10–14 NTU. |
+
+**Dosing** (Chlorine_01, Fluoride_01)
+
+| Mode | What it simulates |
+|---|---|
+| `dosing_blockage` | Discharge line obstruction. FlowRate ramps to zero over ~50 s. Running stays True. |
+| `tank_empty` | Chemical supply exhausted. TankLevel depletes to zero over ~130 s. |
+| `run_status_fault` | Feedback bit stuck True while pump is actually off. FlowRate reads near zero. |
+
+**UV** (UV_01, UV_02)
+
+| Mode | What it simulates |
+|---|---|
+| `lamp_degradation` | Progressive UV lamp aging. Intensity ramps down to ~20% over ~120 s. |
+| `lamp_failure` | Sudden lamp failure. Intensity drops to near zero immediately. |
 
 ---
 
@@ -222,7 +247,7 @@ InfluxDB UI is at **http://localhost:8086**.
 
 ## Configuration
 
-All configuration lives in `.env`. Copy `.env.example` to get started — the defaults work for a local run without changes except for `ANTHROPIC_API_KEY`.
+All configuration lives in `.env`. Copy `.env.example` to get started. The defaults work for a local run without changes except for `ANTHROPIC_API_KEY`.
 
 | Variable | Default | Purpose |
 |---|---|---|
