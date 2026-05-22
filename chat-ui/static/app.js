@@ -3,8 +3,9 @@
 // ── State ──────────────────────────────────────────────────────────────────
 
 const messages = [];
-let streaming       = false;
-let thinkingEnabled = false;
+let streaming        = false;
+let thinkingEnabled  = false;
+let abortController  = null;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -328,6 +329,13 @@ function scrollToBottom() {
 
 // ── Send message ───────────────────────────────────────────────────────────
 
+function _setStreaming(active) {
+  streaming = active;
+  sendBtn.textContent  = active ? "Stop" : "Send";
+  sendBtn.classList.toggle("stop-mode", active);
+  sendBtn.disabled = false;
+}
+
 async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text || streaming) return;
@@ -337,8 +345,8 @@ async function sendMessage() {
   messages.push({role: "user", content: text});
   appendUserMessage(text);
 
-  streaming = true;
-  sendBtn.disabled = true;
+  abortController = new AbortController();
+  _setStreaming(true);
 
   const msg = createAssistantMessage();
   let assistantText = "";
@@ -348,6 +356,7 @@ async function sendMessage() {
       method: "POST",
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({messages, model: modelSelect.value, thinking: thinkingEnabled}),
+      signal: abortController.signal,
     });
 
     if (!response.ok) {
@@ -397,12 +406,12 @@ async function sendMessage() {
       }
     }
   } catch (err) {
-    msg.addError(err.message);
+    if (err.name !== "AbortError") msg.addError(err.message);
   } finally {
     msg.finalize();
     if (assistantText) messages.push({role: "assistant", content: assistantText});
-    streaming = false;
-    sendBtn.disabled = false;
+    abortController = null;
+    _setStreaming(false);
     inputEl.focus();
   }
 }
@@ -416,7 +425,13 @@ inputEl.addEventListener("input", () => {
 inputEl.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
-sendBtn.addEventListener("click", sendMessage);
+sendBtn.addEventListener("click", () => {
+  if (streaming && abortController) {
+    abortController.abort();
+  } else {
+    sendMessage();
+  }
+});
 
 // ── Init ───────────────────────────────────────────────────────────────────
 

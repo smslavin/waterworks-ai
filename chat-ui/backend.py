@@ -123,13 +123,17 @@ async def chat_endpoint(request: Request):
         extra["thinking_enabled"] = True
 
     async def generate():
-        async for chunk in run_fn(
-            messages, model,
-            base_url=provider["base_url"],
-            api_key=api_key,
-            **extra,
-        ):
-            yield {"data": chunk}
+        try:
+            async for chunk in run_fn(
+                messages, model,
+                base_url=provider["base_url"],
+                api_key=api_key,
+                **extra,
+            ):
+                yield {"data": chunk}
+        except Exception as exc:
+            logger.exception("Stream error")
+            yield {"data": json.dumps({"type": "error", "error": str(exc)})}
 
     return EventSourceResponse(generate())
 
