@@ -265,21 +265,23 @@
       "id": 7,
       "type": "timeseries",
       "title": "Token Usage per Turn",
+      "description": "Each point is one AI turn. Label format: in/out:{first 8 chars of session ID} · model name.",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
       "gridPos": { "x": 0, "y": 13, "w": 12, "h": 7 },
       "targets": [
         {
           "refId": "A",
-          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> map(fn: (r) => ({r with _field: \"in:\" + strings.substring(v: r.session_id, start: 0, end: 8)}))\n  |> yield(name: \"input_tokens\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: \"in:\" + strings.substring(v: r.session_id, start: 0, end: 8), model: r.model}))\n  |> group(columns: [\"_field\", \"model\"])\n  |> yield(name: \"input_tokens\")"
         },
         {
           "refId": "B",
-          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"output_tokens\")\n  |> map(fn: (r) => ({r with _field: \"out:\" + strings.substring(v: r.session_id, start: 0, end: 8)}))\n  |> yield(name: \"output_tokens\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"output_tokens\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: \"out:\" + strings.substring(v: r.session_id, start: 0, end: 8), model: r.model}))\n  |> group(columns: [\"_field\", \"model\"])\n  |> yield(name: \"output_tokens\")"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "displayName": "${__field.name} · ${__field.labels.model}",
           "custom": {
             "lineWidth": 0,
             "fillOpacity": 0,
@@ -306,12 +308,13 @@
       "targets": [
         {
           "refId": "A",
-          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"tool_call_count\")\n  |> map(fn: (r) => ({r with _field: strings.substring(v: r.session_id, start: 0, end: 8)}))\n  |> yield(name: \"tool_calls\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"tool_call_count\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: strings.substring(v: r.session_id, start: 0, end: 8), model: r.model}))\n  |> group(columns: [\"_field\", \"model\"])\n  |> yield(name: \"tool_calls\")"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
+          "displayName": "${__field.name} · ${__field.labels.model}",
           "custom": {
             "lineWidth": 0,
             "fillOpacity": 70,
