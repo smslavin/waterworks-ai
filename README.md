@@ -8,6 +8,55 @@ Everything in this stack is open source. No proprietary historians, SCADA platfo
 
 ---
 
+## Why this exists
+
+Most industrial AI demonstrations require proprietary SCADA licenses, historian software, or cloud connectors to reproduce. The interesting work, natural language diagnostics, agentic tool use, observability, gets buried under vendor access requirements.
+
+This stack uses only open source components. MQTT, OPC-UA, InfluxDB, Grafana, Python. Clone it, run it, see exactly how every layer works.
+
+The fault injection engine makes diagnostic quality verifiable rather than claimed. Inject a known fault, ask the AI what's happening, evaluate the reasoning yourself. The AI doesn't know what was injected. It reads live sensor data, cross-references historical trends, and tells you what it found. The Grafana dashboards show the AI working harder during fault conditions (more tool calls, higher latency, more tokens) alongside the process data it was reasoning about.
+
+No staged demos. No proprietary licenses. No trust us.
+
+---
+
+## Screenshots
+
+## Screenshots
+
+**Natural language fault diagnosis**
+![Fault diagnosis](docs/images/screenshot_01.png)
+*Suction starvation injected on RawWater_01. The AI reads live sensor 
+data, queries fault history from InfluxDB, and identifies the condition 
+without being told where to look. Fault history shows the condition 
+occurred twice — the AI notes the root cause may not have been 
+fully resolved the first time.*
+
+**Plant health overview**
+![Health overview](docs/images/screenshot_02.png)
+*Full plant health check across all process units. The AI identifies 
+run-status discrepancies on three pumps from a prior session — 
+pumps reporting stopped while delivering flow, pressure, and power.*
+
+**Process monitoring dashboard**
+![Process dashboard](docs/images/screenshot_03.png)
+*Grafana process dashboard with fault injection annotations. Red dashed 
+lines mark fault events across all panels simultaneously. Inlet flow KPI 
+in red — the flow drop is visible in the pump flow rates trend.*
+
+**AI session observability**
+![AI metrics](docs/images/screenshot_04.png)
+*AI session telemetry alongside fault events. Tool call count and latency 
+spike at fault injection timestamps — the AI working harder during fault 
+conditions is visible in the data. Estimated session cost: $4.58.*
+
+**Interface**
+![UI overview](docs/images/screenshot_05.png)
+*Clean interface with fault injection panel, server status indicators, 
+and fault status panel. Deep Reasoning toggle enables extended thinking 
+for complex diagnostic scenarios.*
+---
+
 ## How it works
 
 ```
@@ -35,6 +84,7 @@ The simulator runs a configurable fault injection engine. Inject a fault mid-ses
 ## Prerequisites
 
 - **Docker Desktop** — runs Mosquitto, InfluxDB, and Grafana
+- **Git with submodule support** — git clone --recurse-submodules is required
 - **Python 3.11+** — all components are pure Python
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
@@ -134,13 +184,36 @@ curl http://localhost:8090/status
 | `pressure_drift` | Transmitter calibration drift. Reported pressure diverges progressively from true value. |
 | `cavitation` | Intermittent vapor formation. Flow collapses unpredictably; pressure spikes and dips rapidly. |
 
-A good demo sequence: start a conversation, inject a fault on RawWater_01, then ask *"Is anything wrong with the raw water intake?"*
+---
+
+## Demo sequence
+
+1. Start all services and open http://localhost:8080
+2. Ask: *"Give me a health overview of the plant"* — establishes baseline
+3. Inject: `RawWater_01 → suction_starvation`
+4. Ask: *"There seems to be an issue. Can you tell what is happening?"*
+5. Watch the AI cross-reference live values, pull historical data 
+   from InfluxDB, and diagnose without being told where the fault is
+6. Click the Dashboards button in the chat UI or open http://localhost:3000 directly, fault annotation visible on both process and AI metrics dashboards
+7. Clear the fault, ask the AI to confirm recovery
 
 ---
 
 ## Dashboards
 
-Grafana is available at **http://localhost:3000** (admin / waterworks by default). The InfluxDB datasource is pre-provisioned. AI_Metrics are written to the `ai_metrics` measurement with `model` and `session_id` tags — fields include `input_tokens`, `output_tokens`, `tool_call_count`, `latency_ms`.
+Grafana is available at **http://localhost:3000** (admin / waterworks by default. Change before any network-accessible deployment). 
+
+Two dashboards are pre-provisioned:
+- **WTP Process Data** — plant health KPIs, flow/pressure/quality trends, 
+  fault and AI query annotations
+- **AI Metrics** — token usage, latency, tool calls, estimated cost per session. 
+  Fault annotations on both dashboards share the same timestamp — 
+  the AI working harder during faults is visible in the data.
+
+The chat UI includes a **Dashboards** button that opens Grafana directly 
+without requiring login. Both are available immediately after `docker compose up`.
+
+The InfluxDB datasource is pre-provisioned. AI_Metrics are written to the `ai_metrics` measurement with `model` and `session_id` tags — fields include `input_tokens`, `output_tokens`, `tool_call_count`, `latency_ms`.
 
 InfluxDB UI is at **http://localhost:8086**.
 
