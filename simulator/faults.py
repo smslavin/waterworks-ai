@@ -6,17 +6,30 @@ tick() advances any internal ramp or drift state once per publish cycle.
 
 Fault modes
 -----------
-normal              Clean random-walk signals; no transformation applied.
-suction_starvation  Pump is running but supply is cut. Flow ramps toward zero
-                    over ~25 ticks, power follows, pressure becomes erratic.
-                    Running stays True.
-run_status_fault    Running feedback bit reads True but the pump is actually
-                    off — Flow and Power read near zero. Simulates a stuck
-                    discrete output or wiring fault.
-pressure_drift      Reported pressure diverges progressively from true value
-                    via a cumulative transmitter offset. All other attrs normal.
-cavitation          Pump running with intermittent vapor formation. Flow
-                    collapses unpredictably; pressure has rapid spikes/dips.
+Pumps
+  normal              Clean random-walk signals.
+  suction_starvation  Flow ramps toward zero over ~25 ticks, power follows,
+                      pressure becomes erratic. Running stays True.
+  run_status_fault    Running feedback reads True but pump is off — Flow and
+                      Power near zero. Simulates a stuck discrete output.
+  pressure_drift      Reported pressure diverges via a cumulative transmitter
+                      offset. All other attrs normal.
+  cavitation          Flow collapses unpredictably; pressure has rapid spikes.
+
+Tanks
+  level_sensor_fault  Level transmitter oscillates with large random noise.
+                      Turbidity and other attrs unaffected.
+  turbidity_spike     Sudden high-turbidity event (contamination / disturbance).
+
+Dosing
+  dosing_blockage     FlowRate ramps toward zero over ~25 ticks; pump Running
+                      stays True. TankLevel normal (not consuming chemical).
+  tank_empty          TankLevel depletes over time; FlowRate drops as level falls.
+  run_status_fault    Shared with Pump — same behaviour (Running True, no flow).
+
+UV
+  lamp_degradation    Intensity gradually decreases over time (~50 ticks to ~20%).
+  lamp_failure        Intensity drops to near-zero immediately; Running stays True.
 """
 
 import random
@@ -25,17 +38,37 @@ from enum import Enum
 
 class FaultMode(str, Enum):
     NORMAL              = "normal"
+    # Pump
     SUCTION_STARVATION  = "suction_starvation"
     RUN_STATUS_FAULT    = "run_status_fault"
     PRESSURE_DRIFT      = "pressure_drift"
     CAVITATION          = "cavitation"
+    # Tank
+    LEVEL_SENSOR_FAULT  = "level_sensor_fault"
+    TURBIDITY_SPIKE     = "turbidity_spike"
+    # Dosing
+    DOSING_BLOCKAGE     = "dosing_blockage"
+    TANK_EMPTY          = "tank_empty"
+    # UV
+    LAMP_DEGRADATION    = "lamp_degradation"
+    LAMP_FAILURE        = "lamp_failure"
+
+
+TYPE_FAULT_MODES: dict[str, list[FaultMode]] = {
+    "Pump":   [FaultMode.NORMAL, FaultMode.SUCTION_STARVATION, FaultMode.RUN_STATUS_FAULT,
+               FaultMode.PRESSURE_DRIFT, FaultMode.CAVITATION],
+    "Tank":   [FaultMode.NORMAL, FaultMode.LEVEL_SENSOR_FAULT, FaultMode.TURBIDITY_SPIKE],
+    "Dosing": [FaultMode.NORMAL, FaultMode.DOSING_BLOCKAGE, FaultMode.RUN_STATUS_FAULT,
+               FaultMode.TANK_EMPTY],
+    "UV":     [FaultMode.NORMAL, FaultMode.LAMP_DEGRADATION, FaultMode.LAMP_FAILURE],
+}
 
 
 class FaultState:
     def __init__(self) -> None:
         self.mode: FaultMode = FaultMode.NORMAL
-        self._intensity: float = 0.0    # 0→1 ramp used by suction_starvation
-        self._drift_offset: float = 0.0  # cumulative offset used by pressure_drift
+        self._intensity: float = 0.0
+        self._drift_offset: float = 0.0
 
     def set_mode(self, mode: FaultMode) -> None:
         if mode != self.mode:
@@ -45,11 +78,17 @@ class FaultState:
 
     def tick(self) -> None:
         """Advance internal state once per publish cycle, before apply() calls."""
-        if self.mode == FaultMode.SUCTION_STARVATION:
-            # ~25 ticks to reach full severity
-            self._intensity = min(1.0, self._intensity + 0.04)
-        elif self.mode == FaultMode.PRESSURE_DRIFT:
-            self._drift_offset += random.uniform(0.05, 0.15)
+        match self.mode:
+            case FaultMode.SUCTION_STARVATION:
+                self._intensity = min(1.0, self._intensity + 0.04)   # ~25 ticks to full
+            case FaultMode.PRESSURE_DRIFT:
+                self._drift_offset += random.uniform(0.05, 0.15)
+            case FaultMode.DOSING_BLOCKAGE:
+                self._intensity = min(1.0, self._intensity + 0.04)   # ~25 ticks to full
+            case FaultMode.TANK_EMPTY:
+                self._intensity = min(1.0, self._intensity + 0.015)  # ~65 ticks to empty
+            case FaultMode.LAMP_DEGRADATION:
+                self._intensity = min(1.0, self._intensity + 0.016)  # ~60 ticks to ~20%
 
     def apply(self, attr: str, raw: float | bool) -> float | bool:
         match self.mode:
@@ -63,9 +102,21 @@ class FaultState:
                 return self._pressure_drift(attr, raw)
             case FaultMode.CAVITATION:
                 return self._cavitation(attr, raw)
-        return raw  # unreachable, satisfies type checkers
+            case FaultMode.LEVEL_SENSOR_FAULT:
+                return self._level_sensor(attr, raw)
+            case FaultMode.TURBIDITY_SPIKE:
+                return self._turbidity_spike(attr, raw)
+            case FaultMode.DOSING_BLOCKAGE:
+                return self._dosing_blockage(attr, raw)
+            case FaultMode.TANK_EMPTY:
+                return self._tank_empty(attr, raw)
+            case FaultMode.LAMP_DEGRADATION:
+                return self._lamp_degradation(attr, raw)
+            case FaultMode.LAMP_FAILURE:
+                return self._lamp_failure(attr, raw)
+        return raw
 
-    # ── Fault transformations ─────────────────────────────────────────────────
+    # ── Pump faults ───────────────────────────────────────────────────────────
 
     def _starvation(self, attr: str, raw: float | bool) -> float | bool:
         i = self._intensity
@@ -77,15 +128,13 @@ class FaultState:
         if attr == "Power":
             return round(max(0.0, float(raw) * (1.0 - i * 0.85)), 2)
         if attr == "Pressure":
-            # Erratic spikes as pump cavitates with no supply
             return round(float(raw) + random.uniform(-3.0, 3.0) * i, 2)
         return raw
 
     def _run_status(self, attr: str, raw: float | bool) -> float | bool:
         if attr == "Running":
             return True
-        if attr in ("Flow", "Power"):
-            # Pump is off — only electrical noise remains
+        if attr in ("Flow", "Power", "FlowRate"):
             return round(random.uniform(0.0, 1.0), 2)
         if attr == "Pressure":
             return round(random.uniform(0.0, 0.5), 2)
@@ -101,7 +150,6 @@ class FaultState:
         if attr == "Running":
             return True
         if attr == "Flow":
-            # 15% chance of a collapse event each tick
             if random.random() < 0.15:
                 return round(float(raw) * random.uniform(0.0, 0.2), 2)
             return round(float(raw) * random.uniform(0.6, 1.4), 2)
@@ -109,4 +157,48 @@ class FaultState:
             return round(float(raw) * random.uniform(0.7, 1.3), 2)
         if attr == "Power":
             return round(float(raw) * random.uniform(1.0, 1.15), 2)
+        return raw
+
+    # ── Tank faults ───────────────────────────────────────────────────────────
+
+    def _level_sensor(self, attr: str, raw: float | bool) -> float | bool:
+        if attr == "Level":
+            noise = random.uniform(-20.0, 20.0)
+            return round(max(0.0, min(100.0, float(raw) + noise)), 1)
+        return raw
+
+    def _turbidity_spike(self, attr: str, raw: float | bool) -> float | bool:
+        if attr == "Turbidity":
+            return round(10.0 + random.uniform(-1.5, 4.0), 2)
+        return raw
+
+    # ── Dosing faults ─────────────────────────────────────────────────────────
+
+    def _dosing_blockage(self, attr: str, raw: float | bool) -> float | bool:
+        if attr == "FlowRate":
+            return round(max(0.0, float(raw) * (1.0 - self._intensity)), 2)
+        if attr == "Running":
+            return True
+        return raw
+
+    def _tank_empty(self, attr: str, raw: float | bool) -> float | bool:
+        if attr == "TankLevel":
+            return round(max(0.0, float(raw) * (1.0 - self._intensity * 1.1)), 1)
+        if attr == "FlowRate":
+            return round(max(0.0, float(raw) * (1.0 - self._intensity)), 2)
+        return raw
+
+    # ── UV faults ─────────────────────────────────────────────────────────────
+
+    def _lamp_degradation(self, attr: str, raw: float | bool) -> float | bool:
+        if attr == "Intensity":
+            degraded = max(0.0, float(raw) * (1.0 - self._intensity * 0.8))
+            return round(degraded + random.uniform(-0.5, 0.3), 1)
+        return raw
+
+    def _lamp_failure(self, attr: str, raw: float | bool) -> float | bool:
+        if attr == "Intensity":
+            return round(random.uniform(0.0, 2.5), 1)
+        if attr == "Running":
+            return True
         return raw

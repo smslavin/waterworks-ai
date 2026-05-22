@@ -6,6 +6,7 @@ const messages = [];
 let streaming        = false;
 let thinkingEnabled  = false;
 let abortController  = null;
+let faultModeMap     = {}; // { instance_id: [mode, ...] }
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -130,6 +131,44 @@ async function checkHealth() {
       if (el) el.className = "dot error";
     });
   }
+}
+
+// ── Fault mode loader ──────────────────────────────────────────────────────
+
+function _faultLabel(mode) {
+  return mode.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+async function loadFaultModes() {
+  try {
+    const data = await fetch("/api/fault/modes").then(r => r.json());
+    if (data.error) return;
+    faultModeMap = data;
+
+    const prev = faultTarget.value;
+    faultTarget.innerHTML = "";
+    Object.keys(faultModeMap).forEach(id => {
+      const o = document.createElement("option");
+      o.value = o.textContent = id;
+      faultTarget.appendChild(o);
+    });
+    if (prev && faultModeMap[prev]) faultTarget.value = prev;
+
+    updateFaultModes();
+  } catch { /* simulator offline — leave dropdowns empty */ }
+}
+
+function updateFaultModes() {
+  const modes = (faultModeMap[faultTarget.value] || []).filter(m => m !== "normal");
+  const prev  = faultMode.value;
+  faultMode.innerHTML = "";
+  modes.forEach(m => {
+    const o = document.createElement("option");
+    o.value       = m;
+    o.textContent = _faultLabel(m);
+    faultMode.appendChild(o);
+  });
+  if (prev && modes.includes(prev)) faultMode.value = prev;
 }
 
 // ── Fault status sidebar ───────────────────────────────────────────────────
@@ -435,7 +474,10 @@ sendBtn.addEventListener("click", () => {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
+faultTarget.addEventListener("change", updateFaultModes);
+
 loadModels();
+loadFaultModes();
 checkHealth();
 refreshFaultStatus();
 setInterval(checkHealth,        15_000);

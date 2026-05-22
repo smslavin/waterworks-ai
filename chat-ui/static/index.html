@@ -333,22 +333,8 @@ main { display: flex; flex: 1; min-height: 0; }
       </div>
       <div id="fault-row">
         <label>Fault:</label>
-        <select id="fault-target">
-          <option value="RawWater_01">RawWater_01</option>
-          <option value="RawWater_02">RawWater_02</option>
-          <option value="HighService_01">HighService_01</option>
-          <option value="HighService_02">HighService_02</option>
-          <option value="Clarifier_01">Clarifier_01</option>
-          <option value="FinishedWater_01">FinishedWater_01</option>
-          <option value="UV_01">UV_01</option>
-          <option value="UV_02">UV_02</option>
-        </select>
-        <select id="fault-mode">
-          <option value="suction_starvation">Suction Starvation</option>
-          <option value="run_status_fault">Run Status Fault</option>
-          <option value="pressure_drift">Pressure Drift</option>
-          <option value="cavitation">Cavitation</option>
-        </select>
+        <select id="fault-target"></select>
+        <select id="fault-mode"></select>
         <button class="fault-btn" onclick="injectFault()">Inject</button>
         <button class="fault-btn danger" onclick="clearFault()">Clear</button>
       </div>

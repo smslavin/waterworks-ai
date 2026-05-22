@@ -166,6 +166,16 @@ async def fault_status_endpoint(request: Request):
         return JSONResponse({"error": str(exc)}, status_code=503)
 
 
+async def fault_modes_endpoint(request: Request):
+    import httpx
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(f"{SIMULATOR_CONTROL}/fault-modes", timeout=5.0)
+            return JSONResponse(resp.json())
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=503)
+
+
 async def audit_endpoint(request: Request):
     return JSONResponse(audit.read_log())
 
@@ -504,6 +514,7 @@ routes = [
     Route("/api/chat",            chat_endpoint,         methods=["POST"]),
     Route("/api/fault",           fault_endpoint,        methods=["POST"]),
     Route("/api/fault/status",    fault_status_endpoint),
+    Route("/api/fault/modes",     fault_modes_endpoint),
     Route("/api/audit",           audit_endpoint),
     Route("/api/audit/clear",     audit_clear_endpoint,  methods=["POST"]),
     Route("/api/audit/download",  audit_download_endpoint),

@@ -27,7 +27,7 @@ from aiohttp import web
 from asyncua import Server, ua
 from dotenv import load_dotenv
 
-from faults import FaultMode, FaultState
+from faults import FaultMode, FaultState, TYPE_FAULT_MODES
 from generators import OscillatingBool
 from instances import INSTANCES
 
@@ -54,6 +54,11 @@ logger = logging.getLogger("waterworks-simulator")
 fault_registry: dict[str, FaultState] = {
     instance_id: FaultState()
     for _, instance_id, _ in INSTANCES
+}
+
+instance_types: dict[str, str] = {
+    instance_id: obj_type
+    for obj_type, instance_id, _ in INSTANCES
 }
 
 
@@ -158,6 +163,18 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
                 content_type="application/json",
             )
 
+        eq_type = instance_types.get(target, "")
+        valid_for_type = TYPE_FAULT_MODES.get(eq_type, [FaultMode.NORMAL])
+        if mode != FaultMode.NORMAL and mode not in valid_for_type:
+            return web.Response(
+                status=400,
+                text=json.dumps({
+                    "error": f"Fault mode '{mode_str}' is not valid for {eq_type} '{target}'",
+                    "valid": [m.value for m in valid_for_type],
+                }),
+                content_type="application/json",
+            )
+
         fault_registry[target].set_mode(mode)
         mqtt_client.publish(
             "Plant/WTP/Events/FaultInjected",
@@ -176,9 +193,20 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
             content_type="application/json",
         )
 
+    async def handle_fault_modes(request: web.Request) -> web.Response:
+        payload = {
+            instance_id: [m.value for m in TYPE_FAULT_MODES.get(itype, [FaultMode.NORMAL])]
+            for instance_id, itype in instance_types.items()
+        }
+        return web.Response(
+            text=json.dumps(payload),
+            content_type="application/json",
+        )
+
     app = web.Application()
-    app.router.add_post("/fault", handle_fault)
-    app.router.add_get("/status", handle_status)
+    app.router.add_post("/fault",       handle_fault)
+    app.router.add_get("/status",       handle_status)
+    app.router.add_get("/fault-modes",  handle_fault_modes)
 
     runner = web.AppRunner(app)
     await runner.setup()
