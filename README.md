@@ -3,7 +3,7 @@
 # waterworks-ai
 
 <h1>
-  <img src="chat-ui/statis/icon-light.png" width="80" style="vertical-align: middle;"> 
+  <img src="chat-ui/static/icon-light.png" alt="WaterWorks AI" width="80" style="vertical-align: middle;"> 
   WaterWorks AI
 </h1>
 
