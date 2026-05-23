@@ -1,15 +1,18 @@
-<img src="chat-ui/static/icon-light.png" alt="Waterworks AI" width="80">
 
-# waterworks-ai
+# WaterWorks AI
 
-<h1>
-  <img src="chat-ui/static/icon-light.png" alt="WaterWorks AI" width="80" style="vertical-align: middle;"> 
-  WaterWorks AI
-</h1>
+![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)
+![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white)
+![InfluxDB](https://img.shields.io/badge/InfluxDB-2.x-22ADF6?logo=influxdb&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-brightgreen)
 
+
+<img src="chat-ui/static/icon-light.png" alt="WaterWorks AI" width="95" align="left" hspace="10">
 Open source demonstration of natural language industrial process diagnostics. A simulated water treatment plant publishes live sensor data over MQTT and OPC-UA. An AI assistant reads that data through MCP tool calls and diagnoses process conditions in plain English.
 
 Everything in this stack is open source. No proprietary historians, SCADA platforms or cloud connectors required.
+
+<br clear="left">
 
 ---
 
