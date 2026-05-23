@@ -1,18 +1,72 @@
 """Claude API chat loop with MCP tool calling. Yields SSE-ready JSON strings."""
 
+import asyncio
 import json
+import logging
+import os
 import time
 import uuid
 from typing import AsyncIterator
 
 import anthropic
+from influxdb_client import InfluxDBClient
 
 import audit
 import metrics
 from mcp_client import call_mcp_tool, list_mcp_tools
 
+logger = logging.getLogger(__name__)
+
 TOOL_RESULT_MAX_CHARS = 8_000
 MAX_HISTORY_MESSAGES  = 20   # ~10 conversation turns
+
+CONTEXT_WINDOW_TOKENS = int(os.environ.get("CONTEXT_WINDOW_TOKENS", "200000"))
+_CONTEXT_WARN_PCT     = 0.70
+_CONTEXT_COMPACT_PCT  = 0.85
+
+_INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
+_INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
+_INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
+_INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
+
+
+def _query_fault_history() -> str:
+    """Synchronous InfluxDB query — run via asyncio.to_thread."""
+    client = InfluxDBClient(url=_INFLUXDB_URL, token=_INFLUXDB_TOKEN, org=_INFLUXDB_ORG)
+    try:
+        flux = f"""
+from(bucket: "{_INFLUXDB_BUCKET}")
+  |> range(start: -30d)
+  |> filter(fn: (r) => r._measurement == "wtp_fault_events" and r._field == "mode")
+  |> sort(columns: ["_time"], desc: true)
+  |> limit(n: 10)
+"""
+        tables = client.query_api().query(flux)
+        events = []
+        for table in tables:
+            for record in table.records:
+                ts     = record.get_time().strftime("%Y-%m-%d %H:%M UTC")
+                target = record.values.get("target", "?")
+                mode   = record.get_value()
+                events.append(f"  {ts}  {target} → {mode}")
+        if not events:
+            return ""
+        lines = "\n".join(events)
+        return (
+            "\n\n── Recent fault history (last 10 events) "
+            "─────────────────────────────────────\n"
+            + lines
+        )
+    finally:
+        client.close()
+
+
+async def _fetch_fault_history() -> str:
+    try:
+        return await asyncio.to_thread(_query_fault_history)
+    except Exception as exc:
+        logger.warning("Could not fetch fault history from InfluxDB: %s", exc)
+        return ""
 
 CLAUDE_MODELS = [
     "claude-sonnet-4-6",
@@ -52,6 +106,13 @@ InfluxDB        : call list_measurements to discover available data
 3. Look for correlated anomalies (e.g. Flow≈0 + Power≈0 + Running=True → run-status fault)
 4. Query InfluxDB for historical context when current readings alone are ambiguous
 
+── Tool selection ─────────────────────────────────────────────────────────────
+For broad queries (health overview, all pumps, full plant): use get_full_topic_tree()
+— it returns every live value in one call. Do NOT call read_topic_value repeatedly
+for a plant-wide snapshot; that is wasteful and slow.
+
+For targeted queries (one unit, one attribute): use read_topic_value(topic_path).
+
 Always cite specific values and timestamps (e.g. "Flow is 12.4 L/min at 14:32:05").
 Do not assert a value without first reading it from a tool."""
 
@@ -69,6 +130,9 @@ async def run_chat(
     start_ts = time.monotonic()
     input_tokens = output_tokens = 0
     tool_call_count = error_count = 0
+    last_input_tokens  = 0
+    _warn_triggered    = False
+    _compact_triggered = False
     user_message = next(
         (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
     )
@@ -94,16 +158,23 @@ async def run_chat(
         while conv_messages and conv_messages[0]["role"] != "user":
             conv_messages = conv_messages[1:]
 
+    fault_history = await _fetch_fault_history() if len(conv_messages) == 1 else ""
+    cached_system = [
+        {"type": "text", "text": SYSTEM_PROMPT + fault_history, "cache_control": {"type": "ephemeral"}}
+    ]
+
     try:
         while True:
             stream_kwargs: dict = dict(
                 model=effective_model,
                 max_tokens=8192,
-                system=SYSTEM_PROMPT,
+                system=cached_system,
                 messages=conv_messages,
             )
             if tools:
-                stream_kwargs["tools"] = tools
+                cached_tools = list(tools)
+                cached_tools[-1] = {**cached_tools[-1], "cache_control": {"type": "ephemeral"}}
+                stream_kwargs["tools"] = cached_tools
             if thinking_enabled:
                 stream_kwargs["thinking"]      = {"type": "adaptive"}
                 stream_kwargs["output_config"] = {"effort": "high"}
@@ -141,7 +212,8 @@ async def run_chat(
                             yield json.dumps({"type": "thinking_stop"})
                             break
 
-            input_tokens  += final.usage.input_tokens
+            last_input_tokens  = final.usage.input_tokens
+            input_tokens  += last_input_tokens
             output_tokens += final.usage.output_tokens
 
             if final.stop_reason == "end_turn":
@@ -191,9 +263,27 @@ async def run_chat(
                         "content": stored,
                     })
 
+                context_pct    = last_input_tokens / CONTEXT_WINDOW_TOKENS
+                context_prefix: list[dict] = []
+                if context_pct >= _CONTEXT_COMPACT_PCT and not _compact_triggered:
+                    _compact_triggered = True
+                    yield json.dumps({"type": "context_warning", "pct": round(context_pct, 2), "level": "compact"})
+                    context_prefix = [{"type": "text", "text": (
+                        f"[System: context window at {context_pct:.0%} of limit. "
+                        "Summarize key findings from this session and stop making tool calls "
+                        "unless the user explicitly requests another query.]"
+                    )}]
+                elif context_pct >= _CONTEXT_WARN_PCT and not _warn_triggered:
+                    _warn_triggered = True
+                    yield json.dumps({"type": "context_warning", "pct": round(context_pct, 2), "level": "warn"})
+                    context_prefix = [{"type": "text", "text": (
+                        f"[System: context window at {context_pct:.0%} of limit. "
+                        "Be concise in remaining responses and avoid unnecessary tool calls.]"
+                    )}]
+
                 conv_messages = conv_messages + [
                     {"role": "assistant", "content": assistant_content},
-                    {"role": "user",      "content": tool_results},
+                    {"role": "user",      "content": context_prefix + tool_results},
                 ]
                 continue
 
@@ -206,7 +296,8 @@ async def run_chat(
         yield json.dumps({"type": "error", "error": str(exc)})
 
     finally:
-        latency_ms = int((time.monotonic() - start_ts) * 1000)
+        latency_ms       = int((time.monotonic() - start_ts) * 1000)
+        context_pressure = round(last_input_tokens / CONTEXT_WINDOW_TOKENS, 4) if last_input_tokens else None
         metrics.log_turn(
             session_id=session_id,
             model=model,
@@ -215,6 +306,12 @@ async def run_chat(
             tool_call_count=tool_call_count,
             error_count=error_count,
             latency_ms=latency_ms,
+            context_pressure=context_pressure,
             user_message=user_message,
         )
-        yield json.dumps({"type": "done"})
+        yield json.dumps({
+            "type":             "done",
+            "input_tokens":     input_tokens,
+            "output_tokens":    output_tokens,
+            "context_pressure": context_pressure,
+        })

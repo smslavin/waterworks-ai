@@ -53,6 +53,10 @@ conditions is visible in the data. Estimated session cost: $4.58.*
 and fault status panel. Deep Reasoning toggle enables extended thinking 
 for complex diagnostic scenarios.*
 
+**Context management**
+![Tool call dashboard](docs/images/Screenshot_06.png)
+*Four consecutive health overview sessions. Tool calls per turn: 10, 15, 34, 1. The final session reflects context management in place. Plant topology injected at session start, tool selection guidance in the system prompt. Latency dropped from 58.8s to 21.8s. Response quality unchanged.*
+
 ---
 
 ## How it works
@@ -237,9 +241,32 @@ Two dashboards are pre-provisioned:
 The chat UI includes a **Dashboards** button that opens Grafana directly 
 without requiring login. Both are available immediately after `docker compose up`.
 
-The InfluxDB datasource is pre-provisioned. AI_Metrics are written to the `ai_metrics` measurement with `model` and `session_id` tags — fields include `input_tokens`, `output_tokens`, `tool_call_count`, `latency_ms`.
+The InfluxDB datasource is pre-provisioned. AI_Metrics are written to the `ai_metrics` measurement with `model` and `session_id` tags — fields include `input_tokens`, `output_tokens`, `tool_call_count`, `latency_ms`, `context_pressure`, `error_count`, `latency_ms`.
 
 InfluxDB UI is at **http://localhost:8086**.
+
+---
+
+## Context management
+
+The chat backend actively manages the Claude API context window across a session. Several mechanisms work together:
+
+**Prompt caching**  
+The system prompt and tool definitions are marked with `cache_control: ephemeral`. After the first API call in a session, both are served from Anthropic's prompt cache rather than re-tokenized. On multi-turn sessions with many tool calls this reduces input token cost by 80–90% and cuts time-to-first-token noticeably.
+
+**Token budget warnings**  
+The backend tracks `input_tokens` returned by each API call. When context usage crosses 70% of the context window, a `[System: ...]` instruction is prepended to the next tool result message asking the model to be concise and avoid unnecessary tool calls. At 85% it instructs the model to summarize findings and stop calling tools. The thresholds are one-shot per session — the warning fires once at each level and is not repeated.
+
+Both thresholds use the same `CONTEXT_WINDOW_TOKENS` value as the denominator. Override it via env var if you want earlier warnings in a constrained environment.
+
+**Fault history injection**  
+On the first turn of a new session, the backend queries InfluxDB for the 10 most recent `wtp_fault_events` and appends them to the system prompt. This gives the AI awareness of prior fault patterns without telling it the current fault state — the AI still has to discover what is wrong by reading live sensor data. The injection happens only on session start so it doesn't repeat or accumulate.
+
+**Context pressure metric**  
+`context_pressure` (a 0–1 ratio of `input_tokens / CONTEXT_WINDOW_TOKENS`) is written to InfluxDB and SQLite per turn alongside the other AI_Metrics. The sidebar in the chat UI shows a colour-coded bar: green below 70%, amber at 70–85%, red above 85%.
+
+**Tool selection guidance**  
+The system prompt instructs the model to use `get_full_topic_tree()` for broad queries like plant health overviews, and `read_topic_value()` only for targeted single-attribute reads. Without this guidance the model calls `read_topic_value` once per attribute — 34 sequential calls for a full plant snapshot. With it, a health overview typically completes in 1–3 tool calls.
 
 ---
 
@@ -257,6 +284,7 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `PUBLISH_INTERVAL` | `2.0` | Simulator tick rate in seconds |
 | `OPCUA_PORT` | `4840` | OPC-UA server port |
 | `CONTROL_PORT` | `8090` | Simulator fault control HTTP port |
+| `CONTEXT_WINDOW_TOKENS` | `200000` | Context window size for budget warnings — override for smaller demo environments |
 
 > **Note:** `INFLUXDB_TOKEN` and the other `DOCKER_INFLUXDB_INIT_*` values are only used on a fresh volume. After the first `docker compose up` they are baked in. Reset with `docker compose down -v`.
 

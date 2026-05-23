@@ -53,9 +53,14 @@ def _init_db() -> None:
                 tool_call_count  INTEGER NOT NULL DEFAULT 0,
                 error_count      INTEGER NOT NULL DEFAULT 0,
                 latency_ms       INTEGER,
+                context_pressure REAL,
                 user_message     TEXT
             )
         """)
+        try:
+            c.execute("ALTER TABLE turns ADD COLUMN context_pressure REAL")
+        except Exception:
+            pass  # column already exists on existing databases
         c.commit()
 
 
@@ -68,6 +73,7 @@ def log_turn(
     tool_call_count: int,
     error_count: int,
     latency_ms: int,
+    context_pressure: float | None,
     user_message: str,
 ) -> None:
     # Write to InfluxDB — best-effort, for Grafana dashboards
@@ -81,6 +87,7 @@ def log_turn(
             .field("tool_call_count", int(tool_call_count))
             .field("error_count",     int(error_count))
             .field("latency_ms",      int(latency_ms))
+            .field("context_pressure", float(context_pressure or 0.0))
             .field("user_message",    (user_message or "")[:200])
         )
         _get_influx_client().write_api(write_options=SYNCHRONOUS).write(
@@ -95,13 +102,14 @@ def log_turn(
             c.execute(
                 """INSERT INTO turns
                    (ts, session_id, model, input_tokens, output_tokens,
-                    tool_call_count, error_count, latency_ms, user_message)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    tool_call_count, error_count, latency_ms, context_pressure, user_message)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     session_id, model,
                     input_tokens, output_tokens,
                     tool_call_count, error_count, latency_ms,
+                    context_pressure,
                     (user_message or "")[:200],
                 ),
             )

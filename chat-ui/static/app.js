@@ -366,6 +366,22 @@ function scrollToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+// ── Context pressure indicator ─────────────────────────────────────────────
+
+function updateContextIndicator(data) {
+  const pct     = (data.context_pressure || 0) * 100;
+  const section = document.getElementById("context-section");
+  const bar     = document.getElementById("context-bar");
+  const label   = document.getElementById("context-label");
+  if (!section || !bar || !label) return;
+  bar.style.width      = Math.min(pct, 100) + "%";
+  bar.style.background = pct >= 85 ? "var(--color-error)"
+                       : pct >= 70 ? "var(--color-warn)"
+                       :             "var(--color-ok)";
+  const inTok = (data.input_tokens || 0).toLocaleString();
+  label.textContent = `${pct.toFixed(1)}%  (${inTok} tok)`;
+}
+
 // ── Send message ───────────────────────────────────────────────────────────
 
 function _setStreaming(active) {
@@ -440,6 +456,7 @@ async function sendMessage() {
             msg.addError(chunk.error);
             break;
           case "done":
+            if (chunk.input_tokens !== undefined) updateContextIndicator(chunk);
             break;
         }
       }
