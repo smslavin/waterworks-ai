@@ -152,6 +152,8 @@ cd chat-ui && .venv/bin/python backend.py
 
 Open **http://localhost:8080** in a browser.
 
+Open **dashboard.html** in a browser for an architecture overview and quick-start prompts.
+
 ---
 
 ## Process units

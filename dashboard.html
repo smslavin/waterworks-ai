@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>waterworks-ai — Dashboard</title>
+<style>
+:root {
+  --color-background-primary:   #f5f5f5;
+  --color-background-secondary: #ffffff;
+  --color-text-primary:         #1a1a1a;
+  --color-text-secondary:       #666666;
+  --color-border-tertiary:      #e0e0e0;
+  --color-accent:               #2563eb;
+  --color-accent-hover:         #1d4ed8;
+  --color-card-hover:           #f0f4ff;
+  --color-tag-runtime:          #dcfce7;
+  --color-tag-runtime-text:     #166534;
+  --color-tag-mcp:              #dbeafe;
+  --color-tag-mcp-text:         #1e40af;
+  --color-tag-ui:               #f3e8ff;
+  --color-tag-ui-text:          #6b21a8;
+  --color-tag-util:             #fef9c3;
+  --color-tag-util-text:        #854d0e;
+  --color-tag-script:           #ffe4e6;
+  --color-tag-script-text:      #9f1239;
+  --color-tag-test:             #f0fdf4;
+  --color-tag-test-text:        #15803d;
+  --color-chevron:              #999999;
+  --shadow:                     0 1px 3px rgba(0,0,0,0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background-primary:   #141414;
+    --color-background-secondary: #1e1e1e;
+    --color-text-primary:         #e8e8e8;
+    --color-text-secondary:       #888888;
+    --color-border-tertiary:      #2e2e2e;
+    --color-accent:               #3b82f6;
+    --color-accent-hover:         #60a5fa;
+    --color-card-hover:           #1e2a3a;
+    --color-tag-runtime:          #14532d;
+    --color-tag-runtime-text:     #86efac;
+    --color-tag-mcp:              #1e3a5f;
+    --color-tag-mcp-text:         #93c5fd;
+    --color-tag-ui:               #3b0764;
+    --color-tag-ui-text:          #d8b4fe;
+    --color-tag-util:             #422006;
+    --color-tag-util-text:        #fde68a;
+    --color-tag-script:           #4c0519;
+    --color-tag-script-text:      #fda4af;
+    --color-tag-test:             #052e16;
+    --color-tag-test-text:        #86efac;
+    --color-chevron:              #555555;
+    --shadow:                     0 1px 3px rgba(0,0,0,0.3);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--color-background-primary);
+  color: var(--color-text-primary);
+  padding: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+.subtitle { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 28px; }
+
+/* ── Layer cards ─────────────────────────────────────────────────────────── */
+.layer-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.layer-card {
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 10px;
+  padding: 12px 16px;
+  flex: 1 1 180px;
+  min-width: 160px;
+  box-shadow: var(--shadow);
+  transition: background 0.15s;
+}
+.layer-card:hover { background: var(--color-card-hover); }
+.layer-card .layer-name {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent);
+  margin-bottom: 4px;
+}
+.layer-card .layer-desc {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+.layer-card .layer-port {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  margin-top: 6px;
+}
+
+/* ── Section headers ─────────────────────────────────────────────────────── */
+h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ── File index ──────────────────────────────────────────────────────────── */
+.dir-block {
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.dir-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  border-left: 3px solid var(--color-accent);
+}
+.dir-header:hover { background: var(--color-card-hover); }
+
+.chevron {
+  font-size: 9px;
+  color: var(--color-chevron);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.chevron.open { transform: rotate(90deg); }
+
+.dir-name {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.dir-purpose {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  flex: 1;
+}
+.dir-count {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.dir-body {
+  display: none;
+  border-top: 1px solid var(--color-border-tertiary);
+}
+.dir-body.open { display: block; }
+
+.file-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 14px 7px 28px;
+  border-bottom: 1px solid var(--color-border-tertiary);
+}
+.file-row:last-child { border-bottom: none; }
+.file-row:hover { background: var(--color-card-hover); }
+
+.file-name {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  min-width: 220px;
+}
+.file-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  flex: 1;
+}
+
+/* ── Role tags ───────────────────────────────────────────────────────────── */
+.tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.tag-runtime { background: var(--color-tag-runtime); color: var(--color-tag-runtime-text); }
+.tag-mcp     { background: var(--color-tag-mcp);     color: var(--color-tag-mcp-text);     }
+.tag-ui      { background: var(--color-tag-ui);      color: var(--color-tag-ui-text);      }
+.tag-util    { background: var(--color-tag-util);    color: var(--color-tag-util-text);    }
+.tag-script  { background: var(--color-tag-script);  color: var(--color-tag-script-text);  }
+.tag-test    { background: var(--color-tag-test);    color: var(--color-tag-test-text);    }
+
+/* ── Quick actions ───────────────────────────────────────────────────────── */
+.actions-section { margin-top: 32px; }
+.actions-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.action-btn {
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  box-shadow: var(--shadow);
+  transition: background 0.15s, border-color 0.15s;
+}
+.action-btn:hover {
+  background: var(--color-card-hover);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.action-btn .action-label {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+.action-btn .action-prompt {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+/* ── Toast ───────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--color-text-primary);
+  color: var(--color-background-primary);
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+  z-index: 100;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<h1>waterworks-ai</h1>
+<p class="subtitle">Open source natural language industrial process diagnostics — project dashboard</p>
+
+<!-- ── Layer summary ──────────────────────────────────────────────────────── -->
+<h2>Layers</h2>
+<div class="layer-row">
+  <div class="layer-card">
+    <div class="layer-name">simulator/</div>
+    <div class="layer-desc">Dual MQTT + OPC-UA WTP simulator with per-instance fault injection engine</div>
+    <div class="layer-port">HTTP control :8090 · OPC-UA :4840</div>
+  </div>
+  <div class="layer-card">
+    <div class="layer-name">chat-ui/</div>
+    <div class="layer-desc">Starlette/SSE backend with Claude API + Ollama routing, vanilla JS frontend</div>
+    <div class="layer-port">HTTP :8080</div>
+  </div>
+  <div class="layer-card">
+    <div class="layer-name">influxdb-mcp/</div>
+    <div class="layer-desc">FastMCP server exposing InfluxDB read/write/discover as AI-callable tools</div>
+    <div class="layer-port">SSE :8003</div>
+  </div>
+  <div class="layer-card">
+    <div class="layer-name">mcp-aggregator/</div>
+    <div class="layer-desc">Submodule: proxies all backend MCP servers under one prefixed endpoint</div>
+    <div class="layer-port">SSE/HTTP :8100</div>
+  </div>
+  <div class="layer-card">
+    <div class="layer-name">mcp-servers/</div>
+    <div class="layer-desc">Submodule: mqtt-mcp and opcua-mcp; also contains analytics, strava, intervals servers</div>
+    <div class="layer-port">mqtt :8001 · opcua :8002</div>
+  </div>
+  <div class="layer-card">
+    <div class="layer-name">mqtt-influx-bridge/</div>
+    <div class="layer-desc">Subscribes Plant/WTP/# and writes process data + fault events to InfluxDB</div>
+    <div class="layer-port">subscriber only</div>
+  </div>
+  <div class="layer-card">
+    <div class="layer-name">docker/</div>
+    <div class="layer-desc">Provisioning configs for Mosquitto, InfluxDB, and Grafana dashboards</div>
+    <div class="layer-port">MQTT :1883 · InfluxDB :8086 · Grafana :3000</div>
+  </div>
+</div>
+
+<!-- ── File index ─────────────────────────────────────────────────────────── -->
+<h2>File Index</h2>
+
+<!-- Root -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron open">▶</span>
+    <span class="dir-name">/ (root)</span>
+    <span class="dir-purpose">Project root — docs and infrastructure</span>
+    <span class="dir-count">3 files</span>
+  </div>
+  <div class="dir-body open">
+    <div class="file-row"><span class="file-name">README.md</span><span class="file-desc">Project overview, setup guide, process units, fault table</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">roadmap.md</span><span class="file-desc">Architecture, build phases, key decisions, known backlog</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">docker-compose.yml</span><span class="file-desc">Mosquitto + InfluxDB 2.7 + Grafana with named volumes for persistence</span><span class="tag tag-runtime">runtime</span></div>
+  </div>
+</div>
+
+<!-- simulator/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">simulator/</span>
+    <span class="dir-purpose">WTP process simulator — MQTT + OPC-UA publish, fault injection HTTP control plane</span>
+    <span class="dir-count">5 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">simulator.py</span><span class="file-desc">Main entrypoint — asyncio event loop, paho MQTT, asyncua OPC-UA server, aiohttp control plane</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">faults.py</span><span class="file-desc">FaultMode enum, FaultState machine, TYPE_FAULT_MODES per equipment type, value transform apply()</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">generators.py</span><span class="file-desc">RandomWalk and OscillatingBool value generators for synthetic sensor signals</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">instances.py</span><span class="file-desc">WTP instance registry — all process units with attribute generators</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">requirements.txt</span><span class="file-desc">Python dependencies (asyncua, paho-mqtt, aiohttp)</span><span class="tag tag-util">util</span></div>
+  </div>
+</div>
+
+<!-- chat-ui/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">chat-ui/</span>
+    <span class="dir-purpose">Starlette backend + Claude/Ollama loops + vanilla JS frontend</span>
+    <span class="dir-count">11 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">backend.py</span><span class="file-desc">Starlette/SSE app — routes /api/chat, /api/fault, /api/health, /audit, /metrics</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">claude_loop.py</span><span class="file-desc">Claude API agentic loop — streaming, tool calling, prompt caching, token budget warnings, fault history injection</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">openai_loop.py</span><span class="file-desc">OpenAI-compatible loop for Ollama — same SSE event protocol as claude_loop</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">mcp_client.py</span><span class="file-desc">MCP aggregator client — list_tools (cached), call_tool, clear_tool_cache()</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">metrics.py</span><span class="file-desc">Per-turn AI_Metrics writer to InfluxDB + local SQLite; get_summary(), get_recent_turns()</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">audit.py</span><span class="file-desc">Per-turn JSONL audit log — log(), read_log(), clear_log()</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">providers.json</span><span class="file-desc">LLM provider config — base_url, model_patterns, loop type, api_key_env</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">requirements.txt</span><span class="file-desc">Python dependencies (anthropic, starlette, uvicorn, influxdb-client)</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">static/index.html</span><span class="file-desc">Chat UI — message area, fault injection panel, server status dots, Deep Reasoning toggle</span><span class="tag tag-ui">UI</span></div>
+    <div class="file-row"><span class="file-name">static/app.js</span><span class="file-desc">Frontend JS — SSE streaming, markdown renderer, fault dropdowns (dynamic), abort/stop support</span><span class="tag tag-ui">UI</span></div>
+    <div class="file-row"><span class="file-name">static/favicon.png</span><span class="file-desc">Browser favicon</span><span class="tag tag-ui">UI</span></div>
+  </div>
+</div>
+
+<!-- influxdb-mcp/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">influxdb-mcp/</span>
+    <span class="dir-purpose">FastMCP server — InfluxDB read/write/discover as AI-callable tools</span>
+    <span class="dir-count">2 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">server.py</span><span class="file-desc">FastMCP tools: list_measurements, query (Flux), write_point — runs on :8003</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">requirements.txt</span><span class="file-desc">Python dependencies (fastmcp, influxdb-client)</span><span class="tag tag-util">util</span></div>
+  </div>
+</div>
+
+<!-- mcp-aggregator/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">mcp-aggregator/</span>
+    <span class="dir-purpose">Submodule — aggregates all MCP backends under one prefixed SSE/HTTP endpoint</span>
+    <span class="dir-count">8 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">backends.json</span><span class="file-desc">Waterworks endpoint config — mqtt :8001, opcua :8002, influxdb :8003</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">server/server.py</span><span class="file-desc">Aggregator core — discovers, prefixes tools, proxies calls; supports include_tools, default_args, HTTP pooling, management API</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">server/backends.json</span><span class="file-desc">Default/example backends config for the submodule</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">server/mock_backend.py</span><span class="file-desc">In-memory mock MCP backend for development and testing</span><span class="tag tag-test">test</span></div>
+    <div class="file-row"><span class="file-name">server/requirements.txt</span><span class="file-desc">Python dependencies (mcp, starlette, uvicorn)</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">server/README.md</span><span class="file-desc">Aggregator documentation — backends.json schema, management API reference</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">server/start_demo.sh</span><span class="file-desc">Shell script to launch aggregator with demo backends</span><span class="tag tag-script">script</span></div>
+    <div class="file-row"><span class="file-name">server/install_service.ps1</span><span class="file-desc">Windows service installer for the aggregator</span><span class="tag tag-script">script</span></div>
+  </div>
+</div>
+
+<!-- mcp-servers/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">mcp-servers/</span>
+    <span class="dir-purpose">Submodule — mqtt-mcp, opcua-mcp, and additional analytics/fitness MCP servers</span>
+    <span class="dir-count">20 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">mqtt-mcp/server.py</span><span class="file-desc">MQTT MCP server — read_topic_value, get_full_topic_tree, publish; runs on :8001</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">mqtt-mcp/README.md</span><span class="file-desc">MQTT MCP server documentation and configuration</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">opcua-mcp/server.py</span><span class="file-desc">OPC-UA MCP server — connect_server, browse_nodes, read_node; auto-reconnect on drop; runs on :8002</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">opcua-mcp/simulator.py</span><span class="file-desc">Standalone OPC-UA server simulator for testing without the main simulator</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">opcua-mcp/opcua_discover.py</span><span class="file-desc">CLI utility to browse and discover nodes on a live OPC-UA server</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">intervals-mcp/server.py</span><span class="file-desc">Intervals.icu MCP server — activities, wellness, HRV data</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">strava-mcp/server.py</span><span class="file-desc">Strava API MCP server — activities, athlete, gear, routes, segments</span><span class="tag tag-mcp">MCP</span></div>
+    <div class="file-row"><span class="file-name">analytics-mcp/server.py</span><span class="file-desc">Analytics MCP server — correlation analysis across fitness data sources</span><span class="tag tag-mcp">MCP</span></div>
+  </div>
+</div>
+
+<!-- mqtt-influx-bridge/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">mqtt-influx-bridge/</span>
+    <span class="dir-purpose">MQTT subscriber — writes process data and fault events to InfluxDB</span>
+    <span class="dir-count">2 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">bridge.py</span><span class="file-desc">Subscribes Plant/WTP/# — routes 5-part topics to wtp_process, 4-part fault events to wtp_fault_events</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">requirements.txt</span><span class="file-desc">Python dependencies (paho-mqtt, influxdb-client)</span><span class="tag tag-util">util</span></div>
+  </div>
+</div>
+
+<!-- docker/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">docker/</span>
+    <span class="dir-purpose">Docker provisioning — Mosquitto config, Grafana dashboards and datasource</span>
+    <span class="dir-count">5 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">mosquitto/mosquitto.conf</span><span class="file-desc">Mosquitto broker config — anonymous access, persistence enabled</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">grafana/provisioning/datasources/influxdb.yml</span><span class="file-desc">Pre-provisioned InfluxDB datasource for Grafana (Flux query language)</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">grafana/provisioning/dashboards/dashboards.yml</span><span class="file-desc">Grafana dashboard provisioning config — points to JSON dashboard files</span><span class="tag tag-runtime">runtime</span></div>
+    <div class="file-row"><span class="file-name">grafana/provisioning/dashboards/wtp_process.json</span><span class="file-desc">WTP process dashboard — KPIs, flow/pressure trends, fault and AI annotations</span><span class="tag tag-ui">UI</span></div>
+    <div class="file-row"><span class="file-name">grafana/provisioning/dashboards/ai_metrics.json</span><span class="file-desc">AI session dashboard — token usage, tool calls, latency, cost per session with fault annotations</span><span class="tag tag-ui">UI</span></div>
+  </div>
+</div>
+
+<!-- docs/ -->
+<div class="dir-block">
+  <div class="dir-header" onclick="toggle(this)">
+    <span class="chevron">▶</span>
+    <span class="dir-name">docs/</span>
+    <span class="dir-purpose">Documentation images — screenshots for README</span>
+    <span class="dir-count">6 files</span>
+  </div>
+  <div class="dir-body">
+    <div class="file-row"><span class="file-name">images/Screenshot_01.png</span><span class="file-desc">Natural language fault diagnosis — suction starvation on RawWater_01</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">images/Screenshot_02.png</span><span class="file-desc">Plant health overview — full plant check, run-status discrepancy detection</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">images/Screenshot_03.png</span><span class="file-desc">Grafana process dashboard — fault annotations, flow trend</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">images/Screenshot_04.png</span><span class="file-desc">AI session metrics dashboard — tool calls and latency spike at fault injection</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">images/Screenshot_05.png</span><span class="file-desc">Chat UI overview — fault injection panel, status indicators, Deep Reasoning toggle</span><span class="tag tag-util">util</span></div>
+    <div class="file-row"><span class="file-name">images/Screenshot_06.png</span><span class="file-desc">Additional UI screenshot</span><span class="tag tag-util">util</span></div>
+  </div>
+</div>
+
+<!-- ── Quick actions ───────────────────────────────────────────────────────── -->
+<div class="actions-section">
+  <h2>Quick Actions</h2>
+  <div class="actions-grid">
+    <button class="action-btn" onclick="sendPrompt('Give me a full health overview of the water treatment plant. Check all process units.')">
+      <span class="action-label">Plant Health Check</span>
+      <span class="action-prompt">Give me a full health overview of the water treatment plant.</span>
+    </button>
+    <button class="action-btn" onclick="sendPrompt('Where is the project roadmap and what are the current open items and next priorities?')">
+      <span class="action-label">Roadmap Status</span>
+      <span class="action-prompt">Where is the roadmap and what are the open items?</span>
+    </button>
+    <button class="action-btn" onclick="sendPrompt('There seems to be an issue somewhere in the plant. Can you tell what is happening? Check live sensor data and compare against recent historical trends.')">
+      <span class="action-label">Diagnose Active Fault</span>
+      <span class="action-prompt">Something seems wrong — diagnose current plant conditions.</span>
+    </button>
+    <button class="action-btn" onclick="sendPrompt('What fault events have occurred in the last 24 hours? Query InfluxDB for the wtp_fault_events measurement and summarise the pattern.')">
+      <span class="action-label">Fault History</span>
+      <span class="action-prompt">Query InfluxDB for fault events in the last 24 hours.</span>
+    </button>
+    <button class="action-btn" onclick="sendPrompt('Run an impact analysis: if I modify claude_loop.py, which other files and features are affected?')">
+      <span class="action-label">Impact Analysis</span>
+      <span class="action-prompt">Impact analysis for changes to claude_loop.py.</span>
+    </button>
+    <button class="action-btn" onclick="sendPrompt('What is the current status of all four raw water and high service pumps? Report flow, pressure, power and running status for each.')">
+      <span class="action-label">Pump Status</span>
+      <span class="action-prompt">Report current status of all four pumps.</span>
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function toggle(header) {
+  const chevron = header.querySelector('.chevron');
+  const body    = header.nextElementSibling;
+  const open    = body.classList.toggle('open');
+  chevron.classList.toggle('open', open);
+}
+
+function sendPrompt(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('Prompt copied to clipboard');
+  }).catch(() => {
+    showToast('Prompt: ' + text.slice(0, 60) + '…');
+  });
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+</script>
+</body>
+</html>
