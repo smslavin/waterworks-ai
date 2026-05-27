@@ -323,6 +323,9 @@ The UI shows a chip for each specialist. Chips update in real time as events arr
 
 Multi-agent mode requires a Claude API key. It is incompatible with the Deep Reasoning toggle.
 
+![Multi-agent Mode](docs/images/Screenshot_07_multi_agent.png)
+*Multi-agent diagnostic mode. Four specialist agents run in parallel, each scoped to their domain at the aggregator level. The orchestrator synthesizes cross-system correlations that no single specialist could identify. Including flow imbalances across domain boundaries and recognition of simultaneous multi-pump anomalies as potential systemic failures.*
+
 ---
 
 ## Configuration
