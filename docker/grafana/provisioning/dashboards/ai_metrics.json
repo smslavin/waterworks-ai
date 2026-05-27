@@ -2,7 +2,7 @@
   "title": "AI Metrics",
   "uid": "ai-metrics",
   "schemaVersion": 38,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": { "from": "now-24h", "to": "now" },
   "timezone": "browser",
@@ -43,13 +43,14 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Total Turns",
+      "title": "Questions Answered",
+      "description": "One per user question in both single-agent and multi-agent mode (orchestrator rows counted for multi-agent).",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
       "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> count()"
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> filter(fn: (r) => r.specialist == \"\" or r.specialist == \"orchestrator\")\n  |> count()"
         }
       ],
       "fieldConfig": {
@@ -73,13 +74,14 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Avg Latency",
+      "title": "Avg Response Latency",
+      "description": "End-to-end latency from user's perspective: single-agent turns and multi-agent orchestrator turns only.",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
       "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"latency_ms\")\n  |> mean()"
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"latency_ms\")\n  |> filter(fn: (r) => r.specialist == \"\" or r.specialist == \"orchestrator\")\n  |> mean()"
         }
       ],
       "fieldConfig": {
@@ -169,14 +171,14 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Est. Cost (Sonnet 4.6)",
-      "description": "input × $3/1M + output × $15/1M",
+      "title": "Est. Cost",
+      "description": "Haiku: $0.80/$4 · Sonnet: $3/$15 · Opus: $15/$75 per 1M in/out tokens",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
       "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\" or r._field == \"output_tokens\")\n  |> toFloat()\n  |> map(fn: (r) => if r._field == \"input_tokens\" then {r with _value: r._value * 3.0 / 1000000.0} else {r with _value: r._value * 15.0 / 1000000.0})\n  |> group()\n  |> sum()"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\" or r._field == \"output_tokens\")\n  |> toFloat()\n  |> map(fn: (r) => ({r with _value:\n      if strings.containsStr(v: r.model, substr: \"haiku\") and r._field == \"input_tokens\" then r._value * 0.80 / 1000000.0\n      else if strings.containsStr(v: r.model, substr: \"haiku\") and r._field == \"output_tokens\" then r._value * 4.0 / 1000000.0\n      else if strings.containsStr(v: r.model, substr: \"opus\") and r._field == \"input_tokens\" then r._value * 15.0 / 1000000.0\n      else if strings.containsStr(v: r.model, substr: \"opus\") and r._field == \"output_tokens\" then r._value * 75.0 / 1000000.0\n      else if r._field == \"input_tokens\" then r._value * 3.0 / 1000000.0\n      else r._value * 15.0 / 1000000.0\n  }))\n  |> group()\n  |> sum()"
         }
       ],
       "fieldConfig": {
@@ -202,7 +204,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "AI Activity During Faults — Tool Calls & Latency",
-      "description": "Higher tool call counts and latency during fault injection events reveals the AI working harder to diagnose problems.",
+      "description": "Tool calls include all specialist calls in multi-agent mode. Latency shows end-to-end response time (single-agent turns and orchestrator turns only).",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
       "gridPos": { "x": 0, "y": 4, "w": 24, "h": 9 },
       "targets": [
@@ -212,7 +214,7 @@
         },
         {
           "refId": "B",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"latency_ms\")\n  |> yield(name: \"latency_ms\")"
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"latency_ms\")\n  |> filter(fn: (r) => r.specialist == \"\" or r.specialist == \"orchestrator\")\n  |> yield(name: \"latency_ms\")"
         }
       ],
       "fieldConfig": {
@@ -265,23 +267,23 @@
       "id": 7,
       "type": "timeseries",
       "title": "Token Usage per Turn",
-      "description": "Each point is one AI turn. Label format: in/out:{first 8 chars of session ID} · model name.",
+      "description": "Each point is one AI turn. In multi-agent mode, series are labeled by agent role (intake, treatment, distribution, historian, orchestrator).",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
       "gridPos": { "x": 0, "y": 13, "w": 12, "h": 7 },
       "targets": [
         {
           "refId": "A",
-          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: \"in:\" + strings.substring(v: r.session_id, start: 0, end: 8), model: r.model}))\n  |> group(columns: [\"_field\", \"model\"])\n  |> yield(name: \"input_tokens\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"input_tokens\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: \"in:\" + strings.substring(v: r.session_id, start: 0, end: 8), role: if r.specialist == \"\" then \"single\" else r.specialist, model: r.model}))\n  |> group(columns: [\"_field\", \"role\"])\n  |> yield(name: \"input_tokens\")"
         },
         {
           "refId": "B",
-          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"output_tokens\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: \"out:\" + strings.substring(v: r.session_id, start: 0, end: 8), model: r.model}))\n  |> group(columns: [\"_field\", \"model\"])\n  |> yield(name: \"output_tokens\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"output_tokens\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: \"out:\" + strings.substring(v: r.session_id, start: 0, end: 8), role: if r.specialist == \"\" then \"single\" else r.specialist, model: r.model}))\n  |> group(columns: [\"_field\", \"role\"])\n  |> yield(name: \"output_tokens\")"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "displayName": "${__field.name} · ${__field.labels.model}",
+          "displayName": "${__field.name} · ${__field.labels.role}",
           "custom": {
             "lineWidth": 0,
             "fillOpacity": 0,
@@ -303,18 +305,19 @@
       "id": 8,
       "type": "timeseries",
       "title": "Tool Calls per Turn",
+      "description": "In multi-agent mode each specialist's tool calls are shown separately by role.",
       "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
       "gridPos": { "x": 12, "y": 13, "w": 12, "h": 7 },
       "targets": [
         {
           "refId": "A",
-          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"tool_call_count\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: strings.substring(v: r.session_id, start: 0, end: 8), model: r.model}))\n  |> group(columns: [\"_field\", \"model\"])\n  |> yield(name: \"tool_calls\")"
+          "query": "import \"strings\"\nfrom(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"tool_call_count\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: strings.substring(v: r.session_id, start: 0, end: 8), role: if r.specialist == \"\" then \"single\" else r.specialist, model: r.model}))\n  |> group(columns: [\"_field\", \"role\"])\n  |> yield(name: \"tool_calls\")"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "displayName": "${__field.name} · ${__field.labels.model}",
+          "displayName": "${__field.name} · ${__field.labels.role}",
           "custom": {
             "lineWidth": 0,
             "fillOpacity": 70,
@@ -329,6 +332,138 @@
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] },
         "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Multi-Agent Breakdown",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Specialist Latency",
+      "description": "Latency per specialist call over time. Orchestrator is typically slowest (synthesis). Specialists run in parallel so their wall-clock time overlaps.",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"latency_ms\")\n  |> filter(fn: (r) => r.specialist != \"\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: r.specialist}))\n  |> group(columns: [\"_field\"])\n  |> yield(name: \"specialist_latency\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "displayName": "${__field.name}",
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 6,
+            "spanNulls": false
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Specialist Confidence",
+      "description": "Diagnostic confidence (0–1) reported by each specialist. Higher values indicate stronger evidence for the stated status. Only populated in multi-agent mode.",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"specialist_confidence\")\n  |> filter(fn: (r) => r.specialist != \"\" and r.specialist != \"orchestrator\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: r.specialist}))\n  |> group(columns: [\"_field\"])\n  |> yield(name: \"confidence\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "displayName": "${__field.name}",
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "pointSize": 8,
+            "spanNulls": false
+          },
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 0.6 },
+              { "color": "red",    "value": 0.85 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "last"] },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+
+    {
+      "id": 12,
+      "type": "state-timeline",
+      "title": "Specialist Diagnostic Status",
+      "description": "Diagnostic outcome per specialist for each multi-agent session. Normal = no issues, Anomaly Detected = abnormal readings, Fault Detected = confirmed fault. Only populated in multi-agent mode.",
+      "datasource": { "type": "influxdb", "uid": "waterworks-influx" },
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"ai_metrics\")\n  |> filter(fn: (r) => r._field == \"specialist_status\")\n  |> filter(fn: (r) => r.specialist != \"\" and r.specialist != \"orchestrator\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value, _field: r.specialist}))\n  |> group(columns: [\"_field\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 85,
+            "lineWidth": 1,
+            "spanNulls": false
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "Normal":            { "text": "Normal",            "color": "green",    "index": 0 },
+                "Anomaly Detected":  { "text": "Anomaly Detected",  "color": "yellow",   "index": 1 },
+                "Fault Detected":    { "text": "Fault Detected",    "color": "red",      "index": 2 },
+                "Unknown":           { "text": "Unknown",           "color": "gray",     "index": 3 },
+                "Error":             { "text": "Error",             "color": "dark-red", "index": 4 }
+              }
+            }
+          ],
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "mergeValues": true,
+        "showValue": "always",
+        "alignValue": "center",
+        "rowHeight": 0.85,
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
       }
     }
 

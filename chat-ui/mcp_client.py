@@ -9,24 +9,25 @@ from mcp.client.sse import sse_client
 
 load_dotenv()
 
-MCP_AGGREGATOR_URL = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
+_DEFAULT_AGGREGATOR_URL = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
 
 logger = logging.getLogger(__name__)
 
-# Tool list is cached after first fetch. Cleared on server restart.
-_tool_cache: list[dict] | None = None
+# Per-url tool cache. Keyed by aggregator URL so multiple plants (each with their
+# own aggregator) can coexist without one plant's tool list clobbering another's.
+_tool_cache: dict[str, list[dict]] = {}
 
 
-async def list_mcp_tools() -> list[dict]:
-    global _tool_cache
-    if _tool_cache is not None:
-        return _tool_cache
+async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
+    url = aggregator_url or _DEFAULT_AGGREGATOR_URL
+    if url in _tool_cache:
+        return _tool_cache[url]
     try:
-        async with sse_client(MCP_AGGREGATOR_URL, timeout=10) as (read, write):
+        async with sse_client(url, timeout=10) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.list_tools()
-                _tool_cache = [
+                _tool_cache[url] = [
                     {
                         "name": t.name,
                         "description": t.description or "",
@@ -34,16 +35,17 @@ async def list_mcp_tools() -> list[dict]:
                     }
                     for t in result.tools
                 ]
-        logger.info("Loaded %d tools from aggregator", len(_tool_cache))
-        return _tool_cache
+        logger.info("Loaded %d tools from %s", len(_tool_cache[url]), url)
+        return _tool_cache[url]
     except Exception as exc:
-        logger.warning("Could not load tools from aggregator: %s", exc)
+        logger.warning("Could not load tools from %s: %s", url, exc)
         return []
 
 
-async def call_mcp_tool(name: str, args: dict) -> str:
+async def call_mcp_tool(name: str, args: dict, aggregator_url: str | None = None) -> str:
+    url = aggregator_url or _DEFAULT_AGGREGATOR_URL
     try:
-        async with sse_client(MCP_AGGREGATOR_URL, timeout=30) as (read, write):
+        async with sse_client(url, timeout=30) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(name, arguments=args)
@@ -58,6 +60,8 @@ async def call_mcp_tool(name: str, args: dict) -> str:
         return f"Error calling {name}: {exc}"
 
 
-def clear_tool_cache() -> None:
-    global _tool_cache
-    _tool_cache = None
+def clear_tool_cache(aggregator_url: str | None = None) -> None:
+    if aggregator_url:
+        _tool_cache.pop(aggregator_url, None)
+    else:
+        _tool_cache.clear()

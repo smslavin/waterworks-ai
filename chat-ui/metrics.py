@@ -54,11 +54,16 @@ def _init_db() -> None:
                 error_count      INTEGER NOT NULL DEFAULT 0,
                 latency_ms       INTEGER,
                 context_pressure REAL,
-                user_message     TEXT
+                user_message     TEXT,
+                specialist       TEXT
             )
         """)
         try:
             c.execute("ALTER TABLE turns ADD COLUMN context_pressure REAL")
+        except Exception:
+            pass  # column already exists on existing databases
+        try:
+            c.execute("ALTER TABLE turns ADD COLUMN specialist TEXT")
         except Exception:
             pass  # column already exists on existing databases
         c.commit()
@@ -75,6 +80,9 @@ def log_turn(
     latency_ms: int,
     context_pressure: float | None,
     user_message: str,
+    specialist: str | None = None,
+    specialist_status: str | None = None,
+    specialist_confidence: float | None = None,
 ) -> None:
     # Write to InfluxDB — best-effort, for Grafana dashboards
     try:
@@ -82,6 +90,7 @@ def log_turn(
             Point("ai_metrics")
             .tag("model", model)
             .tag("session_id", session_id)
+            .tag("specialist", specialist or "")
             .field("input_tokens",    int(input_tokens  or 0))
             .field("output_tokens",   int(output_tokens or 0))
             .field("tool_call_count", int(tool_call_count))
@@ -90,6 +99,10 @@ def log_turn(
             .field("context_pressure", float(context_pressure or 0.0))
             .field("user_message",    (user_message or "")[:200])
         )
+        if specialist_status is not None:
+            point = point.field("specialist_status", specialist_status)
+        if specialist_confidence is not None:
+            point = point.field("specialist_confidence", float(specialist_confidence))
         _get_influx_client().write_api(write_options=SYNCHRONOUS).write(
             bucket=INFLUXDB_BUCKET, record=point
         )
@@ -102,8 +115,8 @@ def log_turn(
             c.execute(
                 """INSERT INTO turns
                    (ts, session_id, model, input_tokens, output_tokens,
-                    tool_call_count, error_count, latency_ms, context_pressure, user_message)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    tool_call_count, error_count, latency_ms, context_pressure, user_message, specialist)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     session_id, model,
@@ -111,6 +124,7 @@ def log_turn(
                     tool_call_count, error_count, latency_ms,
                     context_pressure,
                     (user_message or "")[:200],
+                    specialist,
                 ),
             )
             c.commit()

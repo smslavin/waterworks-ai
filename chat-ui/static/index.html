@@ -323,6 +323,57 @@ main { display: flex; flex: 1; min-height: 0; }
 #thinking-toggle:hover { background: var(--color-background-tertiary); }
 #thinking-toggle.active { background: #6b04a8; color: #fff; border-color: #6b04a8; }
 #thinking-toggle.active:hover { background: #560d8a; }
+
+/* ── Multi-agent mode toggle ── */
+#mode-toggle {
+  padding: 9px 12px; background: var(--color-background-primary); color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-tertiary); border-radius: var(--radius);
+  font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; align-self: flex-end;
+}
+#mode-toggle:hover { background: var(--color-background-tertiary); }
+#mode-toggle.active { background: #0891b2; color: #fff; border-color: #0891b2; }
+#mode-toggle.active:hover { background: #0e7490; }
+
+/* ── Specialist chips panel ── */
+.specialist-panel {
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: var(--radius); padding: 10px 12px; width: 100%;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.specialist-panel-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--color-text-secondary); font-weight: 600;
+}
+.specialist-chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.specialist-chip {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; padding: 4px 9px; border-radius: 20px;
+  border: 1px solid var(--color-border-tertiary);
+  background: var(--color-background-primary);
+  color: var(--color-text-secondary); font-family: var(--font-mono);
+  transition: border-color 0.2s, color 0.2s;
+}
+.chip-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-text-secondary); flex-shrink: 0; transition: background 0.2s;
+}
+.specialist-chip.running  { border-color: var(--color-accent); color: var(--color-accent); }
+.specialist-chip.running .chip-dot  { background: var(--color-accent); animation: blink 1.2s infinite; }
+.specialist-chip.normal   { border-color: var(--color-ok);    color: var(--color-ok); }
+.specialist-chip.normal .chip-dot   { background: var(--color-ok); }
+.specialist-chip.anomaly  { border-color: var(--color-warn);  color: var(--color-warn); }
+.specialist-chip.anomaly .chip-dot  { background: var(--color-warn); }
+.specialist-chip.fault    { border-color: var(--color-error); color: var(--color-error); }
+.specialist-chip.fault .chip-dot    { background: var(--color-error); }
+.specialist-chip.error-state { border-color: var(--color-error); color: var(--color-error); }
+.specialist-chip.error-state .chip-dot { background: var(--color-error); }
+.specialist-chip.unknown  { border-color: var(--color-text-secondary); }
+
+.synthesis-indicator {
+  font-size: 12px; color: var(--color-text-secondary);
+  display: flex; align-items: center; gap: 6px; font-family: var(--font-mono);
+}
 </style>
 </head>
 <body>
@@ -340,6 +391,7 @@ main { display: flex; flex: 1; min-height: 0; }
     <div id="input-area">
       <div id="input-row">
         <textarea id="user-input" rows="1" placeholder="Ask about the water treatment plant…"></textarea>
+        <button id="mode-toggle" onclick="toggleMode()" title="Switch between single-agent and multi-agent diagnostic mode">Single Agent</button>
         <button id="thinking-toggle" onclick="toggleThinking()" title="Enable extended reasoning (Opus 4.7)">Deep Reasoning</button>
         <button id="send-btn">Send</button>
       </div>

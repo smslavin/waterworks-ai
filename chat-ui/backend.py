@@ -27,6 +27,7 @@ from starlette.staticfiles import StaticFiles
 import audit
 import claude_loop
 import metrics
+import multi_agent_loop
 import openai_loop
 
 load_dotenv()
@@ -113,6 +114,22 @@ async def chat_endpoint(request: Request):
     messages         = body.get("messages", [])
     model            = body.get("model", claude_loop.CLAUDE_MODELS[0])
     thinking_enabled = bool(body.get("thinking", False))
+    mode             = body.get("mode", "single")
+
+    if mode == "multi":
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or ANTHROPIC_API_KEY
+
+        async def generate_multi():
+            try:
+                async for chunk in multi_agent_loop.run_multi_agent(
+                    messages, model, api_key=api_key
+                ):
+                    yield {"data": chunk}
+            except Exception as exc:
+                logger.exception("Multi-agent stream error")
+                yield {"data": json.dumps({"type": "error", "error": str(exc)})}
+
+        return EventSourceResponse(generate_multi())
 
     provider = _resolve_provider(model)
     run_fn   = _LOOP_MODULES[provider["loop"]].run_chat

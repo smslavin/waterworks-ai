@@ -239,19 +239,33 @@ Fault modes are equipment-specific. The injection panel only shows modes valid f
 
 ## Dashboards
 
-Grafana is available at **http://localhost:3000** (admin / waterworks by default. Change before any network-accessible deployment). 
+Grafana is available at **http://localhost:3000** (admin / waterworks by default. Change before any network-accessible deployment).
 
 Two dashboards are pre-provisioned:
-- **WTP Process Data** — plant health KPIs, flow/pressure/quality trends, 
-  fault and AI query annotations
-- **AI Metrics** — token usage, latency, tool calls, estimated cost per session. 
-  Fault annotations on both dashboards share the same timestamp — 
-  the AI working harder during faults is visible in the data.
 
-The chat UI includes a **Dashboards** button that opens Grafana directly 
-without requiring login. Both are available immediately after `docker compose up`.
+**WTP Process Data** — plant health KPIs, flow/pressure/quality trends, fault and AI query annotations.
 
-The InfluxDB datasource is pre-provisioned. AI_Metrics are written to the `ai_metrics` measurement with `model` and `session_id` tags — fields include `input_tokens`, `output_tokens`, `tool_call_count`, `latency_ms`, `context_pressure`, `error_count`, `latency_ms`.
+**AI Metrics** — covers both single-agent and multi-agent sessions.
+
+| Panel | What it shows |
+|---|---|
+| Questions Answered | One count per user question in both modes (orchestrator rows for multi-agent) |
+| Avg Response Latency | End-to-end latency from the user's perspective — specialist calls excluded |
+| Total Tool Calls | All tool calls across all agents |
+| Errors | Error count across all agents |
+| Est. Cost | Model-aware: Haiku $0.80/$4, Sonnet $3/$15, Opus $15/$75 per 1M in/out tokens |
+| AI Activity During Faults | Tool calls (all agents) and response latency over time, with fault annotations |
+| Token Usage per Turn | Per-turn tokens, labeled by agent role (single / intake / orchestrator / etc.) |
+| Tool Calls per Turn | Per-turn tool calls, same role grouping |
+| **Specialist Latency** | Latency per specialist call over time — shows orchestrator vs. each specialist |
+| **Specialist Confidence** | Diagnostic confidence (0–1) per specialist per session |
+| **Specialist Diagnostic Status** | State timeline — color-coded Normal / Anomaly Detected / Fault Detected strip per specialist |
+
+The bottom three panels are only populated in multi-agent mode. Fault annotations appear on both dashboards at the same timestamps, so the AI working harder during fault conditions is visible in the data.
+
+The chat UI includes a **Dashboards** button that opens Grafana directly without requiring login. Both dashboards are available immediately after `docker compose up`.
+
+AI_Metrics are written to the `ai_metrics` measurement with `model`, `session_id`, and `specialist` tags. In multi-agent mode each specialist and the orchestrator log separately with their own `specialist` tag, enabling per-role breakdowns in Grafana.
 
 InfluxDB UI is at **http://localhost:8086**.
 
@@ -277,6 +291,37 @@ On the first turn of a new session, the backend queries InfluxDB for the 10 most
 
 **Tool selection guidance**  
 The system prompt instructs the model to use `get_full_topic_tree()` for broad queries like plant health overviews and `read_topic_value()` only for targeted single-attribute reads. Without this guidance the model calls `read_topic_value` once per attribute. 34 sequential calls for a full plant snapshot. With it, a health overview typically completes in 1–3 tool calls.
+
+---
+
+## Multi-agent diagnostic mode
+
+The chat UI has a **Single Agent / Multi Agent** toggle. In multi-agent mode a query fans out to four specialist Haiku agents running in parallel, then a Sonnet orchestrator synthesizes their findings into a single response.
+
+```
+User query
+    │
+    ▼
+Orchestrator (Sonnet — no tools)
+    │
+    ├── Intake specialist       (Haiku — mqtt + influxdb)
+    │     RawWater_01, RawWater_02
+    │
+    ├── Treatment specialist    (Haiku — mqtt + influxdb)
+    │     Clarifier_01, UV_01/02, Chlorine_01, Fluoride_01
+    │
+    ├── Distribution specialist (Haiku — mqtt + influxdb)
+    │     HighService_01/02, FinishedWater_01
+    │
+    └── Historian specialist    (Haiku — influxdb only)
+          All units, historical trends only
+```
+
+All four specialists run simultaneously via `asyncio.gather()`. Each is given only the tool subset relevant to its process area — OPC-UA is excluded from all specialists as redundant with MQTT. The orchestrator receives the four findings and synthesizes them; it never calls tools itself.
+
+The UI shows a chip for each specialist. Chips update in real time as events arrive — all four can show "running" simultaneously during fan-out. Each chip transitions to a color-coded status (Normal / Anomaly Detected / Fault Detected) with a confidence score when the specialist completes.
+
+Multi-agent mode requires a Claude API key. It is incompatible with the Deep Reasoning toggle.
 
 ---
 
@@ -313,8 +358,9 @@ waterworks-ai/
 ├── chat-ui/                Starlette/SSE backend and vanilla JS frontend
 │   ├── backend.py          Routes: /api/chat, /api/models, /api/health, /api/fault
 │   ├── claude_loop.py      Claude API streaming loop with MCP tool calling
+│   ├── multi_agent_loop.py Fan-out to 4 specialist agents + orchestrator synthesis
 │   ├── openai_loop.py      OpenAI-compatible loop for Ollama
-│   ├── mcp_client.py       MCP aggregator client (list tools, call tools)
+│   ├── mcp_client.py       MCP aggregator client (per-url tool cache, list/call tools)
 │   ├── metrics.py          AI_Metrics → InfluxDB per turn
 │   ├── audit.py            JSONL audit log
 │   ├── providers.json      LLM provider and model configuration

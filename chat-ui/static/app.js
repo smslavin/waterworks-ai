@@ -5,8 +5,16 @@
 const messages = [];
 let streaming        = false;
 let thinkingEnabled  = false;
+let multiAgentMode   = false;
 let abortController  = null;
 let faultModeMap     = {}; // { instance_id: [mode, ...] }
+
+const SPECIALISTS = [
+  {name: "intake",       label: "Intake"},
+  {name: "treatment",    label: "Treatment"},
+  {name: "distribution", label: "Distribution"},
+  {name: "historian",    label: "Historian"},
+];
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -73,6 +81,19 @@ function newConversation() {
 function toggleThinking() {
   thinkingEnabled = !thinkingEnabled;
   document.getElementById("thinking-toggle").classList.toggle("active", thinkingEnabled);
+}
+
+function toggleMode() {
+  multiAgentMode = !multiAgentMode;
+  const btn = document.getElementById("mode-toggle");
+  btn.classList.toggle("active", multiAgentMode);
+  btn.textContent = multiAgentMode ? "Multi Agent" : "Single Agent";
+  // Deep Reasoning is incompatible with multi-agent mode
+  if (multiAgentMode && thinkingEnabled) {
+    thinkingEnabled = false;
+    document.getElementById("thinking-toggle").classList.remove("active");
+  }
+  document.getElementById("thinking-toggle").disabled = multiAgentMode;
 }
 
 async function clearAuditLog() {
@@ -284,6 +305,22 @@ function createAssistantMessage() {
     scrollToBottom();
   }
 
+  // ── Specialist chips panel (multi-agent mode) ──────────────────────────────
+  let chipPanel    = null;
+  let chipEls      = {}; // name → chip element
+  let synthEl      = null;
+
+  function _statusClass(status) {
+    if (!status) return "";
+    const s = status.toLowerCase();
+    if (s.includes("fault"))   return "fault";
+    if (s.includes("anomaly")) return "anomaly";
+    if (s.includes("normal"))  return "normal";
+    if (s.includes("error"))   return "error-state";
+    return "unknown";
+  }
+
+  // ── Regular tool strip ─────────────────────────────────────────────────────
   let toolCount    = 0;
   let activeBubble = null;
   let needNewBubble = false;
@@ -351,10 +388,59 @@ function createAssistantMessage() {
       b.innerHTML = renderMarkdown(b._rawText);
       scrollToBottom();
     },
+
+    // ── Specialist panel methods ─────────────────────────────────────────────
+    initSpecialistPanel() {
+      chipPanel = document.createElement("div");
+      chipPanel.className = "specialist-panel";
+
+      const title = document.createElement("div");
+      title.className = "specialist-panel-title";
+      title.textContent = "Multi-Agent Diagnostic";
+      chipPanel.appendChild(title);
+
+      const chipsRow = document.createElement("div");
+      chipsRow.className = "specialist-chips";
+      SPECIALISTS.forEach(({name, label}) => {
+        const chip = document.createElement("div");
+        chip.className = "specialist-chip";
+        chip.dataset.specialist = name;
+        chip.innerHTML = `<span class="chip-dot"></span>${label}`;
+        chipsRow.appendChild(chip);
+        chipEls[name] = chip;
+      });
+      chipPanel.appendChild(chipsRow);
+      wrap.insertBefore(chipPanel, strip);
+      scrollToBottom();
+    },
+
+    updateChip(name, status, confidence) {
+      const chip = chipEls[name];
+      if (!chip) return;
+      chip.className = "specialist-chip " + _statusClass(status);
+      const confStr = confidence != null ? ` ${(confidence * 100).toFixed(0)}%` : "";
+      chip.innerHTML = `<span class="chip-dot"></span>${SPECIALISTS.find(s => s.name === name)?.label ?? name}${confStr}`;
+    },
+
+    showSynthesisStart() {
+      if (synthEl) return;
+      synthEl = document.createElement("div");
+      synthEl.className = "synthesis-indicator";
+      synthEl.innerHTML = `<span class="chip-dot" style="animation:blink 1.2s infinite;background:var(--color-accent)"></span>Synthesizing findings…`;
+      if (chipPanel) chipPanel.appendChild(synthEl);
+      needNewBubble = true;
+      scrollToBottom();
+    },
+
+    removeSynthesisIndicator() {
+      if (synthEl) { synthEl.remove(); synthEl = null; }
+    },
+
     finalize() {
       wrap.querySelectorAll(".bubble").forEach(b => {
         if (!b._rawText?.trim()) b.remove();
       });
+      if (synthEl) { synthEl.remove(); synthEl = null; }
     },
     getRawText() {
       return wrap.querySelectorAll(".bubble")[0]?._rawText ?? "";
@@ -404,13 +490,19 @@ async function sendMessage() {
   _setStreaming(true);
 
   const msg = createAssistantMessage();
+  if (multiAgentMode) msg.initSpecialistPanel();
   let assistantText = "";
 
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({messages, model: modelSelect.value, thinking: thinkingEnabled}),
+      body: JSON.stringify({
+        messages,
+        model:    modelSelect.value,
+        thinking: thinkingEnabled,
+        mode:     multiAgentMode ? "multi" : "single",
+      }),
       signal: abortController.signal,
     });
 
@@ -447,15 +539,31 @@ async function sendMessage() {
             msg.finalizeThinking();
             break;
           case "tool_call":
-            msg.addToolCall(chunk.tool, chunk.args);
+            // In multi mode, prefix tool name with specialist label for the strip
+            if (chunk.specialist) {
+              const label = SPECIALISTS.find(s => s.name === chunk.specialist)?.label ?? chunk.specialist;
+              msg.addToolCall(`[${label}] ${chunk.tool}`, chunk.args);
+            } else {
+              msg.addToolCall(chunk.tool, chunk.args);
+            }
             break;
           case "tool_result":
             msg.addToolResult(chunk.tool, chunk.result);
+            break;
+          case "specialist_start":
+            msg.updateChip(chunk.specialist, "running", null);
+            break;
+          case "specialist_done":
+            msg.updateChip(chunk.specialist, chunk.status, chunk.confidence);
+            break;
+          case "synthesis_start":
+            msg.showSynthesisStart();
             break;
           case "error":
             msg.addError(chunk.error);
             break;
           case "done":
+            msg.removeSynthesisIndicator();
             if (chunk.input_tokens !== undefined) updateContextIndicator(chunk);
             break;
         }
