@@ -156,6 +156,50 @@ Open **dashboard.html** in a browser for an architecture overview and quick-star
 
 ---
 
+## Windows quick start
+
+The quick start above uses bash syntax. PowerShell equivalents follow. Clone and `.env` setup are identical.
+
+**Create virtualenvs** — run from the repo root in PowerShell:
+
+```powershell
+foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
+    Push-Location $dir; uv venv; uv pip install -r requirements.txt; Pop-Location
+}
+```
+
+**Start services** — open eight PowerShell terminals and run each in order:
+
+```powershell
+# 1 — Infrastructure
+docker compose up -d
+
+# 2 — Simulator
+cd simulator; .venv\Scripts\python simulator.py
+
+# 3 — MQTT MCP server
+cd mcp-servers\mqtt-mcp; $env:FASTMCP_PORT = "8001"; .venv\Scripts\python server.py
+
+# 4 — OPC-UA MCP server
+cd mcp-servers\opcua-mcp; $env:FASTMCP_PORT = "8002"; .venv\Scripts\python server.py
+
+# 5 — InfluxDB MCP server
+cd influxdb-mcp; .venv\Scripts\python server.py
+
+# 6 — MCP Aggregator
+cd mcp-aggregator\server; $env:BACKENDS_FILE = "..\backends.json"; .venv\Scripts\python server.py
+
+# 7 — MQTT → InfluxDB bridge
+cd mqtt-influx-bridge; .venv\Scripts\python bridge.py
+
+# 8 — Chat UI
+cd chat-ui; .venv\Scripts\python backend.py
+```
+
+The `curl` commands in the fault injection section work as-is in PowerShell 7+ and Windows 10+. If `curl` resolves to `Invoke-WebRequest` instead, use `curl.exe` explicitly.
+
+---
+
 ## Process units
 
 The simulator models a municipal water treatment plant.
