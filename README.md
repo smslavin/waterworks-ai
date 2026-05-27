@@ -321,7 +321,7 @@ All four specialists run simultaneously via `asyncio.gather()`. Each is given on
 
 The UI shows a chip for each specialist. Chips update in real time as events arrive — all four can show "running" simultaneously during fan-out. Each chip transitions to a color-coded status (Normal / Anomaly Detected / Fault Detected) with a confidence score when the specialist completes.
 
-Multi-agent mode requires a Claude API key. It is incompatible with the Deep Reasoning toggle.
+Multi-agent mode requires a Claude API key. Ollama support is on the roadmap. It is incompatible with the Deep Reasoning toggle.
 
 ![Multi-agent Mode](docs/images/Screenshot_07_multi_agent.png)
 *Multi-agent diagnostic mode. Four specialist agents run in parallel, each scoped to their domain at the aggregator level. The orchestrator synthesizes cross-system correlations that no single specialist could identify. Including flow imbalances across domain boundaries and recognition of simultaneous multi-pump anomalies as potential systemic failures.*
