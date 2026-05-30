@@ -8,6 +8,7 @@ let thinkingEnabled  = false;
 let multiAgentMode   = false;
 let abortController  = null;
 let faultModeMap     = {}; // { instance_id: [mode, ...] }
+let _pendingActionId = null; // action_id awaiting operator decision
 
 const SPECIALISTS = [
   {name: "intake",       label: "Intake"},
@@ -96,6 +97,52 @@ function toggleMode() {
   document.getElementById("thinking-toggle").disabled = multiAgentMode;
 }
 
+// ── Action approval dialog ─────────────────────────────────────────────────
+
+function showApprovalDialog(chunk) {
+  _pendingActionId = chunk.action_id;
+  const typeLabel = (chunk.action_type || "").replace(/_/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase());
+  document.getElementById("approval-type").textContent        = typeLabel || "—";
+  document.getElementById("approval-target").textContent      = chunk.target || "—";
+  document.getElementById("approval-description").textContent = chunk.description || "—";
+  const valueRow = document.getElementById("approval-value-row");
+  if (chunk.value) {
+    document.getElementById("approval-value").textContent = chunk.value;
+    valueRow.style.display = "block";
+  } else {
+    valueRow.style.display = "none";
+  }
+  document.getElementById("approval-overlay").classList.add("visible");
+}
+
+function _closeApprovalDialog() {
+  document.getElementById("approval-overlay").classList.remove("visible");
+  _pendingActionId = null;
+}
+
+async function approveAction() {
+  if (!_pendingActionId) return;
+  const id = _pendingActionId;
+  _closeApprovalDialog();
+  await fetch("/api/action/respond", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action_id: id, decision: "approved"}),
+  });
+}
+
+async function denyAction() {
+  if (!_pendingActionId) return;
+  const id = _pendingActionId;
+  _closeApprovalDialog();
+  await fetch("/api/action/respond", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action_id: id, decision: "denied"}),
+  });
+}
+
 async function clearAuditLog() {
   if (!confirm("Clear the audit log? This cannot be undone.")) return;
   await fetch("/api/audit/clear", {method: "POST"});
@@ -142,12 +189,12 @@ async function loadModels() {
 async function checkHealth() {
   try {
     const data = await fetch("/api/health").then(r => r.json());
-    ["aggregator","influxdb","mqtt","simulator"].forEach(k => {
+    ["aggregator","influxdb","mqtt","simulator","audit_mcp","control_mcp"].forEach(k => {
       const el = document.getElementById(`dot-${k}`);
       if (el) el.className = "dot " + (data[k] === "ok" ? "ok" : "error");
     });
   } catch {
-    ["aggregator","influxdb","mqtt","simulator"].forEach(k => {
+    ["aggregator","influxdb","mqtt","simulator","audit_mcp","control_mcp"].forEach(k => {
       const el = document.getElementById(`dot-${k}`);
       if (el) el.className = "dot error";
     });
@@ -549,6 +596,16 @@ async function sendMessage() {
             break;
           case "tool_result":
             msg.addToolResult(chunk.tool, chunk.result);
+            break;
+          case "action_proposed":
+            showApprovalDialog(chunk);
+            break;
+          case "action_decision":
+            _closeApprovalDialog();
+            msg.addToolResult(
+              "propose_action",
+              `Operator decision: ${chunk.decision}`,
+            );
             break;
           case "specialist_start":
             msg.updateChip(chunk.specialist, "running", null);

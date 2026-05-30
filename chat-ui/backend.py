@@ -26,6 +26,7 @@ from starlette.staticfiles import StaticFiles
 
 import audit
 import claude_loop
+import control
 import metrics
 import multi_agent_loop
 import openai_loop
@@ -104,8 +105,10 @@ async def health_endpoint(request: Request):
         tcp_ok("localhost", 8086),  # influxdb
         tcp_ok("localhost", 1883),  # mqtt
         tcp_ok("localhost", 8090),  # simulator control
+        tcp_ok("localhost", 8004),  # audit-mcp
+        tcp_ok("localhost", 8005),  # control-mcp
     )
-    keys = ("aggregator", "influxdb", "mqtt", "simulator")
+    keys = ("aggregator", "influxdb", "mqtt", "simulator", "audit_mcp", "control_mcp")
     return JSONResponse({k: "ok" if v else "error" for k, v in zip(keys, results)})
 
 
@@ -191,6 +194,19 @@ async def fault_modes_endpoint(request: Request):
             return JSONResponse(resp.json())
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=503)
+
+
+async def action_respond_endpoint(request: Request):
+    """Operator approval/denial for a pending AI-proposed action."""
+    body      = await request.json()
+    action_id = body.get("action_id", "")
+    decision  = body.get("decision", "")
+    if not action_id or decision not in ("approved", "denied"):
+        return JSONResponse({"error": "Requires action_id and decision (approved|denied)"}, status_code=400)
+    ok = control.resolve(action_id, decision)
+    if not ok:
+        return JSONResponse({"error": "Unknown or already-resolved action_id"}, status_code=404)
+    return JSONResponse({"ok": True, "action_id": action_id, "decision": decision})
 
 
 async def audit_endpoint(request: Request):
@@ -529,6 +545,7 @@ routes = [
     Route("/api/models",          models_endpoint),
     Route("/api/health",          health_endpoint),
     Route("/api/chat",            chat_endpoint,         methods=["POST"]),
+    Route("/api/action/respond",   action_respond_endpoint, methods=["POST"]),
     Route("/api/fault",           fault_endpoint,        methods=["POST"]),
     Route("/api/fault/status",    fault_status_endpoint),
     Route("/api/fault/modes",     fault_modes_endpoint),

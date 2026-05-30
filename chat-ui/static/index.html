@@ -374,6 +374,50 @@ main { display: flex; flex: 1; min-height: 0; }
   font-size: 12px; color: var(--color-text-secondary);
   display: flex; align-items: center; gap: 6px; font-family: var(--font-mono);
 }
+
+/* ── Approval dialog ── */
+#approval-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55); z-index: 1000;
+  align-items: center; justify-content: center;
+}
+#approval-overlay.visible { display: flex; }
+#approval-dialog {
+  background: var(--color-background-primary);
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 14px; padding: 24px 28px; max-width: 480px; width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+#approval-dialog h2 {
+  font-size: 15px; font-weight: 700; margin-bottom: 4px; color: var(--color-warn);
+}
+#approval-dialog .approval-subtitle {
+  font-size: 12px; color: var(--color-text-secondary); margin-bottom: 18px;
+}
+.approval-field { margin-bottom: 12px; }
+.approval-field label {
+  display: block; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--color-text-secondary);
+  font-weight: 600; margin-bottom: 3px;
+}
+.approval-field .val {
+  font-size: 13px; color: var(--color-text-primary);
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-border-tertiary);
+  border-radius: 6px; padding: 6px 10px; word-break: break-word;
+}
+.approval-btns { display: flex; gap: 10px; margin-top: 20px; }
+#approval-approve {
+  flex: 1; padding: 10px; background: #16a34a; color: #fff;
+  border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+#approval-approve:hover { background: #15803d; }
+#approval-deny {
+  flex: 1; padding: 10px; background: var(--color-background-secondary); color: var(--color-error);
+  border: 1px solid var(--color-error); border-radius: 8px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+#approval-deny:hover { background: var(--color-background-tertiary); }
 </style>
 </head>
 <body>
@@ -412,6 +456,8 @@ main { display: flex; flex: 1; min-height: 0; }
       <div class="health-item"><div class="dot" id="dot-influxdb"></div><span>InfluxDB</span></div>
       <div class="health-item"><div class="dot" id="dot-mqtt"></div><span>MQTT Broker</span></div>
       <div class="health-item"><div class="dot" id="dot-simulator"></div><span>Simulator</span></div>
+      <div class="health-item"><div class="dot" id="dot-audit_mcp"></div><span>Audit MCP</span></div>
+      <div class="health-item"><div class="dot" id="dot-control_mcp"></div><span>Control MCP</span></div>
     </div>
     <div class="sidebar-section" id="context-section">
       <h2>Context</h2>
@@ -431,6 +477,34 @@ main { display: flex; flex: 1; min-height: 0; }
     </div>
   </aside>
 </main>
+
+<!-- ── Operator approval dialog ── -->
+<div id="approval-overlay">
+  <div id="approval-dialog">
+    <h2>Action Requires Approval</h2>
+    <div class="approval-subtitle">The AI is requesting permission to execute a control action.</div>
+    <div class="approval-field">
+      <label>Action Type</label>
+      <div class="val" id="approval-type"></div>
+    </div>
+    <div class="approval-field">
+      <label>Target</label>
+      <div class="val" id="approval-target"></div>
+    </div>
+    <div class="approval-field" id="approval-value-row">
+      <label>Value</label>
+      <div class="val" id="approval-value"></div>
+    </div>
+    <div class="approval-field">
+      <label>Rationale</label>
+      <div class="val" id="approval-description"></div>
+    </div>
+    <div class="approval-btns">
+      <button id="approval-approve" onclick="approveAction()">Approve</button>
+      <button id="approval-deny"    onclick="denyAction()">Deny</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

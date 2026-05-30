@@ -14,6 +14,7 @@ import anthropic
 
 import audit
 import metrics
+import session_store
 from mcp_client import call_mcp_tool, list_mcp_tools
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,7 @@ async def _run_specialist(
     session_id: str,
     model: str,
     queue: asyncio.Queue,
+    tool_calls_all: list,
 ) -> None:
     name    = config["name"]
     start   = time.monotonic()
@@ -273,6 +275,7 @@ async def _run_specialist(
                         continue
                     tool_call_count += 1
                     args = dict(block.input)
+                    tool_calls_all.append((block.name, args))
                     audit.log("tool_call", session_id=session_id, tool=block.name, args=args, specialist=name)
                     await queue.put({"type": "tool_call", "tool": block.name, "args": args, "specialist": name})
 
@@ -352,10 +355,12 @@ async def run_multi_agent(
 
     # ── Fan-out: all specialists run in parallel ───────────────────────────────
     queue = asyncio.Queue()
+    tool_calls_all: list = []  # shared; list.append is GIL-safe across tasks
 
     tasks = [
         asyncio.create_task(
-            _run_specialist(spec, user_message, client, all_tools, session_id, SPECIALIST_MODEL, queue)
+            _run_specialist(spec, user_message, client, all_tools, session_id,
+                            SPECIALIST_MODEL, queue, tool_calls_all)
         )
         for spec in SPECIALISTS
     ]
@@ -407,6 +412,31 @@ async def run_multi_agent(
 
         text_content = " ".join(b.text for b in final.content if hasattr(b, "text"))
         audit.log("response", session_id=session_id, text=text_content)
+
+        # Write session summary for compliance audit trail
+        _statuses = [
+            f.get("status", "Unknown") for f in findings.values()
+            if f.get("status") not in ("Unknown", "Error", None)
+        ]
+        _confs = [
+            f.get("confidence", 0.0) for f in findings.values()
+            if isinstance(f.get("confidence"), (int, float)) and f.get("confidence", 0) > 0
+        ]
+        overall_status = (
+            "Fault Detected"   if any("Fault"   in s for s in _statuses) else
+            "Anomaly Detected" if any("Anomaly" in s for s in _statuses) else
+            "Normal"           if _statuses else "Unknown"
+        )
+        avg_confidence = round(sum(_confs) / len(_confs), 3) if _confs else None
+        session_store.log_session_summary(
+            session_id=session_id,
+            user_question=user_message,
+            equipment=session_store.extract_equipment(tool_calls_all),
+            diagnosis=text_content,
+            status=overall_status,
+            confidence=avg_confidence,
+            mode="multi",
+        )
 
     except Exception as exc:
         logger.exception("Orchestrator failed")

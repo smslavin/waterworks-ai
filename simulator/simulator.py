@@ -61,6 +61,11 @@ instance_types: dict[str, str] = {
     for obj_type, instance_id, _ in INSTANCES
 }
 
+# ── Setpoint overrides ────────────────────────────────────────────────────────
+# Written by /setpoint endpoint; applied in the main publish loop.
+# {instance_id: {attribute: value}}
+setpoint_overrides: dict[str, dict[str, float]] = {}
+
 
 # ── MQTT ──────────────────────────────────────────────────────────────────────
 
@@ -203,15 +208,53 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
             content_type="application/json",
         )
 
+    async def handle_setpoint(request: web.Request) -> web.Response:
+        target    = request.query.get("target", "").strip()
+        attribute = request.query.get("attribute", "").strip()
+        value_str = request.query.get("value", "").strip()
+
+        if not target or not attribute or not value_str:
+            return web.Response(
+                status=400,
+                text=json.dumps({"error": "Required params: target, attribute, value"}),
+                content_type="application/json",
+            )
+        if target not in fault_registry:
+            return web.Response(
+                status=404,
+                text=json.dumps({"error": f"Unknown instance '{target}'",
+                                 "known": list(fault_registry)}),
+                content_type="application/json",
+            )
+        try:
+            value = float(value_str)
+        except ValueError:
+            return web.Response(
+                status=400,
+                text=json.dumps({"error": f"value must be numeric, got '{value_str}'"}),
+                content_type="application/json",
+            )
+
+        setpoint_overrides.setdefault(target, {})[attribute] = value
+        logger.info("Setpoint: %s.%s → %s", target, attribute, value)
+        return web.Response(
+            text=json.dumps({"target": target, "attribute": attribute, "value": value}),
+            content_type="application/json",
+        )
+
     app = web.Application()
     app.router.add_post("/fault",       handle_fault)
+    app.router.add_post("/setpoint",    handle_setpoint)
     app.router.add_get("/status",       handle_status)
     app.router.add_get("/fault-modes",  handle_fault_modes)
 
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", CONTROL_PORT).start()
-    logger.info("Control plane    http://0.0.0.0:%d  POST /fault  GET /status", CONTROL_PORT)
+    logger.info(
+        "Control plane    http://0.0.0.0:%d  POST /fault  POST /setpoint  GET /status",
+        CONTROL_PORT,
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -237,6 +280,9 @@ async def main() -> None:
                 for attr_name, gen in attrs.items():
                     raw   = gen.next()
                     value = fault.apply(attr_name, raw)
+                    sp = setpoint_overrides.get(instance_id, {}).get(attr_name)
+                    if sp is not None:
+                        value = sp
 
                     topic   = f"{MQTT_ROOT}/{obj_type}/{instance_id}/{attr_name}"
                     payload = str(int(value) if isinstance(value, bool) else value)

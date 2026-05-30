@@ -12,7 +12,9 @@ import anthropic
 from influxdb_client import InfluxDBClient
 
 import audit
+import control
 import metrics
+import session_store
 from mcp_client import call_mcp_tool, list_mcp_tools
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,10 @@ _INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
 _INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
 _INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
 _INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
+
+# Tool name as exposed by the aggregator (backend_name__tool_name)
+_PROPOSE_ACTION_TOOL = "control__propose_action"
+_ACTION_TIMEOUT      = 300  # seconds to wait for operator decision
 
 
 def _query_fault_history() -> str:
@@ -76,8 +82,9 @@ CLAUDE_MODELS = [
 
 SYSTEM_PROMPT = """You are a process diagnostics assistant for a water treatment plant (WTP).
 
-You have access to tools that read live sensor data via MQTT and OPC-UA, and query
-historical trends from InfluxDB. Use them together to give accurate, grounded answers.
+You have access to tools that read live sensor data via MQTT and OPC-UA, query
+historical trends from InfluxDB, review past diagnostic sessions via audit tools,
+and propose control actions for operator approval.
 
 ── Process units ──────────────────────────────────────────────────────────────
 Pumps
@@ -114,7 +121,27 @@ for a plant-wide snapshot; that is wasteful and slow.
 For targeted queries (one unit, one attribute): use read_topic_value(topic_path).
 
 Always cite specific values and timestamps (e.g. "Flow is 12.4 L/min at 14:32:05").
-Do not assert a value without first reading it from a tool."""
+Do not assert a value without first reading it from a tool.
+
+── Control actions ────────────────────────────────────────────────────────────
+You can propose and execute process control changes using control tools:
+  propose_action(description, action_type, target, value)
+    → Presents the action to the operator for explicit approval.
+    → action_type: "setpoint_adjustment" | "fault_clear"
+    → BLOCKS until the operator approves or denies — do not loop on this call.
+  set_setpoint(target, attribute, value)   → Adjust a process setpoint
+  clear_fault(target)                       → Restore a unit to normal
+
+ALWAYS call propose_action first. Only proceed with set_setpoint or clear_fault
+after the response confirms "Action approved by operator". Never execute a
+control change without prior operator approval in the same session.
+
+── Audit history ──────────────────────────────────────────────────────────────
+Use audit tools to answer questions about past incidents and decisions:
+  list_incidents(date, hours_back)             → Recent fault/anomaly sessions
+  get_session_summary(session_id)              → Full detail + actions for one session
+  query_by_equipment(equipment_id, hours_back) → Sessions for a specific unit
+  query_history(start, end, equipment)         → Narrative-ready time range query"""
 
 
 async def run_chat(
@@ -162,6 +189,10 @@ async def run_chat(
     cached_system = [
         {"type": "text", "text": SYSTEM_PROMPT + fault_history, "cache_control": {"type": "ephemeral"}}
     ]
+
+    # Track all tool calls for equipment extraction at session end
+    _tool_calls_made: list[tuple[str, dict]] = []
+    _final_response_text = ""
 
     try:
         while True:
@@ -220,11 +251,12 @@ async def run_chat(
                 text_content = " ".join(
                     b.text for b in final.content if hasattr(b, "text")
                 )
+                _final_response_text = text_content
                 audit.log("response", session_id=session_id, text=text_content)
                 break
 
             if final.stop_reason == "tool_use":
-                # Build assistant message for history
+                # Build assistant message for conversation history
                 assistant_content = []
                 for block in final.content:
                     if block.type == "text":
@@ -243,15 +275,69 @@ async def run_chat(
                         continue
                     tool_call_count += 1
                     args = dict(block.input)
+                    _tool_calls_made.append((block.name, args))
+
                     audit.log("tool_call", session_id=session_id, tool=block.name, args=args)
                     yield json.dumps({"type": "tool_call", "tool": block.name, "args": args})
 
-                    result = await call_mcp_tool(block.name, args)
-                    if result.startswith("Error"):
-                        error_count += 1
+                    # ── propose_action intercept ───────────────────────────────
+                    if block.name == _PROPOSE_ACTION_TOOL:
+                        action_id = str(uuid.uuid4())[:8]
+                        yield json.dumps({
+                            "type":        "action_proposed",
+                            "action_id":   action_id,
+                            "description": args.get("description", ""),
+                            "action_type": args.get("action_type", ""),
+                            "target":      args.get("target", ""),
+                            "value":       args.get("value", ""),
+                        })
+                        fut = control.register(action_id)
+                        try:
+                            decision = await asyncio.wait_for(fut, timeout=_ACTION_TIMEOUT)
+                        except asyncio.TimeoutError:
+                            decision = "timed_out"
 
-                    audit.log("tool_result", session_id=session_id, tool=block.name, result=result)
-                    yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
+                        session_store.log_action_event(
+                            session_id=session_id,
+                            action_type=args.get("action_type", ""),
+                            target=args.get("target", ""),
+                            value=str(args.get("value", "")),
+                            description=args.get("description", ""),
+                            decision=decision,
+                        )
+                        audit.log(
+                            "action_decision",
+                            session_id=session_id,
+                            action_id=action_id,
+                            decision=decision,
+                        )
+                        yield json.dumps({
+                            "type":      "action_decision",
+                            "action_id": action_id,
+                            "decision":  decision,
+                        })
+
+                        if decision == "approved":
+                            result = (
+                                f"Action approved by operator. "
+                                f"Proceed with {args.get('action_type', 'action')} "
+                                f"on {args.get('target', 'target')}."
+                            )
+                        else:
+                            result = (
+                                f"Action denied by operator ({decision}). "
+                                f"No changes will be made to {args.get('target', 'target')}."
+                            )
+                        audit.log("tool_result", session_id=session_id, tool=block.name, result=result)
+                        yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
+
+                    # ── Normal MCP tool call ────────────────────────────────────
+                    else:
+                        result = await call_mcp_tool(block.name, args)
+                        if result.startswith("Error"):
+                            error_count += 1
+                        audit.log("tool_result", session_id=session_id, tool=block.name, result=result)
+                        yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
 
                     stored = (
                         result if len(result) <= TOOL_RESULT_MAX_CHARS
@@ -309,6 +395,21 @@ async def run_chat(
             context_pressure=context_pressure,
             user_message=user_message,
         )
+
+        # Write session summary for compliance audit trail
+        if _final_response_text or _tool_calls_made:
+            equipment = session_store.extract_equipment(_tool_calls_made)
+            status, confidence = session_store.extract_status_single(_final_response_text)
+            session_store.log_session_summary(
+                session_id=session_id,
+                user_question=user_message,
+                equipment=equipment,
+                diagnosis=_final_response_text,
+                status=status,
+                confidence=confidence,
+                mode="single",
+            )
+
         yield json.dumps({
             "type":             "done",
             "input_tokens":     input_tokens,
