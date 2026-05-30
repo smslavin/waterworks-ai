@@ -8,11 +8,32 @@
 
 
 <img src="chat-ui/static/icon-light.png" alt="WaterWorks AI" width="95" align="left" hspace="10">
-Open source demonstration of natural language industrial process diagnostics. A simulated water treatment plant publishes live sensor data over MQTT and OPC-UA. An AI assistant reads that data through MCP tool calls and diagnoses process conditions in plain English.
+Open source demonstration of natural language industrial process diagnostics. A simulated water treatment plant publishes live sensor data over MQTT and OPC-UA. An AI assistant reads that data through MCP tool calls, diagnoses process conditions in plain English, proposes control actions for operator approval, and maintains a compliance-grade audit trail.
 
 Everything in this stack is open source. No proprietary historians, SCADA platforms or cloud connectors required.
 
 <br clear="left">
+
+---
+
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Screenshots](#screenshots)
+- [How it works](#how-it-works)
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Windows quick start](#windows-quick-start)
+- [Process units](#process-units)
+- [Fault injection](#fault-injection)
+- [Audit and control](#audit-and-control)
+- [Demo sequence](#demo-sequence)
+- [Dashboards](#dashboards)
+- [Context management](#context-management)
+- [Multi-agent diagnostic mode](#multi-agent-diagnostic-mode)
+- [Configuration](#configuration)
+- [Project layout](#project-layout)
+- [Extending](#extending)
 
 ---
 
@@ -22,7 +43,9 @@ Exploring natural language interfaces for industrial systems raises a practical 
 
 This stack uses only open source components. MQTT, OPC-UA, InfluxDB, Grafana, Python. Clone it, run it, see exactly how every layer works.
 
-The fault injection engine makes diagnostic quality verifiable rather than claimed. Inject a known fault, ask the AI what's happening, evaluate the reasoning yourself. The AI doesn't know what was injected. It reads live sensor data, cross-references historical trends and tells you what it found. The Grafana dashboards show AI session behavior alongside process data. Tool calls, latency and token usage alongside the sensor readings the model was reasoning about.
+The fault injection engine makes diagnostic quality verifiable rather than claimed. Inject a known fault, ask the AI what's happening, evaluate the reasoning yourself. The AI doesn't know what was injected. It reads live sensor data, cross-references historical trends and tells you what it found.
+
+The control layer shows what it looks like to give an AI agent write access to a process system with a human in the loop. The AI proposes an action, the operator approves or denies, and both outcomes are recorded with equal fidelity — denial is not a second-class event.
 
 The water treatment plant is a starting point. The architecture transfers to any industrial system with MQTT or OPC-UA data sources.
 
@@ -32,38 +55,42 @@ The water treatment plant is a starting point. The architecture transfers to any
 
 **Natural language fault diagnosis**
 ![Fault diagnosis](docs/images/Screenshot_01.png)
-*Suction starvation injected on RawWater_01. The AI reads live sensor 
-data, queries fault history from InfluxDB, and identifies the condition 
-without being told where to look. Fault history shows the condition 
-occurred twice. The AI notes the root cause may not have been 
-fully resolved the first time.*
+*Suction starvation injected on RawWater_01. The AI reads live sensor
+data, queries fault history from InfluxDB, and identifies the condition
+without being told where to look.*
 
 **Plant health overview**
 ![Health overview](docs/images/Screenshot_02.png)
-*Full plant health check across all process units. The AI identifies 
-run-status discrepancies on three pumps from a prior session. Pumps reporting stopped while delivering flow, pressure, and power.*
+*Full plant health check across all process units. The AI identifies
+run-status discrepancies on three pumps from a prior session.*
 
 **Process monitoring dashboard**
 ![Process dashboard](docs/images/Screenshot_03.png)
-*Grafana process dashboard with fault injection annotations. Red dashed 
-lines mark fault events across all panels simultaneously. Inlet flow KPI 
-in red. The flow drop is visible in the pump flow rates trend.*
+*Grafana process dashboard with fault injection annotations. Red dashed
+lines mark fault events across all panels simultaneously.*
 
 **AI session observability**
 ![AI metrics](docs/images/Screenshot_04.png)
-*AI session telemetry alongside fault events. Tool call count and latency 
-spike at fault injection timestamps. The AI working harder during fault 
-conditions is visible in the data. Estimated session cost: $4.58.*
+*AI session telemetry alongside fault events. Tool call count and latency
+spike at fault injection timestamps.*
 
 **Interface**
 ![UI overview](docs/images/Screenshot_05.png)
-*Clean interface with fault injection panel, server status indicators 
-and fault status panel. Deep Reasoning toggle enables extended thinking 
+*Clean interface with fault injection panel, server status indicators
+and fault status panel. Deep Reasoning toggle enables extended thinking
 for complex diagnostic scenarios.*
 
 **Context management**
 ![Tool call dashboard](docs/images/Screenshot_06.png)
-*Four consecutive health overview sessions. Tool calls per turn: 10, 15, 34, 1. The final session reflects context management in place. Plant topology injected at session start, tool selection guidance in the system prompt. Latency dropped from 58.8s to 21.8s. Response quality unchanged.*
+*Four consecutive health overview sessions. Tool selection guidance in
+the system prompt cut tool calls from 34 to 1. Latency dropped from
+58.8s to 21.8s. Response quality unchanged.*
+
+**Multi-agent mode**
+![Multi-agent Mode](docs/images/Screenshot_07_multi_agent.png)
+*Four specialist agents run in parallel, each scoped to their domain.
+The orchestrator synthesizes cross-system correlations that no single
+specialist could identify.*
 
 ---
 
@@ -79,22 +106,24 @@ Claude API or Ollama
 MCP Aggregator  :8100
     ├── mqtt-mcp      :8001 ──► Mosquitto MQTT broker  :1883
     ├── opcua-mcp     :8002 ──► OPC-UA server (in simulator)
-    └── influxdb-mcp  :8003 ──► InfluxDB  :8086
+    ├── influxdb-mcp  :8003 ──► InfluxDB  :8086
+    ├── audit-mcp     :8004 ──► metrics.db  (session_summaries, action_events)
+    └── control-mcp   :8005 ──► Simulator  :8090  (/fault, /setpoint)
                                     ▲
 Simulator ──────────────────────────┤  publishes to MQTT + OPC-UA simultaneously
                                     │
 MQTT → InfluxDB bridge ─────────────┘  subscribes Plant/WTP/# → writes wtp_process
-  Chat backend also writes AI_Metrics to InfluxDB per turn
+  Chat backend also writes ai_metrics to InfluxDB per turn
 ```
 
-The simulator runs a configurable fault injection engine. Inject a fault mid-session and ask the AI to diagnose it. It reads live values, correlates anomalies across instruments and explains what it sees.
+The simulator runs a configurable fault injection engine. Inject a fault mid-session and ask the AI to diagnose it. It reads live values, correlates anomalies across instruments and explains what it sees. If a corrective action is warranted, it proposes one through the operator approval gate before making any change.
 
 ---
 
 ## Prerequisites
 
 - **Docker Desktop** — runs Mosquitto, InfluxDB, and Grafana
-- **Git with submodule support** — git clone --recurse-submodules is required
+- **Git with submodule support** — `git clone --recurse-submodules` is required
 - **Python 3.11+** — all components are pure Python
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
@@ -117,18 +146,20 @@ Each component gets its own virtualenv. Run this once to create and populate all
 (cd mcp-servers/mqtt-mcp  && uv venv && uv pip install -r requirements.txt)
 (cd mcp-servers/opcua-mcp && uv venv && uv pip install -r requirements.txt)
 (cd influxdb-mcp           && uv venv && uv pip install -r requirements.txt)
+(cd audit-mcp              && uv venv && uv pip install -r requirements.txt)
+(cd control-mcp            && uv venv && uv pip install -r requirements.txt)
 (cd mcp-aggregator/server  && uv venv && uv pip install -r requirements.txt)
 (cd chat-ui                && uv venv && uv pip install -r requirements.txt)
 (cd mqtt-influx-bridge     && uv venv && uv pip install -r requirements.txt)
 ```
 
-Then open eight terminals (or a terminal multiplexer) and run each in order:
+Then open ten terminals (or a terminal multiplexer) and run each in order:
 
 ```bash
 # 1 — Infrastructure
 docker compose up -d
 
-# 2 — Simulator  (MQTT + OPC-UA, fault control on :8090)
+# 2 — Simulator  (MQTT + OPC-UA, fault/setpoint control on :8090)
 cd simulator && .venv/bin/python simulator.py
 
 # 3 — MQTT MCP server
@@ -140,13 +171,19 @@ cd mcp-servers/opcua-mcp && FASTMCP_PORT=8002 .venv/bin/python server.py
 # 5 — InfluxDB MCP server
 cd influxdb-mcp && .venv/bin/python server.py
 
-# 6 — MCP Aggregator  (our backends.json, upstream server code)
+# 6 — Audit MCP server
+cd audit-mcp && .venv/bin/python server.py
+
+# 7 — Control MCP server
+cd control-mcp && .venv/bin/python server.py
+
+# 8 — MCP Aggregator  (our backends.json, upstream server code)
 cd mcp-aggregator/server && BACKENDS_FILE=../backends.json .venv/bin/python server.py
 
-# 7 — MQTT → InfluxDB bridge  (writes process data to InfluxDB for historical queries)
+# 9 — MQTT → InfluxDB bridge
 cd mqtt-influx-bridge && .venv/bin/python bridge.py
 
-# 8 — Chat UI
+# 10 — Chat UI
 cd chat-ui && .venv/bin/python backend.py
 ```
 
@@ -163,12 +200,12 @@ The quick start above uses bash syntax. PowerShell equivalents follow. Clone and
 **Create virtualenvs** — run from the repo root in PowerShell:
 
 ```powershell
-foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
+foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "audit-mcp", "control-mcp", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
     Push-Location $dir; uv venv; uv pip install -r requirements.txt; Pop-Location
 }
 ```
 
-**Start services** — open eight PowerShell terminals and run each in order:
+**Start services** — open ten PowerShell terminals and run each in order:
 
 ```powershell
 # 1 — Infrastructure
@@ -186,13 +223,19 @@ cd mcp-servers\opcua-mcp; $env:FASTMCP_PORT = "8002"; .venv\Scripts\python serve
 # 5 — InfluxDB MCP server
 cd influxdb-mcp; .venv\Scripts\python server.py
 
-# 6 — MCP Aggregator
+# 6 — Audit MCP server
+cd audit-mcp; .venv\Scripts\python server.py
+
+# 7 — Control MCP server
+cd control-mcp; .venv\Scripts\python server.py
+
+# 8 — MCP Aggregator
 cd mcp-aggregator\server; $env:BACKENDS_FILE = "..\backends.json"; .venv\Scripts\python server.py
 
-# 7 — MQTT → InfluxDB bridge
+# 9 — MQTT → InfluxDB bridge
 cd mqtt-influx-bridge; .venv\Scripts\python bridge.py
 
-# 8 — Chat UI
+# 10 — Chat UI
 cd chat-ui; .venv\Scripts\python backend.py
 ```
 
@@ -268,16 +311,70 @@ Fault modes are equipment-specific. The injection panel only shows modes valid f
 
 ---
 
+## Audit and control
+
+Beyond read-only diagnostics, the stack includes a compliance-grade audit trail and an operator-gated control layer.
+
+### Session summaries
+
+Every completed session — single-agent and multi-agent — writes a `session_summary` record containing the user question, equipment touched, the AI's diagnosis, overall status (Normal / Anomaly Detected / Fault Detected), and a confidence score. Action events (proposals and operator decisions) are linked to the session by ID.
+
+These records are queryable by the AI itself in subsequent sessions. Ask *"what happened yesterday at 2am?"* and it reads the audit trail to narrate the incident rather than re-reading raw sensor data.
+
+### Audit MCP tools
+
+`audit-mcp` exposes four tools through the aggregator:
+
+| Tool | Purpose |
+|---|---|
+| `list_incidents(date, hours_back)` | Fault and anomaly sessions in a date window |
+| `get_session_summary(session_id)` | Full record: diagnosis, confidence, actions, decisions |
+| `query_by_equipment(equipment_id, hours_back)` | All sessions touching a specific unit |
+| `query_history(start, end, equipment)` | Narrative-ready correlated records for a time range |
+
+`query_history` returns records pre-correlated in causal order: `fault detected → diagnosis → action proposed → operator decision → outcome`. The AI receives the structure and synthesizes the narrative — it does not need additional tool calls to tell the story.
+
+### Control actions and operator approval
+
+`control-mcp` exposes three tools:
+
+| Tool | Purpose |
+|---|---|
+| `propose_action(description, action_type, target, value)` | Request operator approval before any change |
+| `set_setpoint(target, attribute, value)` | Write a new setpoint to the simulator |
+| `clear_fault(target)` | Restore a unit to normal operation |
+
+When the AI calls `propose_action`, the backend intercepts it before it reaches the MCP server. The SSE stream pauses, an approval dialog appears in the UI with the action details and rationale, and the stream blocks until the operator decides. Approval unblocks the stream and the AI proceeds with the execution tool. Denial returns a denial message to the AI, which acknowledges it and does not proceed.
+
+Both outcomes are recorded in `action_events` with equal fidelity. *"AI proposed increasing chlorine setpoint, operator denied"* is compliance-relevant data. Denials are not second-class events.
+
+### Setpoint ramping
+
+Setpoint changes use a first-order lag rather than an instantaneous clamp. Each simulator tick moves the published value 10% of the remaining distance toward the target. The value approaches exponentially and snaps when within 0.01 units. This matches physical process behavior where actuators don't jump instantly to a new setpoint.
+
+---
+
 ## Demo sequence
+
+### Basic diagnostic demo
 
 1. Start all services and open http://localhost:8080
 2. Ask: *"Give me a health overview of the plant"* — establishes baseline
 3. Inject: `RawWater_01 → suction_starvation`
 4. Ask: *"There seems to be an issue. Can you tell what is happening?"*
-5. Watch the AI cross-reference live values, pull historical data 
-   from InfluxDB, and diagnose without being told where the fault is
-6. Click the Dashboards button in the chat UI or open http://localhost:3000 directly, fault annotation visible on both process and AI metrics dashboards
+5. Watch the AI cross-reference live values, pull historical data from InfluxDB, and diagnose without being told where the fault is
+6. Open http://localhost:3000 — fault annotation visible on both dashboards
 7. Clear the fault, ask the AI to confirm recovery
+
+### Audit and control demo
+
+1. Continue from the basic demo (or inject a new fault)
+2. Ask the AI to diagnose and propose a corrective action
+3. The approval dialog appears — review the rationale, approve or deny
+4. If approved: the AI calls `set_setpoint` or `clear_fault`; the value ramps toward the new target
+5. Ask the AI to confirm the change took effect by reading live sensor data
+6. Start a new session and ask: *"What happened in the last hour?"*
+7. The AI uses audit tools to narrate the incident, diagnosis, and operator decision from the session record
 
 ---
 
@@ -293,23 +390,19 @@ Two dashboards are pre-provisioned:
 
 | Panel | What it shows |
 |---|---|
-| Questions Answered | One count per user question in both modes (orchestrator rows for multi-agent) |
-| Avg Response Latency | End-to-end latency from the user's perspective — specialist calls excluded |
+| Questions Answered | One count per user question in both modes |
+| Avg Response Latency | End-to-end latency from the user's perspective |
 | Total Tool Calls | All tool calls across all agents |
 | Errors | Error count across all agents |
 | Est. Cost | Model-aware: Haiku $0.80/$4, Sonnet $3/$15, Opus $15/$75 per 1M in/out tokens |
-| AI Activity During Faults | Tool calls (all agents) and response latency over time, with fault annotations |
-| Token Usage per Turn | Per-turn tokens, labeled by agent role (single / intake / orchestrator / etc.) |
+| AI Activity During Faults | Tool calls and response latency over time, with fault annotations |
+| Token Usage per Turn | Per-turn tokens, labeled by agent role |
 | Tool Calls per Turn | Per-turn tool calls, same role grouping |
-| **Specialist Latency** | Latency per specialist call over time — shows orchestrator vs. each specialist |
-| **Specialist Confidence** | Diagnostic confidence (0–1) per specialist per session |
-| **Specialist Diagnostic Status** | State timeline — color-coded Normal / Anomaly Detected / Fault Detected strip per specialist |
+| Specialist Latency | Latency per specialist call — shows orchestrator vs. each specialist |
+| Specialist Confidence | Diagnostic confidence (0–1) per specialist per session |
+| Specialist Diagnostic Status | Color-coded Normal / Anomaly / Fault strip per specialist |
 
-The bottom three panels are only populated in multi-agent mode. Fault annotations appear on both dashboards at the same timestamps, so the AI working harder during fault conditions is visible in the data.
-
-The chat UI includes a **Dashboards** button that opens Grafana directly without requiring login. Both dashboards are available immediately after `docker compose up`.
-
-AI_Metrics are written to the `ai_metrics` measurement with `model`, `session_id`, and `specialist` tags. In multi-agent mode each specialist and the orchestrator log separately with their own `specialist` tag, enabling per-role breakdowns in Grafana.
+The bottom three panels are only populated in multi-agent mode. Fault annotations appear on both dashboards at the same timestamps.
 
 InfluxDB UI is at **http://localhost:8086**.
 
@@ -317,36 +410,29 @@ InfluxDB UI is at **http://localhost:8086**.
 
 ## Context management
 
-The chat backend actively manages the Claude API context window across a session. Several mechanisms work together.
+The chat backend actively manages the Claude API context window across a session.
 
-**Prompt caching**  
-The system prompt and tool definitions are marked with `cache_control: ephemeral`. After the first API call in a session, both are served from Anthropic's prompt cache rather than re-tokenized. On multi-turn sessions with many tool calls this reduces input token cost by 80–90% and cuts time-to-first-token noticeably.
+**Prompt caching** — the system prompt and tool definitions are marked with `cache_control: ephemeral`. After the first API call in a session, both are served from Anthropic's prompt cache. On multi-turn sessions with many tool calls this reduces input token cost by 80–90% and cuts time-to-first-token noticeably.
 
-**Token budget warnings**  
-The backend tracks `input_tokens` returned by each API call. When context usage crosses 70% of the context window, a `[System: ...]` instruction is prepended to the next tool result message asking the model to be concise and avoid unnecessary tool calls. At 85% it instructs the model to summarize findings and stop calling tools. The thresholds are one-shot per session. The warning fires once at each level and is not repeated.
+**Token budget warnings** — when context usage crosses 70% of the context window, a `[System: ...]` instruction prepends the next tool result asking the model to be concise. At 85% it instructs the model to summarize and stop calling tools. Each threshold fires once per session.
 
-Both thresholds use the same `CONTEXT_WINDOW_TOKENS` value as the denominator. Override it via env var if you want earlier warnings in a constrained environment.
+**Fault history injection** — on the first turn of a new session, the backend queries InfluxDB for the 10 most recent `wtp_fault_events` and appends them to the system prompt. The AI is aware of prior fault patterns but still has to discover the current fault by reading live data.
 
-**Fault history injection**  
-On the first turn of a new session, the backend queries InfluxDB for the 10 most recent `wtp_fault_events` and appends them to the system prompt. This gives the AI awareness of prior fault patterns without telling it the current fault state. The AI still has to discover what is wrong by reading live sensor data. The injection happens only on session start so it doesn't repeat or accumulate.
+**Context pressure metric** — `context_pressure` (a 0–1 ratio of `input_tokens / CONTEXT_WINDOW_TOKENS`) is written to InfluxDB and SQLite per turn. The sidebar shows a color-coded bar: green below 70%, amber at 70–85%, red above 85%.
 
-**Context pressure metric**  
-`context_pressure` (a 0–1 ratio of `input_tokens / CONTEXT_WINDOW_TOKENS`) is written to InfluxDB and SQLite per turn alongside the other AI_Metrics. The sidebar in the chat UI shows a color-coded bar: green below 70%, amber at 70–85%, red above 85%.
-
-**Tool selection guidance**  
-The system prompt instructs the model to use `get_full_topic_tree()` for broad queries like plant health overviews and `read_topic_value()` only for targeted single-attribute reads. Without this guidance the model calls `read_topic_value` once per attribute. 34 sequential calls for a full plant snapshot. With it, a health overview typically completes in 1–3 tool calls.
+**Tool selection guidance** — the system prompt instructs the model to use `get_full_topic_tree()` for broad queries and `read_topic_value()` only for targeted single-attribute reads. Without this, a full plant snapshot costs 34 sequential tool calls. With it, typically 1–3.
 
 ---
 
 ## Multi-agent diagnostic mode
 
-The chat UI has a **Single Agent / Multi Agent** toggle. In multi-agent mode a query fans out to four specialist Haiku agents running in parallel, then a Sonnet orchestrator synthesizes their findings into a single response.
+The chat UI has a **Single Agent / Multi Agent** toggle. In multi-agent mode a query fans out to four specialist Haiku agents running in parallel, then a Sonnet orchestrator synthesizes their findings.
 
 ```
 User query
     │
     ▼
-Orchestrator (Sonnet — no tools)
+Orchestrator (Sonnet — control tools)
     │
     ├── Intake specialist       (Haiku — mqtt + influxdb)
     │     RawWater_01, RawWater_02
@@ -361,14 +447,11 @@ Orchestrator (Sonnet — no tools)
           All units, historical trends only
 ```
 
-All four specialists run simultaneously via `asyncio.gather()`. Each is given only the tool subset relevant to its process area — OPC-UA is excluded from all specialists as redundant with MQTT. The orchestrator receives the four findings and synthesizes them; it never calls tools itself.
+All four specialists run simultaneously via `asyncio.gather()`. Each is scoped to the tool subset relevant to its process area. The orchestrator synthesizes the four findings and, if a clear fault is detected, may propose a control action using the same operator approval flow as single-agent mode.
 
-The UI shows a chip for each specialist. Chips update in real time as events arrive — all four can show "running" simultaneously during fan-out. Each chip transitions to a color-coded status (Normal / Anomaly Detected / Fault Detected) with a confidence score when the specialist completes.
+The UI shows a chip for each specialist. Chips update in real time as events arrive and transition to a color-coded status (Normal / Anomaly Detected / Fault Detected) with a confidence score when each specialist completes.
 
-Multi-agent mode requires a Claude API key. Ollama support is on the roadmap. It is incompatible with the Deep Reasoning toggle.
-
-![Multi-agent Mode](docs/images/Screenshot_07_multi_agent.png)
-*Multi-agent diagnostic mode. Four specialist agents run in parallel, each scoped to their domain at the aggregator level. The orchestrator synthesizes cross-system correlations that no single specialist could identify. Including flow imbalances across domain boundaries and recognition of simultaneous multi-pump anomalies as potential systemic failures.*
+Multi-agent mode requires a Claude API key. It is incompatible with the Deep Reasoning toggle.
 
 ---
 
@@ -385,8 +468,8 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `INFLUXDB_BUCKET` | `waterworks` | Default bucket for all data |
 | `PUBLISH_INTERVAL` | `2.0` | Simulator tick rate in seconds |
 | `OPCUA_PORT` | `4840` | OPC-UA server port |
-| `CONTROL_PORT` | `8090` | Simulator fault control HTTP port |
-| `CONTEXT_WINDOW_TOKENS` | `200000` | Context window size for budget warnings — override for smaller demo environments |
+| `CONTROL_PORT` | `8090` | Simulator fault/setpoint control HTTP port |
+| `CONTEXT_WINDOW_TOKENS` | `200000` | Context window size for budget warnings |
 
 > **Note:** `INFLUXDB_TOKEN` and the other `DOCKER_INFLUXDB_INIT_*` values are only used on a fresh volume. After the first `docker compose up` they are baked in. Reset with `docker compose down -v`.
 
@@ -397,30 +480,33 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 ```
 waterworks-ai/
 ├── simulator/              Dual MQTT+OPC-UA WTP simulator with fault injection
-│   ├── simulator.py        Entrypoint — asyncio event loop, paho MQTT, asyncua
+│   ├── simulator.py        Entrypoint — asyncio loop, paho MQTT, asyncua, HTTP control plane
 │   ├── generators.py       RandomWalk and OscillatingBool value generators
 │   ├── faults.py           FaultMode enum and per-instance fault state machine
 │   └── instances.py        WTP instance registry
-├── influxdb-mcp/           FastMCP server: write_point, query, list_measurements
+├── influxdb-mcp/           FastMCP server :8003 — write_point, query, list_measurements
+├── audit-mcp/              FastMCP server :8004 — session/action history query tools
+├── control-mcp/            FastMCP server :8005 — propose_action, set_setpoint, clear_fault
 ├── chat-ui/                Starlette/SSE backend and vanilla JS frontend
-│   ├── backend.py          Routes: /api/chat, /api/models, /api/health, /api/fault
-│   ├── claude_loop.py      Claude API streaming loop with MCP tool calling
-│   ├── multi_agent_loop.py Fan-out to 4 specialist agents + orchestrator synthesis
+│   ├── backend.py          Routes: /api/chat, /api/health, /api/fault, /api/action/respond
+│   ├── claude_loop.py      Claude API streaming loop — MCP tools, propose_action intercept
+│   ├── multi_agent_loop.py Fan-out to 4 specialist agents + orchestrator with control tools
 │   ├── openai_loop.py      OpenAI-compatible loop for Ollama
 │   ├── mcp_client.py       MCP aggregator client (per-url tool cache, list/call tools)
-│   ├── metrics.py          AI_Metrics → InfluxDB per turn
-│   ├── audit.py            JSONL audit log
+│   ├── session_store.py    session_summaries + action_events tables in metrics.db
+│   ├── control.py          asyncio Future registry for the operator approval flow
+│   ├── metrics.py          ai_metrics → InfluxDB + SQLite per turn
+│   ├── audit.py            JSONL audit log (tool calls, responses, errors)
 │   ├── providers.json      LLM provider and model configuration
 │   └── static/             index.html + app.js (no framework, no bundler)
 ├── mqtt-influx-bridge/     Subscribes Plant/WTP/# → writes wtp_process to InfluxDB
-│   └── bridge.py           Paho subscriber + batched InfluxDB write
 ├── mcp-servers/            Git submodule — mqtt-mcp (:8001) and opcua-mcp (:8002)
 ├── mcp-aggregator/
 │   ├── server/             Git submodule — aggregator server code (:8100)
 │   └── backends.json       Waterworks endpoint config (BACKENDS_FILE=../backends.json)
 ├── docker/
 │   ├── mosquitto/          mosquitto.conf (anonymous, persistence on)
-│   └── grafana/            Provisioned InfluxDB datasource
+│   └── grafana/            Provisioned InfluxDB datasource and dashboards
 ├── docker-compose.yml      Mosquitto + InfluxDB 2.7 + Grafana (named volumes)
 └── .env.example            All environment variables with defaults
 ```
@@ -433,6 +519,6 @@ waterworks-ai/
 
 **Add a new fault mode:** add a member to `FaultMode` in `simulator/faults.py` and a corresponding `_method` in `FaultState`. The HTTP control plane picks it up with no other changes.
 
-**Add an MCP server:** add an entry to `mcp-aggregator/backends.json`. The aggregator discovers and prefixes its tools at startup.
+**Add an MCP server:** add an entry to `mcp-aggregator/backends.json`. The aggregator discovers and prefixes its tools at startup. Use the management API (`POST /backends`) to add backends at runtime without a restart.
 
 **Add a Grafana dashboard:** drop a JSON dashboard file into `docker/grafana/provisioning/dashboards/` and add a dashboards provisioning YAML alongside it.
