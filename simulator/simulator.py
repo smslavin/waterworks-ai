@@ -63,8 +63,14 @@ instance_types: dict[str, str] = {
 
 # ── Setpoint overrides ────────────────────────────────────────────────────────
 # Written by /setpoint endpoint; applied in the main publish loop.
-# {instance_id: {attribute: value}}
+# {instance_id: {attribute: target_value}}
 setpoint_overrides: dict[str, dict[str, float]] = {}
+
+# First-order ramp state: current ramped value per (instance_id, attribute).
+# Initialized from the live value when a setpoint is first set.
+# {instance_id: {attribute: current_ramped_value}}
+_setpoint_ramp: dict[str, dict[str, float]] = {}
+_RAMP_FRACTION = 0.10  # move 10 % of remaining gap each tick → exponential approach
 
 
 # ── MQTT ──────────────────────────────────────────────────────────────────────
@@ -280,9 +286,16 @@ async def main() -> None:
                 for attr_name, gen in attrs.items():
                     raw   = gen.next()
                     value = fault.apply(attr_name, raw)
-                    sp = setpoint_overrides.get(instance_id, {}).get(attr_name)
-                    if sp is not None:
-                        value = sp
+                    sp_target = setpoint_overrides.get(instance_id, {}).get(attr_name)
+                    if sp_target is not None:
+                        inst_ramp = _setpoint_ramp.setdefault(instance_id, {})
+                        if attr_name not in inst_ramp:
+                            inst_ramp[attr_name] = value  # seed from live value
+                        current = inst_ramp[attr_name]
+                        gap = sp_target - current
+                        current = sp_target if abs(gap) < 0.01 else round(current + gap * _RAMP_FRACTION, 2)
+                        inst_ramp[attr_name] = current
+                        value = current
 
                     topic   = f"{MQTT_ROOT}/{obj_type}/{instance_id}/{attr_name}"
                     payload = str(int(value) if isinstance(value, bool) else value)

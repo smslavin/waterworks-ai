@@ -13,6 +13,7 @@ from typing import AsyncIterator
 import anthropic
 
 import audit
+import control
 import metrics
 import session_store
 from mcp_client import call_mcp_tool, list_mcp_tools
@@ -183,7 +184,18 @@ Your job is to synthesize these findings into a single coherent diagnostic respo
 - If a specialist reported Status: Error or Status: Unknown, note the gap in coverage
 
 Do not make up data. Only synthesize what the specialists reported.
-Do not call any tools. Respond in plain text with markdown formatting."""
+Respond in plain text with markdown formatting.
+
+── Control actions ────────────────────────────────────────────────────────────
+If the synthesis reveals a clear fault requiring immediate corrective action,
+you MAY propose one action for operator approval using propose_action. Only do
+this when the evidence is strong — do not propose actions for Normal status or
+minor anomalies. After approval, call the appropriate execution tool.
+
+ALWAYS call propose_action before set_setpoint or clear_fault. Never execute
+a control change without prior operator approval in the same response."""
+
+_ORCHESTRATOR_TOOL_PREFIXES = ("control__",)
 
 _FINDINGS_RE = re.compile(
     r"FINDINGS:\s*\nStatus:\s*(.+)\nConfidence:\s*([0-9.]+)",
@@ -393,24 +405,122 @@ async def run_multi_agent(
     )
 
     orch_input_tokens = orch_output_tokens = 0
+    orch_tool_call_count = 0
     orch_start = time.monotonic()
 
+    orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
+    orch_api_tools = [
+        {
+            **({"cache_control": {"type": "ephemeral"}} if i == len(orch_tools) - 1 else {}),
+            "name": t["name"],
+            "description": t["description"],
+            "input_schema": t["inputSchema"],
+        }
+        for i, t in enumerate(orch_tools)
+    ]
+    orch_conv = [{"role": "user", "content": orchestrator_user}]
+    orch_full_text = ""
+
     try:
-        async with client.messages.stream(
-            model=ORCHESTRATOR_MODEL,
-            max_tokens=2048,
-            system=[{"type": "text", "text": _ORCHESTRATOR_SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": orchestrator_user}],
-        ) as stream:
-            async for text in stream.text_stream:
-                yield json.dumps({"type": "text", "text": text})
+        while True:
+            orch_kwargs: dict = dict(
+                model=ORCHESTRATOR_MODEL,
+                max_tokens=2048,
+                system=[{"type": "text", "text": _ORCHESTRATOR_SYSTEM,
+                          "cache_control": {"type": "ephemeral"}}],
+                messages=orch_conv,
+            )
+            if orch_api_tools:
+                orch_kwargs["tools"] = orch_api_tools
 
-            final = await stream.get_final_message()
+            async with client.messages.stream(**orch_kwargs) as stream:
+                async for text in stream.text_stream:
+                    orch_full_text += text
+                    yield json.dumps({"type": "text", "text": text})
+                final = await stream.get_final_message()
 
-        orch_input_tokens  = final.usage.input_tokens
-        orch_output_tokens = final.usage.output_tokens
+            orch_input_tokens  += final.usage.input_tokens
+            orch_output_tokens += final.usage.output_tokens
 
-        text_content = " ".join(b.text for b in final.content if hasattr(b, "text"))
+            if final.stop_reason == "end_turn":
+                break
+
+            if final.stop_reason == "tool_use":
+                assistant_content = []
+                for block in final.content:
+                    if block.type == "text":
+                        assistant_content.append({"type": "text", "text": block.text})
+                    elif block.type == "tool_use":
+                        assistant_content.append({
+                            "type": "tool_use", "id": block.id,
+                            "name": block.name, "input": dict(block.input),
+                        })
+
+                tool_results = []
+                for block in final.content:
+                    if block.type != "tool_use":
+                        continue
+                    orch_tool_call_count += 1
+                    args = dict(block.input)
+                    audit.log("tool_call", session_id=session_id, tool=block.name,
+                              args=args, specialist="orchestrator")
+                    yield json.dumps({"type": "tool_call", "tool": block.name, "args": args})
+
+                    if block.name == "control__propose_action":
+                        action_id = str(uuid.uuid4())[:8]
+                        yield json.dumps({
+                            "type":        "action_proposed",
+                            "action_id":   action_id,
+                            "description": args.get("description", ""),
+                            "action_type": args.get("action_type", ""),
+                            "target":      args.get("target", ""),
+                            "value":       args.get("value", ""),
+                        })
+                        fut = control.register(action_id)
+                        try:
+                            decision = await asyncio.wait_for(fut, timeout=300)
+                        except asyncio.TimeoutError:
+                            decision = "timed_out"
+
+                        session_store.log_action_event(
+                            session_id=session_id,
+                            action_type=args.get("action_type", ""),
+                            target=args.get("target", ""),
+                            value=str(args.get("value", "")),
+                            description=args.get("description", ""),
+                            decision=decision,
+                        )
+                        audit.log("action_decision", session_id=session_id,
+                                  action_id=action_id, decision=decision)
+                        yield json.dumps({"type": "action_decision",
+                                          "action_id": action_id, "decision": decision})
+                        if decision == "approved":
+                            result = (f"Action approved by operator. Proceed with "
+                                      f"{args.get('action_type', '')} on {args.get('target', '')}.")
+                        else:
+                            result = (f"Action denied by operator ({decision}). "
+                                      f"No changes to {args.get('target', '')}.")
+                    else:
+                        result = await call_mcp_tool(block.name, args)
+
+                    audit.log("tool_result", session_id=session_id,
+                              tool=block.name, result=result, specialist="orchestrator")
+                    yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
+
+                    stored = (result if len(result) <= TOOL_RESULT_MAX_CHARS
+                              else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]")
+                    tool_results.append({"type": "tool_result",
+                                         "tool_use_id": block.id, "content": stored})
+
+                orch_conv = orch_conv + [
+                    {"role": "assistant", "content": assistant_content},
+                    {"role": "user",      "content": tool_results},
+                ]
+                continue
+
+            break
+
+        text_content = orch_full_text
         audit.log("response", session_id=session_id, text=text_content)
 
         # Write session summary for compliance audit trail
@@ -447,7 +557,7 @@ async def run_multi_agent(
         model=ORCHESTRATOR_MODEL,
         input_tokens=orch_input_tokens,
         output_tokens=orch_output_tokens,
-        tool_call_count=0,
+        tool_call_count=orch_tool_call_count,
         error_count=0,
         latency_ms=int((time.monotonic() - orch_start) * 1000),
         context_pressure=None,
