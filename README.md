@@ -241,6 +241,26 @@ cd chat-ui; .venv\Scripts\python backend.py
 
 The `curl` commands in the fault injection section work as-is in PowerShell 7+ and Windows 10+. If `curl` resolves to `Invoke-WebRequest` instead, use `curl.exe` explicitly.
 
+**Running as Windows services (server deployments)**
+
+For a Windows Server VM, use [NSSM](https://nssm.cc/download) to run each component as a Windows service instead of keeping terminals open. After creating venvs and configuring `.env`:
+
+```cmd
+REM Run as Administrator
+windows\install-services.bat
+```
+
+This installs all nine components as auto-start services with log rotation to `C:\logs\waterworks\`. Start infrastructure first, then services:
+
+```cmd
+docker compose up -d
+net start WaterWorks-Simulator
+net start WaterWorks-MqttMcp
+REM ... (install script prints the full sequence)
+```
+
+After the first manual start, services restart automatically at boot and on failure. To remove: `windows\uninstall-services.bat`.
+
 ---
 
 ## Process units
