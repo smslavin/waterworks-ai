@@ -33,6 +33,7 @@ _INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
 _process_state_cache: tuple[float, str] | None = None
 _PROCESS_STATE_TTL = 60.0
+_unit_running: dict[str, bool] = {}  # populated by _fetch_process_state; keyed by unit name
 
 _TYPE_ORDER  = ["Pump", "Tank", "Dosing", "UV"]
 _TYPE_LABELS = {"Pump": "Pumps", "Tank": "Tanks", "Dosing": "Dosing", "UV": "UV"}
@@ -81,8 +82,8 @@ async def _fetch_fault_history() -> str:
         return ""
 
 
-def _parse_topic_tree(raw: str) -> str:
-    """Parse get_full_topic_tree output into a compact grouped running-state summary."""
+def _parse_topic_tree(raw: str) -> dict[str, dict[str, list[str]]]:
+    """Parse get_full_topic_tree output into {type: {running: [...], stopped: [...]}}."""
     current_type: str | None = None
     current_instance: str | None = None
     units: dict[str, dict[str, list[str]]] = {}
@@ -106,6 +107,11 @@ def _parse_topic_tree(raw: str) -> str:
             bucket = "running" if val.lower() in ("true", "1") else "stopped"
             units[current_type][bucket].append(current_instance)
 
+    return units
+
+
+def _format_process_state(units: dict[str, dict[str, list[str]]]) -> str:
+    """Format parsed unit states into a compact grouped running-state summary."""
     if not units:
         return "Process units: unavailable"
 
@@ -125,8 +131,22 @@ def _parse_topic_tree(raw: str) -> str:
     return "\n".join(lines)
 
 
+def running_state_for(unit_names: list[str]) -> str:
+    """Return a compact running-state string for a subset of units (for specialist prompts)."""
+    if not _unit_running:
+        return ""
+    running = [u for u in unit_names if _unit_running.get(u, False)]
+    stopped = [u for u in unit_names if not _unit_running.get(u, False)]
+    parts = []
+    if running:
+        parts.append(f"Running: {', '.join(running)}")
+    if stopped:
+        parts.append(f"Stopped: {', '.join(stopped)}")
+    return "  ".join(parts) if parts else ""
+
+
 async def _fetch_process_state() -> str:
-    global _process_state_cache
+    global _process_state_cache, _unit_running
     if _process_state_cache and (time.monotonic() - _process_state_cache[0]) < _PROCESS_STATE_TTL:
         return _process_state_cache[1]
     try:
@@ -134,7 +154,14 @@ async def _fetch_process_state() -> str:
             call_mcp_tool("mqtt__get_full_topic_tree", {}),
             timeout=10.0,
         )
-        state = _parse_topic_tree(raw)
+        parsed = _parse_topic_tree(raw)
+        _unit_running = {
+            name: True  for data in parsed.values() for name in data["running"]
+        }
+        _unit_running.update({
+            name: False for data in parsed.values() for name in data["stopped"]
+        })
+        state = _format_process_state(parsed)
     except Exception as exc:
         logger.warning("Could not fetch process state from MQTT: %s", exc)
         state = "Process units: unavailable (MQTT not reachable)"
