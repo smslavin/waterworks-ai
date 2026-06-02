@@ -95,6 +95,7 @@ specialist could identify.*
 **Operator approval**
 ![Approval dialog](docs/images/Screenshot_08_approval.png)
 *Agent validates a bearing wear finding on RawWater_P01 as actionable. Before executing the setpoint write, the operator is prompted to approve or deny.*
+
 ---
 
 ## How it works
