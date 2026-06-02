@@ -31,6 +31,12 @@ _INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
 _INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
 _INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
+_process_state_cache: tuple[float, str] | None = None
+_PROCESS_STATE_TTL = 60.0
+
+_TYPE_ORDER  = ["Pump", "Tank", "Dosing", "UV"]
+_TYPE_LABELS = {"Pump": "Pumps", "Tank": "Tanks", "Dosing": "Dosing", "UV": "UV"}
+
 # Tool name as exposed by the aggregator (backend_name__tool_name)
 _PROPOSE_ACTION_TOOL = "control__propose_action"
 _ACTION_TIMEOUT      = 300  # seconds to wait for operator decision
@@ -74,33 +80,95 @@ async def _fetch_fault_history() -> str:
         logger.warning("Could not fetch fault history from InfluxDB: %s", exc)
         return ""
 
+
+def _parse_topic_tree(raw: str) -> str:
+    """Parse get_full_topic_tree output into a compact grouped running-state summary."""
+    current_type: str | None = None
+    current_instance: str | None = None
+    units: dict[str, dict[str, list[str]]] = {}
+
+    for line in raw.splitlines():
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("["):
+            continue
+        depth = (len(line) - len(stripped)) // 2
+        key, _, val = stripped.partition(" = ")
+        val = val.strip() if val else None
+
+        if depth == 2:
+            current_type = key
+            current_instance = None
+            if current_type not in units:
+                units[current_type] = {"running": [], "stopped": []}
+        elif depth == 3 and current_type:
+            current_instance = key
+        elif depth == 4 and current_type and current_instance and key == "Running" and val is not None:
+            bucket = "running" if val.lower() in ("true", "1") else "stopped"
+            units[current_type][bucket].append(current_instance)
+
+    if not units:
+        return "Process units: unavailable"
+
+    lines = []
+    ordered = [t for t in _TYPE_ORDER if t in units]
+    ordered += sorted(t for t in units if t not in _TYPE_ORDER)
+    for type_key in ordered:
+        label  = _TYPE_LABELS.get(type_key, type_key)
+        data   = units[type_key]
+        run_s  = ", ".join(data["running"]) or "none"
+        stop_s = ", ".join(data["stopped"])
+        row    = f"{label:<10} Running: {run_s}"
+        if stop_s:
+            row += f"\n           Stopped: {stop_s}"
+        lines.append(row)
+
+    return "\n".join(lines)
+
+
+async def _fetch_process_state() -> str:
+    global _process_state_cache
+    if _process_state_cache and (time.monotonic() - _process_state_cache[0]) < _PROCESS_STATE_TTL:
+        return _process_state_cache[1]
+    try:
+        raw = await asyncio.wait_for(
+            call_mcp_tool("mqtt__get_full_topic_tree", {}),
+            timeout=10.0,
+        )
+        state = _parse_topic_tree(raw)
+    except Exception as exc:
+        logger.warning("Could not fetch process state from MQTT: %s", exc)
+        state = "Process units: unavailable (MQTT not reachable)"
+    _process_state_cache = (time.monotonic(), state)
+    return state
+
+
+def build_system_prompt(process_units: str, alarm_history: str) -> str:
+    return _SYSTEM_PROMPT_BASE.format(
+        process_units=process_units,
+        alarm_history=alarm_history,
+    )
+
+
 CLAUDE_MODELS = [
     "claude-sonnet-4-6",
     "claude-opus-4-7",
     "claude-haiku-4-5-20251001",
 ]
 
-SYSTEM_PROMPT = """You are a process diagnostics assistant for a water treatment plant (WTP).
+_SYSTEM_PROMPT_BASE = """You are a process diagnostics assistant for a water treatment plant (WTP).
 
 You have access to tools that read live sensor data via MQTT and OPC-UA, query
 historical trends from InfluxDB, review past diagnostic sessions via audit tools,
 and propose control actions for operator approval.
 
-── Process units ──────────────────────────────────────────────────────────────
-Pumps
-  RawWater_01, RawWater_02       raw water intake (suction → clarifier)
-  HighService_01, HighService_02 treated water distribution to mains
-  Attributes: Flow (L/min), Pressure (bar), Power (kW), Running (bool)
+── Process units (live) ───────────────────────────────────────────────────────
+{process_units}
 
-Tanks
-  Clarifier_01      Level (%), Turbidity (NTU)
-  FinishedWater_01  Level (%), pH, Turbidity (NTU)
-
-Chemical dosing
-  Chlorine_01, Fluoride_01  FlowRate (L/h), Running (bool), TankLevel (%)
-
-UV disinfection
-  UV_01, UV_02  Intensity (%), Running (bool), LampHours
+Attributes by unit type:
+  Pumps   Flow (L/min), Pressure (bar), Power (kW), Running (bool)
+  Tanks   Level (%), Turbidity (NTU), pH (finished water only)
+  Dosing  FlowRate (L/h), Running (bool), TankLevel (%)
+  UV      Intensity (%), Running (bool), LampHours
 
 ── Data access ────────────────────────────────────────────────────────────────
 MQTT topic root : Plant/WTP/<Type>/<Instance>/<Attribute>
@@ -141,7 +209,7 @@ Use audit tools to answer questions about past incidents and decisions:
   list_incidents(date, hours_back)             → Recent fault/anomaly sessions
   get_session_summary(session_id)              → Full detail + actions for one session
   query_by_equipment(equipment_id, hours_back) → Sessions for a specific unit
-  query_history(start, end, equipment)         → Narrative-ready time range query"""
+  query_history(start, end, equipment)         → Narrative-ready time range query{alarm_history}"""
 
 
 async def run_chat(
@@ -185,9 +253,16 @@ async def run_chat(
         while conv_messages and conv_messages[0]["role"] != "user":
             conv_messages = conv_messages[1:]
 
-    fault_history = await _fetch_fault_history() if len(conv_messages) == 1 else ""
+    if len(conv_messages) == 1:
+        process_units, alarm_history = await asyncio.gather(
+            _fetch_process_state(),
+            _fetch_fault_history(),
+        )
+    else:
+        process_units = await _fetch_process_state()
+        alarm_history = ""
     cached_system = [
-        {"type": "text", "text": SYSTEM_PROMPT + fault_history, "cache_control": {"type": "ephemeral"}}
+        {"type": "text", "text": build_system_prompt(process_units, alarm_history), "cache_control": {"type": "ephemeral"}}
     ]
 
     # Track all tool calls for equipment extraction at session end
