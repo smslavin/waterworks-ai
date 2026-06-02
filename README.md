@@ -436,7 +436,7 @@ The chat backend actively manages the Claude API context window across a session
 
 **Token budget warnings** — when context usage crosses 70% of the context window, a `[System: ...]` instruction prepends the next tool result asking the model to be concise. At 85% it instructs the model to summarize and stop calling tools. Each threshold fires once per session.
 
-**Fault history injection** — on the first turn of a new session, the backend queries InfluxDB for the 10 most recent `wtp_fault_events` and appends them to the system prompt. The AI is aware of prior fault patterns but still has to discover the current fault by reading live data.
+**Dynamic system prompt** — on the first turn of a new session, the backend fetches two context blocks in parallel before the first API call. Process topology is loaded from MQTT (`get_full_topic_tree`) and injected as a compact grouped running-state summary (e.g. `Pumps: Running: RawWater_01, RawWater_02 | Stopped: HighService_01`). Fault history is loaded from InfluxDB (`wtp_fault_events`, last 10 events) and appended below. Both are cached — process state for 60 seconds, fault history per session. This eliminates the first-turn tool calls that would otherwise discover plant topology, reducing latency noticeably on the opening query.
 
 **Context pressure metric** — `context_pressure` (a 0–1 ratio of `input_tokens / CONTEXT_WINDOW_TOKENS`) is written to InfluxDB and SQLite per turn. The sidebar shows a color-coded bar: green below 70%, amber at 70–85%, red above 85%.
 
