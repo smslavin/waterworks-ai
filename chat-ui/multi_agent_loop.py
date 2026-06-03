@@ -178,18 +178,15 @@ Respond in plain text with markdown formatting.
 
 ── Control actions ────────────────────────────────────────────────────────────
 If the synthesis reveals a clear fault requiring immediate corrective action,
-you MAY propose one action for operator approval. Only do this when the evidence
-is strong — do not propose actions for Normal status or minor anomalies.
+INVOKE the control__propose_action tool directly — do not describe it in text.
+Only do this when the evidence is strong; do not propose actions for Normal status
+or minor anomalies.
 
-  control__propose_action(description, action_type, target, value)
-    → action_type: "setpoint_adjustment" | "fault_clear"
-    → BLOCKS until the operator approves or denies — do not loop on this call.
-  control__set_setpoint(target, attribute, value)   → Adjust a process setpoint
-  control__clear_fault(target)                       → Restore a unit to normal
+Tool parameters: description (str), action_type ("setpoint_adjustment"|"fault_clear"),
+target (unit name), value (new value or empty string for fault_clear).
 
-ALWAYS call control__propose_action first. Only proceed with control__set_setpoint
-or control__clear_fault after the response confirms operator approval. Never execute
-a control change without prior operator approval in the same response."""
+After the tool confirms operator approval, call control__set_setpoint or
+control__clear_fault to execute. Never execute without prior approval."""
 
 _FINDINGS_FORMAT = """
 End your response with this block exactly:
@@ -450,6 +447,7 @@ async def run_multi_agent(
     orch_start = time.monotonic()
 
     orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
+    logger.info("Orchestrator tools: %s", [t["name"] for t in orch_tools])
     orch_api_tools = [
         {
             **({"cache_control": {"type": "ephemeral"}} if i == len(orch_tools) - 1 else {}),
