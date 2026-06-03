@@ -178,11 +178,17 @@ Respond in plain text with markdown formatting.
 
 ── Control actions ────────────────────────────────────────────────────────────
 If the synthesis reveals a clear fault requiring immediate corrective action,
-you MAY propose one action for operator approval using propose_action. Only do
-this when the evidence is strong — do not propose actions for Normal status or
-minor anomalies. After approval, call the appropriate execution tool.
+you MAY propose one action for operator approval. Only do this when the evidence
+is strong — do not propose actions for Normal status or minor anomalies.
 
-ALWAYS call propose_action before set_setpoint or clear_fault. Never execute
+  control__propose_action(description, action_type, target, value)
+    → action_type: "setpoint_adjustment" | "fault_clear"
+    → BLOCKS until the operator approves or denies — do not loop on this call.
+  control__set_setpoint(target, attribute, value)   → Adjust a process setpoint
+  control__clear_fault(target)                       → Restore a unit to normal
+
+ALWAYS call control__propose_action first. Only proceed with control__set_setpoint
+or control__clear_fault after the response confirms operator approval. Never execute
 a control change without prior operator approval in the same response."""
 
 _FINDINGS_FORMAT = """
