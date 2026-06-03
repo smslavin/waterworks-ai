@@ -5,11 +5,25 @@ import json
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
+
+_log_dir = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(_log_dir, exist_ok=True)
+
+_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
+                         datefmt="%Y-%m-%d %H:%M:%S")
+_file_handler = RotatingFileHandler(
+    os.path.join(_log_dir, "chat_ui.log"),
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=3,
+)
+_file_handler.setFormatter(_fmt)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout), _file_handler],
 )
 logger = logging.getLogger(__name__)
 

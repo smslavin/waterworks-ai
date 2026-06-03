@@ -11,3 +11,6 @@ build/
 .DS_Store
 chat-ui/audit.jsonl
 roadmap.md
+
+# Log files
+chat-ui/logs/
