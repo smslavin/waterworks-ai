@@ -447,7 +447,6 @@ async def run_multi_agent(
     orch_start = time.monotonic()
 
     orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
-    logger.info("Orchestrator tools: %s", [t["name"] for t in orch_tools])
     orch_api_tools = [
         {
             **({"cache_control": {"type": "ephemeral"}} if i == len(orch_tools) - 1 else {}),
