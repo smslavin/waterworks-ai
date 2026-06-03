@@ -17,6 +17,8 @@ FASTMCP_PORT     Port to bind (default: 8004)
 """
 
 import json
+import logging
+import logging.handlers
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -25,6 +27,21 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 load_dotenv()
+
+_log_dir = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(_log_dir, exist_ok=True)
+_fh = logging.handlers.RotatingFileHandler(
+    os.path.join(_log_dir, "audit_mcp.log"), maxBytes=5 * 1024 * 1024, backupCount=3
+)
+_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
+                                   datefmt="%Y-%m-%d %H:%M:%S"))
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(), _fh],
+)
+logger = logging.getLogger(__name__)
 
 _DB_PATH = os.environ.get(
     "METRICS_DB_PATH",

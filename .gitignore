@@ -14,3 +14,8 @@ roadmap.md
 
 # Log files
 chat-ui/logs/
+simulator/logs/
+mqtt-influx-bridge/logs/
+influxdb-mcp/logs/
+audit-mcp/logs/
+control-mcp/logs/

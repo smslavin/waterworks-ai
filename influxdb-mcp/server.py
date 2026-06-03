@@ -17,6 +17,8 @@ FASTMCP_PORT     Port this server binds   (default: 8003)
 """
 
 import json
+import logging
+import logging.handlers
 import os
 from typing import Any
 
@@ -26,6 +28,21 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 from mcp.server.fastmcp import FastMCP
 
 load_dotenv()
+
+_log_dir = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(_log_dir, exist_ok=True)
+_fh = logging.handlers.RotatingFileHandler(
+    os.path.join(_log_dir, "influxdb_mcp.log"), maxBytes=5 * 1024 * 1024, backupCount=3
+)
+_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
+                                   datefmt="%Y-%m-%d %H:%M:%S"))
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(), _fh],
+)
+logger = logging.getLogger(__name__)
 
 INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
 INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
