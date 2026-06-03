@@ -216,7 +216,7 @@ def _parse_findings(text: str) -> tuple[str, float]:
     if not m:
         logger.warning("FINDINGS parse failed. tail: %r", text[-300:])
         return "Unknown", 0.0
-    status     = m.group(1).strip()
+    status     = m.group(1).strip().strip("*").strip()
     confidence = float(m.group(2))
     return status, confidence
 
