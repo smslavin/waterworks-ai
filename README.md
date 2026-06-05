@@ -249,21 +249,16 @@ The `curl` commands in the fault injection section work as-is in PowerShell 7+ a
 
 For a Windows Server VM, use [NSSM](https://nssm.cc/download) to run each component as a Windows service instead of keeping terminals open. After creating venvs and configuring `.env`:
 
-```cmd
-REM Run as Administrator
-windows\install-services.bat
+```powershell
+# Run as Administrator
+.\windows\install-services.ps1
 ```
 
-This installs all nine components as auto-start services with log rotation to `C:\logs\waterworks\`. Start infrastructure first, then services:
+This installs all nine components as auto-start Windows services with timestamped log rotation to `C:\logs\waterworks\`. Ports are pre-offset to coexist with graccess-mcp on the same host — adjust the port variables at the top of the script if running standalone.
 
-```cmd
-docker compose up -d
-net start WaterWorks-Simulator
-net start WaterWorks-MqttMcp
-REM ... (install script prints the full sequence)
-```
+The script shares an existing MQTT broker rather than running a second Mosquitto instance. If no broker is running, install [Mosquitto for Windows](https://mosquitto.org/download/) first — it installs as a Windows service automatically. InfluxDB and Grafana must also be installed natively (links in the script header). After the first manual start sequence (printed by the script), all services restart automatically at boot and on failure.
 
-After the first manual start, services restart automatically at boot and on failure. To remove: `windows\uninstall-services.bat`.
+To remove: `.\windows\uninstall-services.ps1`
 
 ---
 
