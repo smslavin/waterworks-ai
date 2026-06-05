@@ -54,14 +54,23 @@ class FaultMode(str, Enum):
     LAMP_FAILURE        = "lamp_failure"
 
 
-TYPE_FAULT_MODES: dict[str, list[FaultMode]] = {
-    "Pump":   [FaultMode.NORMAL, FaultMode.SUCTION_STARVATION, FaultMode.RUN_STATUS_FAULT,
-               FaultMode.PRESSURE_DRIFT, FaultMode.CAVITATION],
-    "Tank":   [FaultMode.NORMAL, FaultMode.LEVEL_SENSOR_FAULT, FaultMode.TURBIDITY_SPIKE],
-    "Dosing": [FaultMode.NORMAL, FaultMode.DOSING_BLOCKAGE, FaultMode.RUN_STATUS_FAULT,
-               FaultMode.TANK_EMPTY],
-    "UV":     [FaultMode.NORMAL, FaultMode.LAMP_DEGRADATION, FaultMode.LAMP_FAILURE],
-}
+from topology import load as _load_topology
+
+
+def _build_type_fault_modes(data: dict) -> dict[str, list[FaultMode]]:
+    result = {}
+    for eq_type, spec in data["equipment_types"].items():
+        modes = [FaultMode.NORMAL]
+        for fault_id in (spec["faults"].keys() if isinstance(spec["faults"], dict) else spec["faults"]):
+            try:
+                modes.append(FaultMode(fault_id))
+            except ValueError:
+                pass  # fault in topology has no simulation code yet — skip silently
+        result[eq_type] = modes
+    return result
+
+
+TYPE_FAULT_MODES: dict[str, list[FaultMode]] = _build_type_fault_modes(_load_topology())
 
 
 class FaultState:

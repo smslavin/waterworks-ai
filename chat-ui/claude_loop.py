@@ -16,6 +16,7 @@ import control
 import metrics
 import session_store
 from mcp_client import call_mcp_tool, list_mcp_tools
+from topology import load as _load_topology
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +36,10 @@ _process_state_cache: tuple[float, str] | None = None
 _PROCESS_STATE_TTL = 60.0
 _unit_running: dict[str, bool] = {}  # populated by _fetch_process_state; keyed by unit name
 
-_TYPE_ORDER  = ["Pump", "Tank", "Dosing", "UV"]
-_TYPE_LABELS = {"Pump": "Pumps", "Tank": "Tanks", "Dosing": "Dosing", "UV": "UV"}
+_topo        = _load_topology()
+_TYPE_ORDER  = list(_topo.get("equipment_types", {}).keys())
+_LABEL_OVERRIDES = {"UV": "UV", "Dosing": "Dosing", "StorageTank": "Storage Tanks"}
+_TYPE_LABELS = {k: _LABEL_OVERRIDES.get(k, k + "s") for k in _TYPE_ORDER}
 
 # Tool name as exposed by the aggregator (backend_name__tool_name)
 _PROPOSE_ACTION_TOOL = "control__propose_action"

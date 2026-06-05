@@ -1,0 +1,125 @@
+site: Plant
+facility: WTP
+
+equipment_types:
+  Pump:
+    attributes:
+      Flow:     { unit: L/min, normal: [200, 450], lo: 0,   hi: 500,   step: 4.0 }
+      Pressure: { unit: bar,   normal: [3.5, 8.5], lo: 0,   hi: 10,    step: 0.08 }
+      Power:    { unit: kW,    normal: [10, 70],   lo: 0,   hi: 75,    step: 0.6 }
+      Running:  { type: bool, initial: true, flip: 0.01 }
+    faults:
+      suction_starvation:
+        heuristic: "Flow ramping to zero + erratic pressure + Running=True → suction starvation"
+      run_status_fault:
+        heuristic: "Flow≈0 + Power≈0 + Running=True → run-status fault"
+      pressure_drift:
+        heuristic: "Pressure diverging progressively from expected range → pressure drift"
+      cavitation:
+        heuristic: "High-frequency flow collapse + pressure spikes → cavitation"
+
+  Clarifier:
+    attributes:
+      Level:     { unit: "%",  normal: [20, 90], lo: 0,   hi: 100, step: 0.5 }
+      Turbidity: { unit: NTU,  normal: [0, 4],   lo: 0,   hi: 5,   step: 0.03 }
+    faults:
+      level_sensor_fault:
+        heuristic: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
+      turbidity_spike:
+        heuristic: "Turbidity rising above 4 NTU → sedimentation failure or upstream contamination"
+
+  StorageTank:
+    attributes:
+      Level:     { unit: "%",  normal: [20, 90],   lo: 0,   hi: 100, step: 0.4 }
+      Turbidity: { unit: NTU,  normal: [0, 1],     lo: 0,   hi: 5,   step: 0.03 }
+      pH:        { unit: pH,   normal: [6.5, 8.5], lo: 6.8, hi: 7.8, step: 0.01 }
+    faults:
+      level_sensor_fault:
+        heuristic: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
+      turbidity_spike:
+        heuristic: "Finished water turbidity above 1 NTU → treatment failure or contamination"
+
+  Dosing:
+    attributes:
+      FlowRate:  { unit: L/h, normal: [4.5, 5.5], lo: 0,   hi: 10,  step: 0.05 }
+      TankLevel: { unit: "%", normal: [10, 100],  lo: 20,  hi: 100, step: 0.2 }
+      Running:   { type: bool, initial: true, flip: 0.01 }
+    faults:
+      dosing_blockage:
+        heuristic: "FlowRate ramping to zero + Running=True + TankLevel normal → discharge blockage"
+      tank_empty:
+        heuristic: "TankLevel depleting toward zero + FlowRate dropping → chemical tank empty"
+      run_status_fault:
+        heuristic: "FlowRate≈0 + Running=True + TankLevel not depleting → run-status fault"
+
+  UV:
+    attributes:
+      Intensity: { unit: "%", normal: [80, 100],  lo: 85, hi: 100,   step: 0.3 }
+      LampHours: { unit: hrs, normal: [0, 9000],  lo: 0,  hi: 10000, step: 0.01 }
+      Running:   { type: bool, initial: true, flip: 0.005 }
+    faults:
+      lamp_degradation:
+        heuristic: "Intensity gradually decreasing over hours + LampHours accumulating → lamp degradation"
+      lamp_failure:
+        heuristic: "Intensity near zero immediately + Running=True → lamp failure"
+
+instances:
+  Pump:
+    - id: RawWater_01
+    - id: RawWater_02
+    - id: HighService_01
+      overrides:
+        Flow:     { step: 3.5 }
+        Pressure: { lo: 2, step: 0.06 }
+        Power:    { step: 0.5 }
+    - id: HighService_02
+      overrides:
+        Flow:     { step: 3.5 }
+        Pressure: { lo: 2, step: 0.06 }
+        Power:    { step: 0.5 }
+        Running:  { initial: false }
+
+  Clarifier:
+    - id: Clarifier_01
+
+  StorageTank:
+    - id: FinishedWater_01
+      overrides:
+        Turbidity: { lo: 0, hi: 1, step: 0.01 }
+
+  Dosing:
+    - id: Chlorine_01
+    - id: Fluoride_01
+      overrides:
+        FlowRate: { step: 0.04 }
+
+  UV:
+    - id: UV_01
+    - id: UV_02
+      overrides:
+        Running: { initial: false }
+
+process_areas:
+  Intake:
+    instances: [RawWater_01, RawWater_02]
+    data_sources: [mqtt, influxdb]
+    description: "River source with seasonal turbidity variation. Correlate intake
+      turbidity with downstream clarifier performance during spring runoff and storm events."
+  Treatment:
+    instances: [Clarifier_01, Chlorine_01, Fluoride_01, UV_01, UV_02]
+    data_sources: [mqtt, influxdb]
+    description: "Chlorination and UV run in series. Both barriers must be active for
+      regulatory compliance. Clarifier turbidity above 4 NTU warrants investigation
+      before water advances to distribution."
+  Distribution:
+    instances: [HighService_01, HighService_02, FinishedWater_01]
+    data_sources: [mqtt, influxdb]
+    description: "Minimum 40 PSI required at discharge. HighService_02 has recurring
+      pressure drift history — compare against HighService_01 before diagnosing
+      transmitter vs. mechanical fault. Finished water tank level below 30% triggers
+      demand-response protocol."
+
+specialists:
+  historian:
+    data_sources: [influxdb]
+    role: historical_only
