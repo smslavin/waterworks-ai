@@ -270,8 +270,8 @@ The simulator models a municipal water treatment plant.
 |---|---|---|
 | Pump | RawWater_01, RawWater_02 | Flow (L/min), Pressure (bar), Power (kW), Running |
 | Pump | HighService_01, HighService_02 | Flow (L/min), Pressure (bar), Power (kW), Running |
-| Tank | Clarifier_01 | Level (%), Turbidity (NTU) |
-| Tank | FinishedWater_01 | Level (%), pH, Turbidity (NTU) |
+| Clarifier | Clarifier_01 | Level (%), Turbidity (NTU) |
+| StorageTank | FinishedWater_01 | Level (%), Turbidity (NTU), pH |
 | Dosing | Chlorine_01, Fluoride_01 | FlowRate (L/h), Running, TankLevel (%) |
 | UV | UV_01, UV_02 | Intensity (%), Running, LampHours |
 
@@ -306,12 +306,19 @@ Fault modes are equipment-specific. The injection panel only shows modes valid f
 | `pressure_drift` | Transmitter calibration drift. Reported pressure diverges progressively from true value. |
 | `cavitation` | Intermittent vapor formation. Flow collapses unpredictably; pressure spikes and dips rapidly. |
 
-**Tank** (Clarifier_01, FinishedWater_01)
+**Clarifier** (Clarifier_01)
 
 | Mode | What it simulates |
 |---|---|
 | `level_sensor_fault` | Level transmitter noise. Reported level oscillates ±20% around true value. |
-| `turbidity_spike` | Contamination or filter breakthrough. Turbidity climbs to 10–14 NTU. |
+| `turbidity_spike` | Sedimentation failure or upstream contamination. Turbidity climbs above 4 NTU. |
+
+**StorageTank** (FinishedWater_01)
+
+| Mode | What it simulates |
+|---|---|
+| `level_sensor_fault` | Level transmitter noise. Reported level oscillates ±20% around true value. |
+| `turbidity_spike` | Treatment failure or contamination. Finished water turbidity above 1 NTU. |
 
 **Dosing** (Chlorine_01, Fluoride_01)
 
@@ -485,6 +492,7 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `INFLUXDB_TOKEN` | `waterworks-dev-token` | Set once at first `docker compose up` |
 | `INFLUXDB_ORG` | `waterworks` | InfluxDB organisation |
 | `INFLUXDB_BUCKET` | `waterworks` | Default bucket for all data |
+| `TOPOLOGY_FILE` | _(repo root)_ | Optional path override for `topology.yaml` |
 | `PUBLISH_INTERVAL` | `2.0` | Simulator tick rate in seconds |
 | `OPCUA_PORT` | `4840` | OPC-UA server port |
 | `CONTROL_PORT` | `8090` | Simulator fault/setpoint control HTTP port |
@@ -498,18 +506,22 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 
 ```
 waterworks-ai/
+├── topology.yaml           Plant topology — equipment types, instances, fault modes, process areas
 ├── simulator/              Dual MQTT+OPC-UA WTP simulator with fault injection
 │   ├── simulator.py        Entrypoint — asyncio loop, paho MQTT, asyncua, HTTP control plane
+│   ├── topology.py         Loader/validator for topology.yaml
+│   ├── instances.py        INSTANCES built from topology.yaml at startup
 │   ├── generators.py       RandomWalk and OscillatingBool value generators
-│   ├── faults.py           FaultMode enum and per-instance fault state machine
-│   └── instances.py        WTP instance registry
+│   └── faults.py           FaultMode enum, TYPE_FAULT_MODES built from topology, FaultState machine
 ├── influxdb-mcp/           FastMCP server :8003 — write_point, query, list_measurements
 ├── audit-mcp/              FastMCP server :8004 — session/action history query tools
 ├── control-mcp/            FastMCP server :8005 — propose_action, set_setpoint, clear_fault
 ├── chat-ui/                Starlette/SSE backend and vanilla JS frontend
 │   ├── backend.py          Routes: /api/chat, /api/health, /api/fault, /api/action/respond
+│   ├── topology.py         Loader for topology.yaml (chat-ui layer)
+│   ├── topology_prompts.py Builds specialist and orchestrator system prompts from topology.yaml
 │   ├── claude_loop.py      Claude API streaming loop — MCP tools, propose_action intercept
-│   ├── multi_agent_loop.py Fan-out to 4 specialist agents + orchestrator with control tools
+│   ├── multi_agent_loop.py Fan-out to specialist agents + orchestrator; agents generated from topology
 │   ├── openai_loop.py      OpenAI-compatible loop for Ollama
 │   ├── mcp_client.py       MCP aggregator client (per-url tool cache, list/call tools)
 │   ├── session_store.py    session_summaries + action_events tables in metrics.db
@@ -518,6 +530,7 @@ waterworks-ai/
 │   ├── audit.py            JSONL audit log (tool calls, responses, errors)
 │   ├── providers.json      LLM provider and model configuration
 │   └── static/             index.html + app.js (no framework, no bundler)
+├── tests/                  Import-level test suite (pytest, no infrastructure required)
 ├── mqtt-influx-bridge/     Subscribes Plant/WTP/# → writes wtp_process to InfluxDB
 ├── mcp-servers/            Git submodule — mqtt-mcp (:8001) and opcua-mcp (:8002)
 ├── mcp-aggregator/
@@ -534,9 +547,11 @@ waterworks-ai/
 
 ## Extending
 
-**Add a new process unit:** edit `simulator/instances.py` — add an entry to `INSTANCES`. It appears in both MQTT and OPC-UA automatically.
+**Add a new process unit:** add an entry under `instances` in `topology.yaml`. It appears in MQTT, OPC-UA, and the specialist system prompts on next restart — no Python changes required.
 
-**Add a new fault mode:** add a member to `FaultMode` in `simulator/faults.py` and a corresponding `_method` in `FaultState`. The HTTP control plane picks it up with no other changes.
+**Add a new process area:** add an entry under `process_areas` in `topology.yaml` with an `instances` list, `data_sources`, and `description`. A new specialist agent appears in multi-agent mode on next restart.
+
+**Add a new fault mode:** add a member to `FaultMode` in `simulator/faults.py`, a corresponding `_method` in `FaultState`, and an entry under the relevant equipment type's `faults` in `topology.yaml`. The HTTP control plane and specialist heuristics pick it up automatically.
 
 **Add an MCP server:** add an entry to `mcp-aggregator/backends.json`. The aggregator discovers and prefixes its tools at startup. Use the management API (`POST /backends`) to add backends at runtime without a restart.
 
