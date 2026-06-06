@@ -104,6 +104,19 @@ async def _run_specialist(
         system_text += f"\n\nCurrent running state: {running_state}"
     system_text += _FINDINGS_FORMAT
 
+    # ── Inject accumulated cross-session memory ───────────────────────────────
+    try:
+        mem_content = await call_mcp_tool("memory__get_specialist_memory", {"specialist": name})
+        if mem_content and not mem_content.startswith("Error") and mem_content.strip():
+            system_text = (
+                "── Accumulated knowledge from prior sessions ──────────────────\n"
+                + mem_content
+                + "\n\n"
+                + system_text
+            )
+    except Exception:
+        pass  # memory-mcp unavailable — degrade gracefully
+
     conv    = [{"role": "user", "content": f"{query}\n\nEnd your response with the FINDINGS block as instructed."}]
     full_text       = ""
     input_tokens    = output_tokens = 0
@@ -203,6 +216,36 @@ async def _run_specialist(
     status, confidence = _parse_findings(full_text)
     if status == "Unknown" and full_text and "error" not in full_text.lower():
         logger.warning("Specialist %s: FINDINGS block missing or malformed", name)
+
+    # ── Record incident to LadybugDB ──────────────────────────────────────────
+    if status not in ("Normal", "Unknown"):
+        for unit_id in config.get("unit_names", []):
+            try:
+                await call_mcp_tool("memory__record_incident", {
+                    "session_id":   session_id,
+                    "equipment_id": unit_id,
+                    "diagnosis":    full_text[-500:],
+                    "confidence":   confidence,
+                    "status":       status.lower().replace(" ", "_"),
+                    "fault_mode_id": "",
+                })
+            except Exception:
+                pass  # non-fatal
+
+    # ── Append key finding to specialist memory ───────────────────────────────
+    if status not in ("Normal", "Unknown") and confidence >= 0.7:
+        try:
+            unit_summary = ", ".join(config.get("unit_names", []))
+            await call_mcp_tool("memory__append_specialist_memory", {
+                "specialist": name,
+                "content": (
+                    f"Session {session_id[:8]}: {status} on {unit_summary}. "
+                    f"Confidence {confidence}. "
+                    f"Key finding: {full_text[-300:]}"
+                ),
+            })
+        except Exception:
+            pass  # non-fatal
 
     latency_ms = int((time.monotonic() - start) * 1000)
     metrics.log_turn(

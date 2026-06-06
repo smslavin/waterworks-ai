@@ -12,6 +12,9 @@ build/
 chat-ui/audit.jsonl
 roadmap.md
 
+# Data directories (LadybugDB, DuckDB, specialist memory)
+data/
+
 # Log files
 chat-ui/logs/
 simulator/logs/
@@ -19,3 +22,4 @@ mqtt-influx-bridge/logs/
 influxdb-mcp/logs/
 audit-mcp/logs/
 control-mcp/logs/
+memory-mcp/logs/

@@ -3,5 +3,6 @@
   { "name": "opcua",   "url": "http://localhost:8002/sse" },
   { "name": "influxdb","url": "http://localhost:8003/sse" },
   { "name": "audit",   "url": "http://localhost:8004/sse" },
-  { "name": "control", "url": "http://localhost:8005/sse" }
+  { "name": "control", "url": "http://localhost:8005/sse" },
+  { "name": "memory",  "url": "http://localhost:8006/sse" }
 ]

@@ -1,0 +1,7 @@
+fastmcp
+ladybug
+duckdb
+influxdb-client
+pydantic
+uvicorn
+python-dotenv

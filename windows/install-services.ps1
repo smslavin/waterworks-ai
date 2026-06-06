@@ -4,13 +4,14 @@
     Install the waterworks-ai stack as Windows services via NSSM.
 
 .DESCRIPTION
-    Installs nine services:
+    Installs ten services:
       WaterWorks Simulator      — MQTT + OPC-UA publisher, fault/setpoint control (:8090)
       WaterWorks MqttMcp        — MQTT MCP server        (:8011 by default)
       WaterWorks OpcuaMcp       — OPC-UA MCP server      (:8012 by default)
       WaterWorks InfluxdbMcp    — InfluxDB MCP server    (:8003)
       WaterWorks AuditMcp       — Audit query MCP server (:8004)
       WaterWorks ControlMcp     — Control write MCP server (:8005)
+      WaterWorks MemoryMcp      — Memory MCP server      (:8006)
       WaterWorks Aggregator     — MCP aggregator         (:8110 by default)
       WaterWorks Bridge         — MQTT → InfluxDB bridge
       WaterWorks ChatUI         — Chat UI backend        (:8082 by default)
@@ -46,6 +47,7 @@ $OpcuaMcpPort    = "8012"
 $InfluxdbMcpPort = "8003"
 $AuditMcpPort    = "8004"
 $ControlMcpPort  = "8005"
+$MemoryMcpPort   = "8006"
 $AggregatorPort  = "8110"
 $ChatUIPort      = "8082"
 $SimControlPort  = "8090"   # simulator fault/setpoint HTTP
@@ -170,6 +172,22 @@ $Services = @(
         Desc    = "WaterWorks AI — Control write MCP server (port $ControlMcpPort)"
     },
     @{
+        Name    = "WaterWorks MemoryMcp"
+        Exe     = Resolve-AbsPath $WaterworksRoot "memory-mcp\.venv\Scripts\python.exe"
+        Args    = "server.py"
+        WorkDir = Resolve-AbsPath $WaterworksRoot "memory-mcp"
+        LogOut  = Join-Path $LogDir "memory-mcp.log"
+        LogErr  = Join-Path $LogDir "memory-mcp-err.log"
+        Env     = @(
+            "MEMORY_MCP_PORT=$MemoryMcpPort"
+            "LADYBUG_DB_PATH=$(Resolve-AbsPath $WaterworksRoot 'data\ladybugdb\fieldworks.db')"
+            "DUCKDB_PATH=$(Resolve-AbsPath $WaterworksRoot 'data\duckdb\analytical.duckdb')"
+            "SPECIALIST_MEMORY_DIR=$(Resolve-AbsPath $WaterworksRoot 'data\specialist-memory')"
+            "INFLUXDB_URL=$InfluxdbUrl"
+        )
+        Desc    = "WaterWorks AI — Memory MCP server (port $MemoryMcpPort)"
+    },
+    @{
         Name    = "WaterWorks Aggregator"
         Exe     = Resolve-AbsPath $WaterworksRoot "mcp-aggregator\server\.venv\Scripts\python.exe"
         Args    = "server.py"
@@ -262,6 +280,7 @@ $startOrder = @(
     "WaterWorks InfluxdbMcp",
     "WaterWorks AuditMcp",
     "WaterWorks ControlMcp",
+    "WaterWorks MemoryMcp",
     "WaterWorks Aggregator",
     "WaterWorks Bridge",
     "WaterWorks ChatUI"
