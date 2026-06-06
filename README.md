@@ -412,6 +412,19 @@ Setpoint changes use a first-order lag rather than an instantaneous clamp. Each 
 6. Start a new session and ask: *"What happened in the last hour?"*
 7. The AI uses audit tools to narrate the incident, diagnosis, and operator decision from the session record
 
+### Agent memory demo
+
+Requires at least two diagnostic sessions with a non-normal finding to demonstrate cross-session recall.
+
+1. Complete the basic diagnostic demo — the session ends with a fault detected, confidence ≥ 0.7
+2. After the session, inspect what was stored:
+   - `data/specialist-memory/intake.md` — specialist's timestamped key findings
+   - Query LadybugDB: `python -c "import ladybug as lb; db = lb.Database('data/ladybugdb/fieldworks.db', read_only=True); conn = lb.Connection(db); print(list(conn.execute('MATCH (i:Incident) RETURN i.session_id, i.status, i.confidence LIMIT 5').rows_as_dict()))"`
+3. Start a new session on the same area and ask the same question
+4. The specialist's system prompt now opens with *"Accumulated knowledge from prior sessions"* — you can observe this as the AI references previous findings without being told about them
+5. For cross-session pattern detection, ask: *"Has RawWater_01 had this kind of problem before?"*
+6. To inspect the full equipment history, ask: *"What is the incident history for the intake pumps?"* — the AI calls `get_equipment_history` which queries LadybugDB directly
+
 ---
 
 ## Dashboards
