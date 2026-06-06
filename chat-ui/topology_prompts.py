@@ -33,7 +33,36 @@ Aim for 2–3 queries total: one for process trends, one for fault events.
 - mean() requires a prior group() and will error on tagged data without it; prefer last() for current-state queries
 
 Always cite specific time ranges and values. State clearly if no historical
-anomaly is found."""
+anomaly is found.
+
+── DuckDB (run_correlation) vs InfluxDB ──────────────────────────────────────
+Use InfluxDB for: recent trends (≤ 7 days), single-unit queries, fault event history.
+Use memory__run_correlation for: cross-equipment correlations, window functions,
+queries spanning weeks or months.
+
+Note: DuckDB is a materialized copy synced from InfluxDB on a schedule
+(default 1 hour, set by DUCKDB_SYNC_INTERVAL). Do not use it for data from
+the last hour — query InfluxDB directly for recent values.
+
+Example queries:
+  -- Correlation: pressure drops across all pumps vs turbidity spikes (90 days)
+  SELECT date_trunc('day', time) AS day,
+         AVG(CASE WHEN attribute = 'Pressure' THEN value END) AS avg_pressure,
+         AVG(CASE WHEN attribute = 'Turbidity' THEN value END) AS avg_turbidity
+  FROM wtp_process
+  WHERE time > NOW() - INTERVAL '90 days'
+    AND (instance LIKE '%Pump%' OR instance LIKE '%Clarifier%')
+  GROUP BY day ORDER BY day
+
+  -- Fault frequency by instance (30 days)
+  SELECT target, COUNT(*) AS fault_count
+  FROM wtp_fault_events
+  WHERE time > NOW() - INTERVAL '30 days'
+  GROUP BY target ORDER BY fault_count DESC
+
+DuckDB schema:
+  wtp_process(time TIMESTAMPTZ, type VARCHAR, instance VARCHAR, attribute VARCHAR, value DOUBLE)
+  wtp_fault_events(time TIMESTAMPTZ, target VARCHAR, mode VARCHAR)"""
 
 
 def _inst_type_map(topology: dict) -> dict[str, str]:
@@ -133,11 +162,27 @@ def build_specialists(topology: dict | None = None) -> list[dict]:
             "system":        build_specialist_system(area_name, area_cfg, topology),
         })
 
+    # Read-only memory tools for Historian — full names used as exact-match "prefixes".
+    # Write tools (record_incident, record_observation, link_incident_precedes,
+    # append_specialist_memory) are intentionally excluded; multi_agent_loop.py
+    # handles all writes at session end.
+    _MEMORY_READ_TOOLS = (
+        "memory__run_correlation",
+        "memory__get_equipment_history",
+        "memory__query_graph",
+        "memory__get_topology",
+        "memory__get_specialist_context",
+        "memory__get_writable_attributes",
+        "memory__get_specialist_memory",
+    )
+
     hist_cfg     = topology.get("specialists", {}).get("historian", {})
     hist_sources = hist_cfg.get("data_sources", ["influxdb"])
     hist_prefixes = tuple(
         p for src in hist_sources for p in _SOURCE_PREFIXES.get(src, ())
     )
+    if "memory" in hist_sources:
+        hist_prefixes = hist_prefixes + _MEMORY_READ_TOOLS
     specialists.append({
         "name":          "historian",
         "label":         "Historian",

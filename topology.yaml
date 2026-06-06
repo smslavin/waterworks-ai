@@ -121,5 +121,5 @@ process_areas:
 
 specialists:
   historian:
-    data_sources: [influxdb]
+    data_sources: [influxdb, memory]
     role: historical_only
