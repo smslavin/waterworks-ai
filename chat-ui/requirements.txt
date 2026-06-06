@@ -7,3 +7,4 @@ sse-starlette
 python-dotenv
 httpx
 influxdb-client>=1.43.0
+pyyaml

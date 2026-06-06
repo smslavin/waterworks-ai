@@ -31,6 +31,7 @@ Everything in this stack is open source. No proprietary historians, SCADA platfo
 - [Dashboards](#dashboards)
 - [Context management](#context-management)
 - [Multi-agent diagnostic mode](#multi-agent-diagnostic-mode)
+- [Agent memory](#agent-memory)
 - [Configuration](#configuration)
 - [Project layout](#project-layout)
 - [Extending](#extending)
@@ -112,7 +113,9 @@ MCP Aggregator  :8100
     ├── opcua-mcp     :8002 ──► OPC-UA server (in simulator)
     ├── influxdb-mcp  :8003 ──► InfluxDB  :8086
     ├── audit-mcp     :8004 ──► metrics.db  (session_summaries, action_events)
-    └── control-mcp   :8005 ──► Simulator  :8090  (/fault, /setpoint)
+    ├── control-mcp   :8005 ──► Simulator  :8090  (/fault, /setpoint)
+    └── memory-mcp    :8006 ──► LadybugDB (graph) + DuckDB (analytical)
+                                    │       + data/specialist-memory/ (per-agent files)
                                     ▲
 Simulator ──────────────────────────┤  publishes to MQTT + OPC-UA simultaneously
                                     │
@@ -152,12 +155,13 @@ Each component gets its own virtualenv. Run this once to create and populate all
 (cd influxdb-mcp           && uv venv && uv pip install -r requirements.txt)
 (cd audit-mcp              && uv venv && uv pip install -r requirements.txt)
 (cd control-mcp            && uv venv && uv pip install -r requirements.txt)
+(cd memory-mcp             && uv venv && uv pip install -r requirements.txt)
 (cd mcp-aggregator/server  && uv venv && uv pip install -r requirements.txt)
 (cd chat-ui                && uv venv && uv pip install -r requirements.txt)
 (cd mqtt-influx-bridge     && uv venv && uv pip install -r requirements.txt)
 ```
 
-Then open ten terminals (or a terminal multiplexer) and run each in order:
+Then open eleven terminals (or a terminal multiplexer) and run each in order:
 
 ```bash
 # 1 — Infrastructure
@@ -181,13 +185,16 @@ cd audit-mcp && .venv/bin/python server.py
 # 7 — Control MCP server
 cd control-mcp && .venv/bin/python server.py
 
-# 8 — MCP Aggregator  (our backends.json, upstream server code)
+# 8 — Memory MCP server  (LadybugDB + DuckDB + specialist memory, seeds DB on first run)
+cd memory-mcp && .venv/bin/python server.py
+
+# 9 — MCP Aggregator  (our backends.json, upstream server code)
 cd mcp-aggregator/server && BACKENDS_FILE=../backends.json .venv/bin/python server.py
 
-# 9 — MQTT → InfluxDB bridge
+# 10 — MQTT → InfluxDB bridge
 cd mqtt-influx-bridge && .venv/bin/python bridge.py
 
-# 10 — Chat UI
+# 11 — Chat UI
 cd chat-ui && .venv/bin/python backend.py
 ```
 
@@ -204,12 +211,12 @@ The quick start above uses bash syntax. PowerShell equivalents follow. Clone and
 **Create virtualenvs** — run from the repo root in PowerShell:
 
 ```powershell
-foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "audit-mcp", "control-mcp", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
+foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "audit-mcp", "control-mcp", "memory-mcp", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
     Push-Location $dir; uv venv; uv pip install -r requirements.txt; Pop-Location
 }
 ```
 
-**Start services** — open ten PowerShell terminals and run each in order:
+**Start services** — open eleven PowerShell terminals and run each in order:
 
 ```powershell
 # 1 — Infrastructure
@@ -233,13 +240,16 @@ cd audit-mcp; .venv\Scripts\python server.py
 # 7 — Control MCP server
 cd control-mcp; .venv\Scripts\python server.py
 
-# 8 — MCP Aggregator
+# 8 — Memory MCP server
+cd memory-mcp; .venv\Scripts\python server.py
+
+# 9 — MCP Aggregator
 cd mcp-aggregator\server; $env:BACKENDS_FILE = "..\backends.json"; .venv\Scripts\python server.py
 
-# 9 — MQTT → InfluxDB bridge
+# 10 — MQTT → InfluxDB bridge
 cd mqtt-influx-bridge; .venv\Scripts\python bridge.py
 
-# 10 — Chat UI
+# 11 — Chat UI
 cd chat-ui; .venv\Scripts\python backend.py
 ```
 
@@ -254,7 +264,7 @@ For a Windows Server VM, use [NSSM](https://nssm.cc/download) to run each compon
 .\windows\install-services.ps1
 ```
 
-This installs all nine components as auto-start Windows services with timestamped log rotation to `C:\logs\waterworks\`. Ports are pre-offset to coexist with graccess-mcp on the same host — adjust the port variables at the top of the script if running standalone.
+This installs all ten components as auto-start Windows services with timestamped log rotation to `C:\logs\waterworks\`. Ports are pre-offset to coexist with graccess-mcp on the same host — adjust the port variables at the top of the script if running standalone.
 
 The script shares an existing MQTT broker rather than running a second Mosquitto instance. If no broker is running, install [Mosquitto for Windows](https://mosquitto.org/download/) first — it installs as a Windows service automatically. InfluxDB and Grafana must also be installed natively (links in the script header). After the first manual start sequence (printed by the script), all services restart automatically at boot and on failure.
 
@@ -481,6 +491,57 @@ Multi-agent mode requires a Claude API key. It is incompatible with the Deep Rea
 
 ---
 
+## Agent memory
+
+`memory-mcp` (:8006) gives specialists a four-store memory architecture so knowledge accumulates across sessions.
+
+### Stores
+
+| Store | What it holds | Where it lives |
+|---|---|---|
+| **LadybugDB** | Knowledge graph — topology, past incidents, observations, operator decision patterns | `data/ladybugdb/fieldworks.db` |
+| **DuckDB** | Analytical layer — 90-day rolling window synced from InfluxDB for long-horizon correlations | `data/duckdb/analytical.duckdb` |
+| **Specialist memory files** | Per-specialist markdown — key findings, confidence notes, cross-session anomaly patterns | `data/specialist-memory/<name>.md` |
+| **InfluxDB** | Raw sensor time series (already running) | InfluxDB :8086 |
+
+All three `data/` subdirectories are gitignored and created automatically on first start.
+
+### What happens per session
+
+**At session start** — each specialist's system prompt is prepended with their accumulated memory file, if one exists. A specialist who has seen cavitation on RawWater_01 twice before enters the session knowing it.
+
+**At session end** — for each non-normal finding:
+- An `Incident` node is written to LadybugDB linked to the equipment instance and the session ID.
+- If confidence ≥ 0.7, a timestamped entry is appended to the specialist's memory file.
+
+**The Historian specialist** uses `run_correlation` against DuckDB for long-horizon analytical queries — "how often has RawWater_01 pressure dropped below 5 bar in the last 90 days?" — without re-reading raw time series through InfluxDB MCP.
+
+### Graph schema
+
+`ladybugdb/schema.cypher` defines the full property graph: `Facility → ProcessArea → Equipment → EquipmentType → Attribute / FaultMode`, with dynamic layers for `Incident`, `Observation`, and `OperatorDecision`. The database is seeded from this file on first start. Run `memory-mcp/seed_validation.py` to validate the seeding against a temp database before starting the full stack.
+
+### Graceful degradation
+
+All three memory calls in `multi_agent_loop.py` are wrapped in `try/except`. If `memory-mcp` is unavailable, diagnostic sessions continue normally — specialists just don't receive prior-session context and incidents are not recorded.
+
+### Memory MCP tools
+
+| Tool | Purpose |
+|---|---|
+| `get_topology()` | Full area → equipment → type tree |
+| `get_specialist_context(area_id)` | Structured context for one process area: equipment, attributes, fault modes, tag bindings |
+| `get_equipment_history(equipment_id)` | Past incidents, observations, and operator decision patterns for one unit |
+| `get_writable_attributes()` | All writable attributes with tag IDs, confirmation requirements, write limits |
+| `query_graph(cypher)` | Read-only Cypher escape hatch (write keywords rejected) |
+| `record_incident(...)` | Write a diagnostic incident linked to equipment and session |
+| `record_observation(...)` | Write a persistent specialist observation |
+| `link_incident_precedes(...)` | Create a PRECEDES causality edge between two incidents |
+| `run_correlation(sql)` | SELECT against DuckDB analytical layer |
+| `get_specialist_memory(specialist)` | Read accumulated markdown memory for a specialist |
+| `append_specialist_memory(specialist, content)` | Append a timestamped entry to specialist memory |
+
+---
+
 ## Configuration
 
 All configuration lives in `.env`. Copy `.env.example` to get started. The defaults work for a local run without changes except for `ANTHROPIC_API_KEY`.
@@ -497,6 +558,11 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `OPCUA_PORT` | `4840` | OPC-UA server port |
 | `CONTROL_PORT` | `8090` | Simulator fault/setpoint control HTTP port |
 | `CONTEXT_WINDOW_TOKENS` | `200000` | Context window size for budget warnings |
+| `MEMORY_MCP_PORT` | `8006` | memory-mcp SSE port |
+| `LADYBUG_DB_PATH` | `../data/ladybugdb/fieldworks.db` | LadybugDB database directory |
+| `DUCKDB_PATH` | `../data/duckdb/analytical.duckdb` | DuckDB file |
+| `SPECIALIST_MEMORY_DIR` | `../data/specialist-memory` | Per-specialist markdown files |
+| `DUCKDB_SYNC_INTERVAL` | `3600` | Seconds between InfluxDB → DuckDB syncs |
 
 > **Note:** `INFLUXDB_TOKEN` and the other `DOCKER_INFLUXDB_INIT_*` values are only used on a fresh volume. After the first `docker compose up` they are baked in. Reset with `docker compose down -v`.
 
@@ -507,6 +573,8 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 ```
 waterworks-ai/
 ├── topology.yaml           Plant topology — equipment types, instances, fault modes, process areas
+├── ladybugdb/
+│   └── schema.cypher       LadybugDB property graph schema + waterworks seed data
 ├── simulator/              Dual MQTT+OPC-UA WTP simulator with fault injection
 │   ├── simulator.py        Entrypoint — asyncio loop, paho MQTT, asyncua, HTTP control plane
 │   ├── topology.py         Loader/validator for topology.yaml
@@ -516,12 +584,19 @@ waterworks-ai/
 ├── influxdb-mcp/           FastMCP server :8003 — write_point, query, list_measurements
 ├── audit-mcp/              FastMCP server :8004 — session/action history query tools
 ├── control-mcp/            FastMCP server :8005 — propose_action, set_setpoint, clear_fault
+├── memory-mcp/             FastMCP server :8006 — knowledge graph, analytical, specialist memory
+│   ├── server.py           FastMCP entrypoint and tool definitions
+│   ├── graph.py            LadybugDB layer — auto-seeds from schema.cypher, read/write tools
+│   ├── analytical.py       DuckDB layer — InfluxDB sync loop + correlation queries
+│   ├── specialist_mem.py   File-based per-specialist memory (read at start, append at end)
+│   ├── requirements.txt
+│   └── seed_validation.py  Validates schema seeding against a temp database
 ├── chat-ui/                Starlette/SSE backend and vanilla JS frontend
 │   ├── backend.py          Routes: /api/chat, /api/health, /api/fault, /api/action/respond
 │   ├── topology.py         Loader for topology.yaml (chat-ui layer)
 │   ├── topology_prompts.py Builds specialist and orchestrator system prompts from topology.yaml
 │   ├── claude_loop.py      Claude API streaming loop — MCP tools, propose_action intercept
-│   ├── multi_agent_loop.py Fan-out to specialist agents + orchestrator; agents generated from topology
+│   ├── multi_agent_loop.py Fan-out to specialist agents + orchestrator; memory injection + recording
 │   ├── openai_loop.py      OpenAI-compatible loop for Ollama
 │   ├── mcp_client.py       MCP aggregator client (per-url tool cache, list/call tools)
 │   ├── session_store.py    session_summaries + action_events tables in metrics.db
@@ -536,6 +611,10 @@ waterworks-ai/
 ├── mcp-aggregator/
 │   ├── server/             Git submodule — aggregator server code (:8100)
 │   └── backends.json       Waterworks endpoint config (BACKENDS_FILE=../backends.json)
+├── data/                   Gitignored runtime data
+│   ├── ladybugdb/          LadybugDB database files (auto-created on first start)
+│   ├── duckdb/             DuckDB analytical database (auto-created on first start)
+│   └── specialist-memory/  Per-specialist markdown memory files (auto-created on first start)
 ├── docker/
 │   ├── mosquitto/          mosquitto.conf (anonymous, persistence on)
 │   └── grafana/            Provisioned InfluxDB datasource and dashboards
