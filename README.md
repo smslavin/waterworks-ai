@@ -425,6 +425,16 @@ Requires at least two diagnostic sessions with a non-normal finding to demonstra
 5. For cross-session pattern detection, ask: *"Has RawWater_01 had this kind of problem before?"*
 6. To inspect the full equipment history, ask: *"What is the incident history for the intake pumps?"* — the AI calls `get_equipment_history` which queries LadybugDB directly
 
+### Historian long-horizon demo
+
+Requires memory-mcp running and at least one DuckDB sync cycle completed (wait up to `DUCKDB_SYNC_INTERVAL`, default 1 hour after first start, or set `DUCKDB_SYNC_INTERVAL=60` for a faster first sync).
+
+1. In multi-agent mode, ask: *"Is there any correlation between pump pressure drops and turbidity spikes over the last 30 days?"*
+2. The Historian specialist calls `memory__run_correlation` with a cross-equipment SQL query against DuckDB — watch the tool call appear in the browser
+3. The response cites specific days and magnitudes rather than just recent readings
+4. For fault frequency analysis, ask: *"Which unit has had the most faults in the last month?"* — Historian queries `wtp_fault_events` in DuckDB
+5. To confirm Historian is not using stale data for recent readings, ask: *"What is the current turbidity?"* — the Historian should use InfluxDB, not DuckDB, and note that live readings belong to the area specialists
+
 ---
 
 ## Dashboards
@@ -492,8 +502,8 @@ Orchestrator (Sonnet — control tools)
     ├── Distribution specialist (Haiku — mqtt + influxdb)
     │     HighService_01/02, FinishedWater_01
     │
-    └── Historian specialist    (Haiku — influxdb only)
-          All units, historical trends only
+    └── Historian specialist    (Haiku — influxdb + memory/DuckDB)
+          All units, historical trends and long-horizon correlations
 ```
 
 All four specialists run simultaneously via `asyncio.gather()`. Each is scoped to the tool subset relevant to its process area. The orchestrator synthesizes the four findings and, if a clear fault is detected, may propose a control action using the same operator approval flow as single-agent mode.
@@ -527,7 +537,7 @@ All three `data/` subdirectories are gitignored and created automatically on fir
 - An `Incident` node is written to LadybugDB linked to the equipment instance and the session ID.
 - If confidence ≥ 0.7, a timestamped entry is appended to the specialist's memory file.
 
-**The Historian specialist** uses `run_correlation` against DuckDB for long-horizon analytical queries — "how often has RawWater_01 pressure dropped below 5 bar in the last 90 days?" — without re-reading raw time series through InfluxDB MCP.
+**The Historian specialist** uses `run_correlation` against DuckDB for long-horizon analytical queries — "how often has RawWater_01 pressure dropped below 5 bar in the last 90 days?" — without re-reading raw time series through InfluxDB MCP. DuckDB is a materialized copy synced from InfluxDB on a schedule (`DUCKDB_SYNC_INTERVAL`, default 1 hour); Historian's system prompt directs it to use InfluxDB directly for anything from the last hour. Historian has read-only access to memory tools — write tools are intentionally excluded and handled by the session coordinator.
 
 ### Graph schema
 
