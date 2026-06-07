@@ -1,0 +1,5 @@
+fastmcp
+paho-mqtt>=2.0
+pyyaml>=6.0
+asyncua>=1.0
+python-dotenv

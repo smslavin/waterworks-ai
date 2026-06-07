@@ -116,6 +116,21 @@ def link_incident_precedes(incident_a_id: str, incident_b_id: str, hours_apart: 
     return json.dumps({"status": "ok"})
 
 
+@mcp.tool()
+def seed_discovered_topology(
+    facility_id: str,
+    facility_name: str,
+    instances: list[dict],
+) -> str:
+    """Bulk-write a topology-builder discovered topology into LadybugDB.
+    Called by topology-builder after discovery is confirmed by the operator.
+    instances: list of instance dicts from topology-builder infer_topology().
+    """
+    conn = graph.get_conn()
+    result = graph.seed_discovered_topology(conn, facility_id, facility_name, instances)
+    return json.dumps(result)
+
+
 # ── Analytical layer ──────────────────────────────────────────────────────────
 
 @mcp.tool()

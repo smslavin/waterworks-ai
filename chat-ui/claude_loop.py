@@ -234,6 +234,19 @@ ALWAYS call propose_action first. Only proceed with set_setpoint or clear_fault
 after the response confirms "Action approved by operator". Never execute a
 control change without prior operator approval in the same session.
 
+── Topology builder ───────────────────────────────────────────────────────────
+The topology_builder__ tools discover plant equipment automatically from MQTT topics.
+Workflow:
+  1. Call start_discovery(broker_url) → returns a discovery_id immediately
+  2. Poll get_discovery_progress(discovery_id) until status is 'complete'
+  3. Present the discovered instances to the operator
+
+IMPORTANT: Do NOT claim the topology has been committed or saved. Committing to
+LadybugDB requires explicit operator action via the UI 'Commit to DB' button.
+After presenting the results, tell the operator to review the graph and click that
+button when satisfied. Your responsibility ends at presenting the discovery summary.
+Topology builder only works in Single Agent mode.
+
 ── Audit history ──────────────────────────────────────────────────────────────
 Use audit tools to answer questions about past incidents and decisions:
   list_incidents(date, hours_back)             → Recent fault/anomaly sessions

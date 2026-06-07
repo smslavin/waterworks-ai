@@ -1,0 +1,68 @@
+name: Water Treatment — Municipal
+version: "1.0"
+
+equipment_types:
+  Pump:
+    ladybug_type_id: centrifugal_pump
+    topic_patterns:
+      - "**/Pump/*/{attr}"
+      - "**/*Pump*/*/{attr}"
+    opcua_patterns:
+      - "**/Pump/*/{attr}"
+    required_attributes: [Flow, Pressure, Running]
+    optional_attributes: [Power, Speed, Temperature]
+
+  UV:
+    ladybug_type_id: uv_bank
+    topic_patterns:
+      - "**/UV/*/{attr}"
+      - "**/*UV*/*/{attr}"
+    opcua_patterns:
+      - "**/UV/*/{attr}"
+    required_attributes: [Intensity, Running]
+    optional_attributes: [LampHours]
+
+  Dosing:
+    ladybug_type_id: chemical_dosing_pump
+    topic_patterns:
+      - "**/Dosing/*/{attr}"
+      - "**/*Chlor*/*/{attr}"
+      - "**/*Fluor*/*/{attr}"
+      - "**/*Chemical*/*/{attr}"
+    opcua_patterns:
+      - "**/Dosing/*/{attr}"
+    required_attributes: [FlowRate, Running]
+    optional_attributes: [TankLevel, Setpoint]
+
+  Clarifier:
+    ladybug_type_id: clarifier
+    topic_patterns:
+      - "**/Clarif*/*/{attr}"
+      - "**/Clarifier*/*/{attr}"
+    opcua_patterns:
+      - "**/Clarifier*/*/{attr}"
+    required_attributes: [Level, Turbidity]
+    optional_attributes: []
+
+  StorageTank:
+    ladybug_type_id: storage_tank
+    topic_patterns:
+      - "**/StorageTank/*/{attr}"
+      - "**/Tank*/*/{attr}"
+      - "**/FinishedWater*/*/{attr}"
+      - "**/Storage*/*/{attr}"
+    opcua_patterns:
+      - "**/StorageTank/*/{attr}"
+    required_attributes: [Level]
+    optional_attributes: [pH, Turbidity]
+
+process_areas:
+  - name: Intake
+    area_id: intake
+    patterns: ["*RawWater*", "*Intake*", "*Influent*", "*Well*"]
+  - name: Treatment
+    area_id: treatment
+    patterns: ["*Clarif*", "*Chlor*", "*Fluor*", "*UV*", "*Dosing*", "*Chemical*", "*Filter*"]
+  - name: Distribution
+    area_id: distribution
+    patterns: ["*HighService*", "*Finished*", "*Distribution*", "*Storage*", "*Service*"]

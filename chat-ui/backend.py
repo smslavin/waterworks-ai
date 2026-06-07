@@ -42,6 +42,7 @@ import audit
 import claude_loop
 import control
 import metrics
+import mcp_client
 import multi_agent_loop
 import openai_loop
 
@@ -121,8 +122,9 @@ async def health_endpoint(request: Request):
         tcp_ok("localhost", 8090),  # simulator control
         tcp_ok("localhost", 8004),  # audit-mcp
         tcp_ok("localhost", 8005),  # control-mcp
+        tcp_ok("localhost", 8006),  # memory-mcp
     )
-    keys = ("aggregator", "influxdb", "mqtt", "simulator", "audit_mcp", "control_mcp")
+    keys = ("aggregator", "influxdb", "mqtt", "simulator", "audit_mcp", "control_mcp", "memory_mcp")
     return JSONResponse({k: "ok" if v else "error" for k, v in zip(keys, results)})
 
 
@@ -554,6 +556,27 @@ async def metrics_api_endpoint(request: Request):
     })
 
 
+async def topology_commit_endpoint(request: Request):
+    body          = await request.json()
+    facility_id   = body.get("facility_id", "WTP_001")
+    facility_name = body.get("facility_name", "Water Treatment Plant")
+    instances     = body.get("instances", [])
+    if not instances:
+        return JSONResponse({"error": "no instances provided"}, status_code=400)
+    result_str = await mcp_client.call_mcp_tool(
+        "memory__seed_discovered_topology",
+        {"facility_id": facility_id, "facility_name": facility_name, "instances": instances},
+    )
+    try:
+        result = json.loads(result_str)
+    except Exception:
+        result = {"seeded_count": 0, "errors": 1}
+    return JSONResponse({
+        "committed_count": result.get("seeded_count", 0),
+        "errors": result.get("errors", 0),
+    })
+
+
 routes = [
     Route("/",                    index),
     Route("/api/models",          models_endpoint),
@@ -567,6 +590,7 @@ routes = [
     Route("/api/audit/clear",     audit_clear_endpoint,  methods=["POST"]),
     Route("/api/audit/download",  audit_download_endpoint),
     Route("/api/metrics",         metrics_api_endpoint),
+    Route("/api/topology/commit", topology_commit_endpoint, methods=["POST"]),
     Route("/audit",               audit_page_endpoint),
     Route("/metrics",             metrics_page_endpoint),
     Mount("/static", StaticFiles(directory=STATIC_DIR), name="static"),

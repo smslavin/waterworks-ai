@@ -302,6 +302,173 @@ main { display: flex; flex: 1; min-height: 0; }
   font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono);
 }
 
+/* ── Topology builder ── */
+:root {
+  --topo-verified: #0d9488;
+  --topo-inferred: #d97706;
+  --topo-suspect:  #dc2626;
+  --topo-chat-w:   460px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --topo-verified: #2dd4bf; --topo-inferred: #fbbf24; --topo-suspect: #f87171; }
+}
+
+/* main becomes the positioning context for topo-builder */
+main { position: relative; overflow: hidden; }
+
+#diagnostic-view {
+  display: flex; flex: 1; min-height: 0;
+  transition: transform 0.38s cubic-bezier(0.4,0,0.2,1),
+              opacity   0.38s cubic-bezier(0.4,0,0.2,1);
+}
+#diagnostic-view.topo-out {
+  transform: translateX(-100%); opacity: 0; pointer-events: none;
+}
+
+#topo-builder {
+  position: absolute; inset: 0; display: flex;
+  transform: translateX(100%); opacity: 0; pointer-events: none;
+  transition: transform 0.38s cubic-bezier(0.4,0,0.2,1),
+              opacity   0.38s cubic-bezier(0.4,0,0.2,1);
+}
+#topo-builder.topo-in {
+  transform: translateX(0); opacity: 1; pointer-events: all;
+}
+
+/* topo chat pane (left column) */
+#topo-chat-pane {
+  width: var(--topo-chat-w); flex-shrink: 0;
+  border-right: 1px solid var(--color-border-tertiary);
+  display: flex; flex-direction: column;
+  background: var(--color-background-secondary);
+}
+#topo-pane-header {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px; flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border-tertiary);
+}
+#topo-back-btn {
+  font-size: 12px; padding: 4px 8px;
+  border: 1px solid var(--color-border-tertiary); border-radius: 5px;
+  background: var(--color-background-primary); color: var(--color-text-secondary); cursor: pointer;
+}
+#topo-back-btn:hover { background: var(--color-background-tertiary); }
+.topo-mode-badge {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--topo-verified); font-weight: 600;
+  background: color-mix(in srgb, var(--topo-verified) 12%, transparent);
+  padding: 2px 7px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--topo-verified) 30%, transparent);
+}
+#topo-messages {
+  flex: 1; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.topo-bubble {
+  font-size: 13px; line-height: 1.55; padding: 8px 10px;
+  border-radius: 8px; border: 1px solid var(--color-border-tertiary);
+  background: var(--color-background-primary);
+  overflow-x: auto;
+}
+.topo-bubble.user {
+  align-self: flex-end; background: var(--color-user-bubble);
+  color: var(--color-user-text); border-color: transparent; max-width: 90%;
+}
+.topo-bubble.assistant { color: var(--color-text-primary); }
+#topo-input-area {
+  padding: 10px 12px; border-top: 1px solid var(--color-border-tertiary); flex-shrink: 0;
+}
+#topo-input-row { display: flex; gap: 6px; }
+#topo-user-input {
+  flex: 1; resize: none; padding: 7px 10px; font-family: var(--font-sans); font-size: 13px;
+  border: 1px solid var(--color-border-tertiary); border-radius: var(--radius);
+  background: var(--color-background-primary); color: var(--color-text-primary);
+  line-height: 1.5; min-height: 36px; max-height: 120px; overflow-y: auto;
+}
+#topo-user-input:focus { outline: 2px solid var(--topo-verified); outline-offset: -1px; }
+#topo-send-btn {
+  padding: 7px 12px; background: var(--topo-verified); color: #fff;
+  border: none; border-radius: var(--radius); font-size: 13px; font-weight: 600;
+  cursor: pointer; align-self: flex-end;
+}
+#topo-send-btn:hover { opacity: 0.85; }
+
+/* topo graph pane (right) */
+#topo-graph-pane {
+  flex: 1; display: flex; flex-direction: column;
+  background: var(--color-background-primary);
+}
+#topo-area-pills {
+  display: flex; gap: 6px; padding: 6px 10px; flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border-tertiary);
+}
+.topo-area-pill {
+  font-size: 11px; padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--color-border-tertiary);
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary); cursor: pointer;
+}
+.topo-area-pill.active {
+  background: var(--color-accent); color: #fff; border-color: var(--color-accent);
+}
+#topo-svg { flex: 1; min-height: 0; width: 100%; }
+.topo-node { cursor: pointer; }
+.topo-node circle { stroke: var(--color-border-tertiary); stroke-width: 2; transition: fill 0.3s; }
+.topo-node text { font-family: var(--font-sans); fill: var(--color-text-primary); pointer-events: none; }
+.topo-node.verified circle { fill: var(--topo-verified); }
+.topo-node.inferred circle { fill: var(--topo-inferred); }
+.topo-node.suspect  circle { fill: var(--topo-suspect); }
+.topo-node.dimmed { opacity: 0.15; }
+.topo-node.selected circle { stroke: var(--color-text-primary); stroke-width: 3; }
+.topo-area-svg-label { cursor: pointer; }
+.topo-area-svg-label rect { fill: var(--color-background-secondary); stroke: var(--color-border-tertiary); stroke-width: 1; }
+.topo-area-svg-label text { font-family: var(--font-sans); font-size: 11px; fill: var(--color-text-secondary); }
+.topo-area-svg-label.active rect { fill: var(--color-accent); stroke: var(--color-accent); }
+.topo-area-svg-label.active text { fill: #fff; font-weight: 600; }
+.topo-area-svg-label:hover rect { stroke: var(--color-text-secondary); }
+@keyframes topo-reveal {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.topo-node.revealing { animation: topo-reveal 0.4s ease both; }
+@keyframes topo-scan-pulse {
+  0%,100% { opacity: 0.25; } 50% { opacity: 0.55; }
+}
+.topo-scan-text { animation: topo-scan-pulse 1.8s ease-in-out infinite; }
+@keyframes topo-commit {
+  0%   { r: 18; } 40% { r: 24; opacity: 0.7; } 100% { r: 18; fill: var(--topo-verified); }
+}
+.topo-node.committing circle { animation: topo-commit 0.55s ease-in-out both; }
+#topo-legend {
+  display: flex; gap: 14px; padding: 6px 14px; font-size: 11px;
+  color: var(--color-text-secondary); border-top: 1px solid var(--color-border-tertiary);
+  flex-shrink: 0; align-items: center;
+}
+.topo-legend-item { display: flex; align-items: center; gap: 5px; }
+.topo-legend-item::before {
+  content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+}
+.topo-legend-item.verified::before { background: var(--topo-verified); }
+.topo-legend-item.inferred::before { background: var(--topo-inferred); }
+.topo-legend-item.suspect::before  { background: var(--topo-suspect); }
+#topo-node-detail {
+  padding: 5px 14px; font-size: 11px; color: var(--color-text-secondary);
+  font-family: var(--font-mono); border-top: 1px solid var(--color-border-tertiary);
+  min-height: 24px; flex-shrink: 0;
+}
+#topo-action-bar {
+  display: flex; align-items: center; justify-content: space-between; padding: 8px 14px;
+  border-top: 1px solid var(--color-border-tertiary); flex-shrink: 0;
+}
+#topo-status-text { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+#topo-commit-btn {
+  padding: 7px 16px; background: var(--topo-verified); color: #fff;
+  border: none; border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+#topo-commit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+#topo-commit-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--topo-verified) 85%, black);
+}
+
 /* ── Sidebar action buttons ── */
 .sidebar-actions { display: flex; flex-direction: column; gap: 5px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--color-border-tertiary); }
 .side-btn {
@@ -430,52 +597,90 @@ main { display: flex; flex: 1; min-height: 0; }
 </header>
 
 <main>
-  <div id="chat-pane">
-    <div id="messages"></div>
-    <div id="input-area">
-      <div id="input-row">
-        <textarea id="user-input" rows="1" placeholder="Ask about the water treatment plant…"></textarea>
-        <button id="mode-toggle" onclick="toggleMode()" title="Switch between single-agent and multi-agent diagnostic mode">Single Agent</button>
-        <button id="thinking-toggle" onclick="toggleThinking()" title="Enable extended reasoning (Opus 4.7)">Deep Reasoning</button>
-        <button id="send-btn">Send</button>
+
+  <!-- ── Diagnostic mode (default) ── -->
+  <div id="diagnostic-view">
+    <div id="chat-pane">
+      <div id="messages"></div>
+      <div id="input-area">
+        <div id="input-row">
+          <textarea id="user-input" rows="1" placeholder="Ask about the water treatment plant…"></textarea>
+          <button id="mode-toggle" onclick="toggleMode()" title="Switch between single-agent and multi-agent diagnostic mode">Single Agent</button>
+          <button id="thinking-toggle" onclick="toggleThinking()" title="Enable extended reasoning (Opus 4.7)">Deep Reasoning</button>
+          <button id="send-btn">Send</button>
+        </div>
+        <div id="fault-row">
+          <label>Fault:</label>
+          <select id="fault-target"></select>
+          <select id="fault-mode"></select>
+          <button class="fault-btn" onclick="injectFault()">Inject</button>
+          <button class="fault-btn danger" onclick="clearFault()">Clear</button>
+        </div>
       </div>
-      <div id="fault-row">
-        <label>Fault:</label>
-        <select id="fault-target"></select>
-        <select id="fault-mode"></select>
-        <button class="fault-btn" onclick="injectFault()">Inject</button>
-        <button class="fault-btn danger" onclick="clearFault()">Clear</button>
+    </div>
+
+    <aside id="sidebar">
+      <div class="sidebar-section">
+        <h2>Server Status</h2>
+        <div class="health-item"><div class="dot" id="dot-aggregator"></div><span>MCP Aggregator</span></div>
+        <div class="health-item"><div class="dot" id="dot-influxdb"></div><span>InfluxDB</span></div>
+        <div class="health-item"><div class="dot" id="dot-mqtt"></div><span>MQTT Broker</span></div>
+        <div class="health-item"><div class="dot" id="dot-simulator"></div><span>Simulator</span></div>
+        <div class="health-item"><div class="dot" id="dot-audit_mcp"></div><span>Audit MCP</span></div>
+        <div class="health-item"><div class="dot" id="dot-control_mcp"></div><span>Control MCP</span></div>
+        <div class="health-item"><div class="dot" id="dot-memory_mcp"></div><span>Memory MCP</span></div>
+      </div>
+      <div class="sidebar-section" id="context-section">
+        <h2>Context</h2>
+        <div class="context-bar-wrap"><div class="context-bar" id="context-bar"></div></div>
+        <div class="context-label" id="context-label">0.0%  (0 tok)</div>
+      </div>
+      <div class="sidebar-section">
+        <h2>Fault Status</h2>
+        <div id="fault-status-list"><div style="color:var(--color-text-secondary);font-size:12px">Loading…</div></div>
+      </div>
+      <div class="sidebar-actions">
+        <button class="side-btn" onclick="newConversation()">New Conversation</button>
+        <a class="side-btn" href="http://localhost:3000/dashboards" target="_blank">Dashboards</a>
+        <a class="side-btn" href="/audit" target="_blank">Audit Log</a>
+        <a class="side-btn" href="/metrics" target="_blank">Metrics</a>
+        <button class="side-btn danger" onclick="clearAuditLog()">Clear Audit Log</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── Topology builder mode ── -->
+  <div id="topo-builder" aria-hidden="true">
+    <div id="topo-chat-pane">
+      <div id="topo-pane-header">
+        <button id="topo-back-btn" onclick="exitTopologyMode(false)">← Back</button>
+        <span class="topo-mode-badge">topology builder</span>
+      </div>
+      <div id="topo-messages"></div>
+      <div id="topo-input-area">
+        <div id="topo-input-row">
+          <textarea id="topo-user-input" rows="1" placeholder="Ask Cascade about the discovery…"></textarea>
+          <button id="topo-send-btn" onclick="sendTopoMessage()">Send</button>
+        </div>
+      </div>
+    </div>
+    <div id="topo-graph-pane">
+      <div id="topo-area-pills"></div>
+      <svg id="topo-svg" aria-label="Plant topology graph"></svg>
+      <div id="topo-legend">
+        <span class="topo-legend-item verified">verified</span>
+        <span class="topo-legend-item inferred">inferred</span>
+        <span class="topo-legend-item suspect">suspect</span>
+        <span id="topo-legend-stats" style="margin-left:auto;font-family:var(--font-mono)"></span>
+      </div>
+      <div id="topo-node-detail"></div>
+      <div id="topo-action-bar">
+        <span id="topo-status-text"></span>
+        <button id="topo-commit-btn" onclick="commitTopology()" disabled>commit to db</button>
       </div>
     </div>
   </div>
 
-  <aside id="sidebar">
-    <div class="sidebar-section">
-      <h2>Server Status</h2>
-      <div class="health-item"><div class="dot" id="dot-aggregator"></div><span>MCP Aggregator</span></div>
-      <div class="health-item"><div class="dot" id="dot-influxdb"></div><span>InfluxDB</span></div>
-      <div class="health-item"><div class="dot" id="dot-mqtt"></div><span>MQTT Broker</span></div>
-      <div class="health-item"><div class="dot" id="dot-simulator"></div><span>Simulator</span></div>
-      <div class="health-item"><div class="dot" id="dot-audit_mcp"></div><span>Audit MCP</span></div>
-      <div class="health-item"><div class="dot" id="dot-control_mcp"></div><span>Control MCP</span></div>
-    </div>
-    <div class="sidebar-section" id="context-section">
-      <h2>Context</h2>
-      <div class="context-bar-wrap"><div class="context-bar" id="context-bar"></div></div>
-      <div class="context-label" id="context-label">0.0%  (0 tok)</div>
-    </div>
-    <div class="sidebar-section">
-      <h2>Fault Status</h2>
-      <div id="fault-status-list"><div style="color:var(--color-text-secondary);font-size:12px">Loading…</div></div>
-    </div>
-    <div class="sidebar-actions">
-      <button class="side-btn" onclick="newConversation()">New Conversation</button>
-      <a class="side-btn" href="http://localhost:3000/dashboards" target="_blank">Dashboards</a>
-      <a class="side-btn" href="/audit" target="_blank">Audit Log</a>
-      <a class="side-btn" href="/metrics" target="_blank">Metrics</a>
-      <button class="side-btn danger" onclick="clearAuditLog()">Clear Audit Log</button>
-    </div>
-  </aside>
 </main>
 
 <!-- ── Operator approval dialog ── -->

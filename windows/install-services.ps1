@@ -45,10 +45,11 @@ $WaterworksRoot = Resolve-Path "$PSScriptRoot\.."
 $MqttMcpPort     = "8011"
 $OpcuaMcpPort    = "8012"
 $InfluxdbMcpPort = "8003"
-$AuditMcpPort    = "8004"
-$ControlMcpPort  = "8005"
-$MemoryMcpPort   = "8006"
-$AggregatorPort  = "8110"
+$AuditMcpPort         = "8004"
+$ControlMcpPort       = "8005"
+$MemoryMcpPort        = "8006"
+$TopologyBuilderPort  = "8007"
+$AggregatorPort       = "8110"
 $ChatUIPort      = "8082"
 $SimControlPort  = "8090"   # simulator fault/setpoint HTTP
 
@@ -188,6 +189,21 @@ $Services = @(
         Desc    = "WaterWorks AI — Memory MCP server (port $MemoryMcpPort)"
     },
     @{
+        Name    = "WaterWorks TopologyBuilder"
+        Exe     = Resolve-AbsPath $WaterworksRoot "topology-builder\.venv\Scripts\python.exe"
+        Args    = "server.py"
+        WorkDir = Resolve-AbsPath $WaterworksRoot "topology-builder"
+        LogOut  = Join-Path $LogDir "topology-builder.log"
+        LogErr  = Join-Path $LogDir "topology-builder-err.log"
+        Env     = @(
+            "TOPOLOGY_BUILDER_PORT=$TopologyBuilderPort"
+            "MEMORY_MCP_URL=http://localhost:$MemoryMcpPort"
+            "MQTT_BROKER_URL=$MqttBrokerUrl"
+            "MQTT_BROKER_PORT=$MqttBrokerPort"
+        )
+        Desc    = "WaterWorks AI — Topology builder MCP server (port $TopologyBuilderPort)"
+    },
+    @{
         Name    = "WaterWorks Aggregator"
         Exe     = Resolve-AbsPath $WaterworksRoot "mcp-aggregator\server\.venv\Scripts\python.exe"
         Args    = "server.py"
@@ -281,6 +297,7 @@ $startOrder = @(
     "WaterWorks AuditMcp",
     "WaterWorks ControlMcp",
     "WaterWorks MemoryMcp",
+    "WaterWorks TopologyBuilder",
     "WaterWorks Aggregator",
     "WaterWorks Bridge",
     "WaterWorks ChatUI"

@@ -187,14 +187,15 @@ async function loadModels() {
 // ── Health check ───────────────────────────────────────────────────────────
 
 async function checkHealth() {
+  const KEYS = ["aggregator","influxdb","mqtt","simulator","audit_mcp","control_mcp","memory_mcp"];
   try {
     const data = await fetch("/api/health").then(r => r.json());
-    ["aggregator","influxdb","mqtt","simulator","audit_mcp","control_mcp"].forEach(k => {
+    KEYS.forEach(k => {
       const el = document.getElementById(`dot-${k}`);
       if (el) el.className = "dot " + (data[k] === "ok" ? "ok" : "error");
     });
   } catch {
-    ["aggregator","influxdb","mqtt","simulator","audit_mcp","control_mcp"].forEach(k => {
+    KEYS.forEach(k => {
       const el = document.getElementById(`dot-${k}`);
       if (el) el.className = "dot error";
     });
@@ -540,6 +541,9 @@ async function sendMessage() {
   if (multiAgentMode) msg.initSpecialistPanel();
   let assistantText = "";
 
+  // _topoLiveBubble is created lazily on first text token after topo mode is entered
+  // (topoMode may become true mid-stream when start_discovery fires enterTopologyMode)
+
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -578,6 +582,19 @@ async function sendMessage() {
           case "text":
             assistantText += chunk.text;
             msg.addToken(chunk.text);
+            if (topoMode) {
+              if (!_topoLiveBubble) {
+                _topoLiveBubble = document.createElement("div");
+                _topoLiveBubble.className = "topo-bubble assistant";
+                _topoLiveBubble._rawText = "";
+                const msgsEl = document.getElementById("topo-messages");
+                msgsEl.appendChild(_topoLiveBubble);
+              }
+              _topoLiveBubble._rawText += chunk.text;
+              _topoLiveBubble.innerHTML = renderMarkdown(_topoLiveBubble._rawText);
+              const tm = document.getElementById("topo-messages");
+              if (tm) tm.scrollTop = tm.scrollHeight;
+            }
             break;
           case "thinking_delta":
             msg.addThinkingDelta(chunk.text);
@@ -596,6 +613,9 @@ async function sendMessage() {
             break;
           case "tool_result":
             msg.addToolResult(chunk.tool, chunk.result);
+            if (chunk.tool && chunk.tool.startsWith("topology_builder__")) {
+              try { handleTopoToolResult(chunk.tool, JSON.parse(chunk.result)); } catch {}
+            }
             break;
           case "action_proposed":
             showApprovalDialog(chunk);
@@ -630,7 +650,14 @@ async function sendMessage() {
     if (err.name !== "AbortError") msg.addError(err.message);
   } finally {
     msg.finalize();
-    if (assistantText) messages.push({role: "assistant", content: assistantText});
+    if (assistantText) {
+      messages.push({role: "assistant", content: assistantText});
+    }
+    // Finalize live topo bubble (remove empty typing indicator if no text came through)
+    if (_topoLiveBubble) {
+      if (!_topoLiveBubble._rawText?.trim()) _topoLiveBubble.remove();
+      _topoLiveBubble = null;
+    }
     abortController = null;
     _setStreaming(false);
     inputEl.focus();
@@ -664,3 +691,377 @@ checkHealth();
 refreshFaultStatus();
 setInterval(checkHealth,        15_000);
 setInterval(refreshFaultStatus,  5_000);
+
+// ── Topology builder ───────────────────────────────────────────────────────
+
+let topoMode              = false;
+let topoDiscoveryId       = null;
+let topoInstances         = [];
+let topoActiveArea        = "All";
+let topoDiscoveryComplete = false;
+let _topoLiveBubble       = null; // streaming bubble in topo pane
+
+function enterTopologyMode() {
+  if (topoMode) return;
+  topoMode = true;
+  // Reset commit button to disabled/clean state regardless of previous session
+  const commitBtn = document.getElementById("topo-commit-btn");
+  commitBtn.disabled = true;
+  commitBtn.textContent = "commit to db";
+  commitBtn.style.outline = "";
+  commitBtn.style.outlineOffset = "";
+  const diagView = document.getElementById("diagnostic-view");
+  const topoEl   = document.getElementById("topo-builder");
+  diagView.classList.add("topo-out");
+  topoEl.setAttribute("aria-hidden", "false");
+  // Double rAF ensures the browser paints before starting the transition
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    topoEl.classList.add("topo-in");
+    // Render the graph after the panel is visible so SVG has real dimensions
+    topoEl.addEventListener("transitionend", function onVisible(e) {
+      if (e.target !== topoEl) return;
+      if (topoInstances.length === 0) {
+        _renderScanningState();
+      } else {
+        renderTopologyGraph(topoInstances, false);
+      }
+      topoEl.removeEventListener("transitionend", onVisible);
+    }, { once: true });
+  }));
+}
+
+function exitTopologyMode(committed = false) {
+  if (!topoMode) return;
+  topoMode = false;
+  topoDiscoveryId = null;
+  const diagView = document.getElementById("diagnostic-view");
+  const topoEl   = document.getElementById("topo-builder");
+  topoEl.classList.remove("topo-in");
+  void diagView.offsetHeight; // reflow so transition fires
+  diagView.classList.remove("topo-out");
+  topoEl.addEventListener("transitionend", function onHidden(e) {
+    if (e.target !== topoEl) return;
+    topoEl.setAttribute("aria-hidden", "true");
+    topoEl.removeEventListener("transitionend", onHidden);
+    // Reset graph for next use
+    document.getElementById("topo-svg").innerHTML = "";
+    document.getElementById("topo-area-pills").innerHTML = "";
+    document.getElementById("topo-node-detail").textContent = "";
+    topoInstances = [];
+    topoActiveArea = "All";
+    topoDiscoveryComplete = false;
+  }, { once: true });
+  if (committed) refreshFaultStatus();
+}
+
+// ── Graph rendering ────────────────────────────────────────────────────────
+
+const TOPO_NODE_R       = 18;
+const TOPO_SPACING_Y    = 90;
+const TOPO_AREA_SPAN_X  = 110;
+const TOPO_MARGIN_X     = 55;
+const TOPO_MARGIN_Y     = 65;
+
+function renderTopologyGraph(instances, revealNew) {
+  const svg  = document.getElementById("topo-svg");
+  const W    = svg.clientWidth  || 600;
+  const H    = svg.clientHeight || 400;
+
+  const areaOrder = ["Intake", "Treatment", "Distribution", "Unknown"];
+  const byArea = Object.fromEntries(areaOrder.map(a => [a, []]));
+  for (const inst of instances) {
+    const a = inst.process_area || "Unknown";
+    if (!byArea[a]) byArea[a] = [];
+    byArea[a].push(inst);
+  }
+
+  const activeAreas = areaOrder.filter(a => byArea[a].length > 0);
+  const existingIds = new Set(
+    [...svg.querySelectorAll(".topo-node")].map(n => n.dataset.id)
+  );
+
+  // Clear scanning placeholder when real nodes arrive
+  if (instances.length > 0) {
+    svg.querySelectorAll(".topo-scan-text").forEach(el => el.remove());
+  }
+
+  // Remove nodes no longer in the instance list
+  svg.querySelectorAll(".topo-node").forEach(el => {
+    if (!instances.find(i => i.instance_id === el.dataset.id)) el.remove();
+  });
+
+  // Area names are shown in the pills row above the SVG — don't duplicate in SVG
+  svg.querySelectorAll("[data-area-label]").forEach(el => el.remove());
+
+  activeAreas.forEach((area, col) => {
+    const cx = TOPO_MARGIN_X + col * TOPO_AREA_SPAN_X;
+
+    byArea[area].forEach((inst, row) => {
+      const cy   = TOPO_MARGIN_Y + row * TOPO_SPACING_Y;
+      const isNew = !existingIds.has(inst.instance_id);
+      let nodeEl  = svg.querySelector(`[data-id="${inst.instance_id}"]`);
+      if (!nodeEl) {
+        nodeEl = _createNode(inst, cx, cy, isNew && revealNew);
+        svg.appendChild(nodeEl);
+      } else {
+        // Update position
+        nodeEl.setAttribute("transform", `translate(${cx},${cy})`);
+        // Update confidence colour class
+        nodeEl.className.baseVal = `topo-node ${inst.confidence_level}`;
+      }
+      _applyAreaFilter(nodeEl, inst.process_area);
+    });
+  });
+
+  _updateAreaPills(activeAreas);
+  _updateActionBar(instances);
+}
+
+function _createNode(inst, cx, cy, animate) {
+  const g = _svgEl("g", {
+    class: `topo-node ${inst.confidence_level}`,
+    transform: `translate(${cx},${cy})`,
+    "data-id": inst.instance_id,
+  });
+  if (animate) {
+    g.classList.add("revealing");
+    g.addEventListener("animationend", () => g.classList.remove("revealing"), { once: true });
+  }
+
+  const circle = _svgEl("circle", { r: TOPO_NODE_R, cx: 0, cy: 0 });
+  const label  = _svgEl("text", {
+    "text-anchor": "middle", "font-size": "10", "font-weight": "600",
+    y: TOPO_NODE_R + 13,
+  });
+  label.textContent = inst.instance_id;
+
+  const sub = _svgEl("text", {
+    "text-anchor": "middle", "font-size": "9", "opacity": "0.7",
+    y: TOPO_NODE_R + 23,
+  });
+  sub.textContent = inst.equipment_type;
+
+  g.append(circle, label, sub);
+  g.addEventListener("click", () => _selectNode(inst));
+  return g;
+}
+
+function _svgEl(tag, attrs = {}) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+function _areaColor(area) {
+  return { Intake: "#0ea5e9", Treatment: "#8b5cf6", Distribution: "#f59e0b" }[area] || "#6b7280";
+}
+
+function _applyAreaFilter(nodeEl, nodeArea) {
+  nodeEl.classList.toggle("dimmed", topoActiveArea !== "All" && topoActiveArea !== nodeArea);
+}
+
+function _updateAreaPills(activeAreas) {
+  const pillsEl = document.getElementById("topo-area-pills");
+  // Only manage the "All" pill here; area labels live in the SVG for exact alignment
+  if (!pillsEl.querySelector("[data-area='All']")) {
+    pillsEl.innerHTML = "";
+    const allBtn = document.createElement("button");
+    allBtn.className = "topo-area-pill";
+    allBtn.dataset.area = "All";
+    allBtn.textContent  = "All";
+    allBtn.onclick = () => _setAreaFilter("All");
+    pillsEl.appendChild(allBtn);
+  }
+  document.querySelector("[data-area='All']")
+    ?.classList.toggle("active", topoActiveArea === "All");
+
+  _renderAreaLabels(activeAreas);
+}
+
+function _renderAreaLabels(activeAreas) {
+  const svg = document.getElementById("topo-svg");
+  svg.querySelectorAll(".topo-area-svg-label").forEach(el => el.remove());
+  const pillH = 22;
+  activeAreas.forEach((area, col) => {
+    const cx    = TOPO_MARGIN_X + col * TOPO_AREA_SPAN_X;
+    const pillW = Math.max(area.length * 6.5 + 22, 50);
+    const g = _svgEl("g", {
+      class: `topo-area-svg-label${topoActiveArea === area ? " active" : ""}`,
+      "data-area": area,
+      transform: `translate(${cx},20)`,
+    });
+    const rect = _svgEl("rect", {
+      x: -(pillW / 2), y: -(pillH / 2),
+      width: pillW, height: pillH, rx: pillH / 2,
+    });
+    const text = _svgEl("text", {
+      x: 0, y: 1,
+      "text-anchor": "middle",
+      "dominant-baseline": "middle",
+    });
+    text.textContent = area;
+    g.appendChild(rect);
+    g.appendChild(text);
+    g.onclick = () => _setAreaFilter(area);
+    svg.insertBefore(g, svg.firstChild);
+  });
+}
+
+function _setAreaFilter(area) {
+  topoActiveArea = area;
+  document.querySelectorAll(".topo-area-pill").forEach(p => {
+    p.classList.toggle("active", p.dataset.area === area);
+  });
+  document.querySelectorAll(".topo-area-svg-label").forEach(lbl => {
+    lbl.classList.toggle("active", lbl.dataset.area === area);
+  });
+  document.querySelectorAll(".topo-node").forEach(nodeEl => {
+    const inst = topoInstances.find(i => i.instance_id === nodeEl.dataset.id);
+    if (inst) _applyAreaFilter(nodeEl, inst.process_area);
+  });
+}
+
+function _selectNode(inst) {
+  document.querySelectorAll(".topo-node.selected").forEach(n => n.classList.remove("selected"));
+  const nodeEl = document.querySelector(`[data-id="${inst.instance_id}"]`);
+  if (nodeEl) nodeEl.classList.add("selected");
+
+  const attrs   = Object.keys(inst.attributes || {}).join(", ") || "none";
+  const missing = (inst.missing_required || []).join(", ") || "—";
+  document.getElementById("topo-node-detail").innerHTML =
+    `<strong>${escHtml(inst.instance_id)}</strong> (${escHtml(inst.equipment_type)}) · ` +
+    `<span style="color:var(--topo-${inst.confidence_level})">${inst.confidence_level} ` +
+    `${(inst.confidence_score * 100).toFixed(0)}%</span> · ` +
+    `attrs: ${escHtml(attrs)} · missing: ${escHtml(missing)}`;
+}
+
+function _updateActionBar(instances) {
+  const v   = instances.filter(i => i.confidence_level === "verified").length;
+  const inf = instances.filter(i => i.confidence_level === "inferred").length;
+  const sus = instances.filter(i => i.confidence_level === "suspect").length;
+  document.getElementById("topo-status-text").textContent =
+    `${instances.length} instances · ${v} verified · ${inf} inferred · ${sus} suspect`;
+  document.getElementById("topo-legend-stats").textContent =
+    `${instances.length} · 3 areas · ${inf + sus} flagged`;
+  document.getElementById("topo-commit-btn").disabled = !topoDiscoveryComplete || instances.length === 0;
+}
+
+// ── SSE tool result handler ────────────────────────────────────────────────
+
+function handleTopoToolResult(toolName, result) {
+  if (toolName === "topology_builder__start_discovery") {
+    topoDiscoveryId = result.discovery_id;
+    enterTopologyMode();
+    document.getElementById("topo-status-text").textContent = "Discovery running…";
+  }
+
+  if (toolName === "topology_builder__get_discovery_progress") {
+    const instances = result.instances || [];
+    const hasNew = instances.length > topoInstances.length;
+    topoInstances = instances;
+    if (result.status === "running" && instances.length === 0) {
+      _renderScanningState();
+    } else if (hasNew) {
+      renderTopologyGraph(instances, true);
+    }
+    if (result.status === "complete") {
+      topoDiscoveryComplete = true;
+      document.getElementById("topo-status-text").textContent =
+        `Discovery complete — ${instances.length} instances found`;
+      _updateActionBar(instances);
+      const btn = document.getElementById("topo-commit-btn");
+      btn.style.outline = "2px solid var(--topo-verified)";
+      btn.style.outlineOffset = "2px";
+    }
+  }
+
+  if (toolName === "topology_builder__override_instance_type") {
+    renderTopologyGraph(topoInstances, false);
+  }
+}
+
+function _pulseCommitAndExit() {
+  const nodes = [...document.querySelectorAll(".topo-node")];
+  nodes.forEach((nodeEl, idx) => {
+    setTimeout(() => nodeEl.classList.add("committing"), idx * 80);
+  });
+  setTimeout(() => exitTopologyMode(true), nodes.length * 80 + 650);
+}
+
+// ── Topo chat send ─────────────────────────────────────────────────────────
+
+function sendTopoMessage() {
+  const topoInput = document.getElementById("topo-user-input");
+  const text = topoInput.value.trim();
+  if (!text || streaming) return;
+  topoInput.value = "";
+  appendTopoMessage("user", text);
+  // Route through the shared sendMessage — set inputEl so it reads the right text
+  inputEl.value = text;
+  sendMessage();
+}
+
+function appendTopoMessage(role, text) {
+  const el = document.createElement("div");
+  el.className = `topo-bubble ${role}`;
+  el.innerHTML = role === "assistant" ? renderMarkdown(text) : escHtml(text);
+  const msgsEl = document.getElementById("topo-messages");
+  msgsEl.appendChild(el);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+function _renderScanningState() {
+  const svg = document.getElementById("topo-svg");
+  const W = svg.clientWidth || 800;
+  const H = svg.clientHeight || 400;
+  svg.innerHTML = "";
+  const t1 = _svgEl("text", {
+    x: W / 2, y: H / 2 - 12, "text-anchor": "middle",
+    "font-size": "14", "font-family": "system-ui",
+    fill: "var(--color-text-secondary)", class: "topo-scan-text",
+  });
+  t1.textContent = "Scanning MQTT topics…";
+  const t2 = _svgEl("text", {
+    x: W / 2, y: H / 2 + 10, "text-anchor": "middle",
+    "font-size": "11", "font-family": "var(--font-mono)",
+    fill: "var(--color-text-secondary)", class: "topo-scan-text",
+    "animation-delay": "0.6s",
+  });
+  t2.textContent = "listening for equipment signals";
+  svg.append(t1, t2);
+}
+
+async function commitTopology() {
+  if (!topoInstances.length) return;
+  const btn = document.getElementById("topo-commit-btn");
+  btn.disabled = true;
+  btn.textContent = "committing…";
+  btn.style.outline = "";
+  document.getElementById("topo-status-text").textContent = "Writing to LadybugDB…";
+
+  try {
+    const resp = await fetch("/api/topology/commit", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        facility_id:   "WTP_001",
+        facility_name: "Water Treatment Plant",
+        instances:     topoInstances,
+      }),
+    });
+    const result = await resp.json();
+    if (result.error) {
+      document.getElementById("topo-status-text").textContent = `Error: ${result.error}`;
+      btn.disabled = false;
+      btn.textContent = "commit to db";
+    } else {
+      document.getElementById("topo-status-text").textContent =
+        `Committed ${result.committed_count} instances`;
+      _pulseCommitAndExit();
+    }
+  } catch (e) {
+    document.getElementById("topo-status-text").textContent = `Error: ${e.message}`;
+    btn.disabled = false;
+    btn.textContent = "commit to db";
+  }
+}

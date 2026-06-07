@@ -270,3 +270,145 @@ def link_incident_precedes(incident_a_id: str, incident_b_id: str, hours_apart: 
         MATCH (a:Incident {{id: '{incident_a_id}'}}), (b:Incident {{id: '{incident_b_id}'}})
         CREATE (a)-[:PRECEDES {{hours_apart: {hours_apart}}}]->(b)
     """)
+
+
+def seed_discovered_topology(
+    conn: "lb.Connection",
+    facility_id: str,
+    facility_name: str,
+    instances: list[dict],
+) -> dict:
+    """Bulk-write a topology-builder discovered topology into LadybugDB.
+
+    Creates Equipment, IS_TYPE, CONTAINS_EQUIPMENT, TagBinding, BINDS_ATTRIBUTE,
+    and BINDING_OF nodes/relationships. Skips anything that already exists.
+    instances: output of topology-builder inference.py infer_topology()
+    """
+    seeded = 0
+    errors = 0
+
+    fid   = facility_id.replace("'", "\\'")
+    fname = facility_name.replace("'", "\\'")
+
+    # Ensure Facility exists
+    result = conn.execute(f"MATCH (f:Facility {{id: '{fid}'}}) RETURN count(f) AS c")
+    if list(result.rows_as_dict())[0]["c"] == 0:
+        conn.execute(f"""
+            CREATE (:Facility {{
+                id: '{fid}', name: '{fname}',
+                description: '', timezone: 'UTC', units_system: 'metric'
+            }})
+        """)
+
+    for inst in instances:
+        try:
+            eid        = inst["instance_id"].replace("'", "\\'")
+            type_id    = inst.get("ladybug_type_id", "").replace("'", "\\'")
+            area_id    = inst.get("area_id", "").replace("'", "\\'")
+            confidence = inst.get("confidence_level", "suspect").replace("'", "\\'")
+
+            # ── Equipment node ────────────────────────────────────────────────
+            result = conn.execute(
+                f"MATCH (e:Equipment {{id: '{eid}'}}) RETURN count(e) AS c"
+            )
+            if list(result.rows_as_dict())[0]["c"] == 0:
+                conn.execute(f"""
+                    CREATE (:Equipment {{
+                        id: '{eid}', name: '{eid}',
+                        description: '', commissioned: date('2000-01-01'), notes: ''
+                    }})
+                """)
+
+            # ── IS_TYPE ────────────────────────────────────────────────────────
+            if type_id:
+                result = conn.execute(f"""
+                    MATCH (e:Equipment {{id: '{eid}'}})-[:IS_TYPE]->(t:EquipmentType {{id: '{type_id}'}})
+                    RETURN count(e) AS c
+                """)
+                if list(result.rows_as_dict())[0]["c"] == 0:
+                    try:
+                        conn.execute(f"""
+                            MATCH (e:Equipment {{id: '{eid}'}}),
+                                  (t:EquipmentType {{id: '{type_id}'}})
+                            CREATE (e)-[:IS_TYPE]->(t)
+                        """)
+                    except Exception:
+                        pass  # EquipmentType may not exist in a blank DB
+
+            # ── CONTAINS_EQUIPMENT from ProcessArea ────────────────────────────
+            if area_id:
+                result = conn.execute(f"""
+                    MATCH (a:ProcessArea {{id: '{area_id}'}})-[:CONTAINS_EQUIPMENT]->(e:Equipment {{id: '{eid}'}})
+                    RETURN count(e) AS c
+                """)
+                if list(result.rows_as_dict())[0]["c"] == 0:
+                    try:
+                        conn.execute(f"""
+                            MATCH (a:ProcessArea {{id: '{area_id}'}}),
+                                  (e:Equipment {{id: '{eid}'}})
+                            CREATE (a)-[:CONTAINS_EQUIPMENT]->(e)
+                        """)
+                    except Exception:
+                        pass  # ProcessArea may not exist in a blank DB
+
+            # ── TagBindings ────────────────────────────────────────────────────
+            for attr_name, attr_info in inst.get("attributes", {}).items():
+                try:
+                    tag_id = attr_info["tag"].replace("'", "\\'")
+                    safe_attr = attr_name.replace("/", "_").replace(" ", "_").replace("'", "")
+                    bind_id   = f"topo_{eid}_{safe_attr}"
+
+                    # Create TagBinding if absent
+                    result = conn.execute(
+                        f"MATCH (tb:TagBinding {{id: '{bind_id}'}}) RETURN count(tb) AS c"
+                    )
+                    if list(result.rows_as_dict())[0]["c"] == 0:
+                        conn.execute(f"""
+                            CREATE (:TagBinding {{
+                                id: '{bind_id}', tag_id: '{tag_id}',
+                                confidence: '{confidence}', notes: ''
+                            }})
+                        """)
+
+                    # BINDS_ATTRIBUTE: find Attribute id by name via EquipmentType
+                    attr_name_safe = attr_name.replace("'", "\\'")
+                    attr_result = conn.execute(f"""
+                        MATCH (e:Equipment {{id: '{eid}'}})-[:IS_TYPE]->(t:EquipmentType)
+                              -[:DEFINES_ATTRIBUTE]->(a:Attribute {{name: '{attr_name_safe}'}})
+                        RETURN a.id AS attr_id
+                    """)
+                    attr_rows  = list(attr_result.rows_as_dict())
+                    attr_id_db = attr_rows[0]["attr_id"] if attr_rows else ""
+
+                    # BINDS_ATTRIBUTE relationship
+                    result = conn.execute(f"""
+                        MATCH (e:Equipment {{id: '{eid}'}})-[:BINDS_ATTRIBUTE]->(tb:TagBinding {{id: '{bind_id}'}})
+                        RETURN count(e) AS c
+                    """)
+                    if list(result.rows_as_dict())[0]["c"] == 0:
+                        conn.execute(f"""
+                            MATCH (e:Equipment {{id: '{eid}'}}),
+                                  (tb:TagBinding {{id: '{bind_id}'}})
+                            CREATE (e)-[:BINDS_ATTRIBUTE {{attribute_id: '{attr_id_db}'}}]->(tb)
+                        """)
+
+                    # BINDING_OF to Attribute (only if we found the Attribute node)
+                    if attr_id_db:
+                        result = conn.execute(f"""
+                            MATCH (tb:TagBinding {{id: '{bind_id}'}})-[:BINDING_OF]->(a:Attribute {{id: '{attr_id_db}'}})
+                            RETURN count(tb) AS c
+                        """)
+                        if list(result.rows_as_dict())[0]["c"] == 0:
+                            conn.execute(f"""
+                                MATCH (tb:TagBinding {{id: '{bind_id}'}}),
+                                      (a:Attribute {{id: '{attr_id_db}'}})
+                                CREATE (tb)-[:BINDING_OF]->(a)
+                            """)
+                except Exception:
+                    pass  # individual attribute binding failures don't fail the instance
+
+            seeded += 1
+        except Exception:
+            errors += 1
+
+    return {"seeded_count": seeded, "errors": errors}
