@@ -144,6 +144,10 @@ git clone --recurse-submodules https://github.com/smslavin/waterworks-ai
 cd waterworks-ai
 cp .env.example .env
 # edit .env: set ANTHROPIC_API_KEY
+
+# Optional but recommended: enable audit log encryption
+# Generate a 32-byte key and add it to .env as AUDIT_KEY:
+python3 -c "import os, base64; print('AUDIT_KEY=' + base64.b64encode(os.urandom(32)).decode())" >> .env
 ```
 
 Each component gets its own virtualenv. Run this once to create and populate all of them:
@@ -370,6 +374,43 @@ These records are queryable by the AI itself in subsequent sessions. Ask *"what 
 
 `query_history` returns records pre-correlated in causal order: `fault detected → diagnosis → action proposed → operator decision → outcome`. The AI receives the structure and synthesizes the narrative — it does not need additional tool calls to tell the story.
 
+### Encrypted audit log
+
+`chat-ui/audit.jsonl` is encrypted at rest (AES-256-GCM, one random nonce per record) and tamper-evident (SHA-256 hash chain — each record commits to a hash of the previous encoded line). Any modification to a past record breaks the chain.
+
+**Set up encryption:**
+
+```bash
+# Generate a key and add it to .env
+python3 -c "import os, base64; print('AUDIT_KEY=' + base64.b64encode(os.urandom(32)).decode())" >> .env
+```
+
+Without `AUDIT_KEY` set the log falls back to unencrypted plaintext with a startup warning — suitable for local development, not production.
+
+**Verify chain integrity:**
+
+```bash
+AUDIT_KEY=<your-key> python3 chat-ui/audit_verify.py chat-ui/audit.jsonl
+# verbose: shows every record with ✓
+AUDIT_KEY=<your-key> python3 chat-ui/audit_verify.py --verbose chat-ui/audit.jsonl
+```
+
+**Export / SIEM import:**
+
+The `/api/audit/download` endpoint serves the raw encrypted file. Import it into your SIEM or compliance tool with the key; the encrypted blobs are what give the chain its integrity — do not decrypt before import. To decrypt locally for forensic review:
+
+```bash
+AUDIT_KEY=<your-key> python3 chat-ui/audit_verify.py --decrypt chat-ui/audit.jsonl > audit_plaintext.jsonl
+```
+
+**Log rotation:**
+
+The "Clear Audit Log" button calls `/api/audit/clear`, which archives the current file to `audit.YYYYMMDDTHHMMSSZ.jsonl` and starts a fresh chain. Archives are retained alongside the live log. On Linux you can apply OS-level append protection after each rotation:
+
+```bash
+sudo chattr +a chat-ui/audit.jsonl
+```
+
 ### Control actions and operator approval
 
 `control-mcp` exposes three tools:
@@ -586,6 +627,8 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `DUCKDB_PATH` | `../data/duckdb/analytical.duckdb` | DuckDB file |
 | `SPECIALIST_MEMORY_DIR` | `../data/specialist-memory` | Per-specialist markdown files |
 | `DUCKDB_SYNC_INTERVAL` | `3600` | Seconds between InfluxDB → DuckDB syncs |
+| `AUDIT_KEY` | _(empty)_ | Base64-encoded 32-byte AES key for audit log encryption. Unset = plaintext (dev only). |
+| `AUDIT_LOG_PATH` | `chat-ui/audit.jsonl` | Override the audit log file path. |
 
 > **Note:** `INFLUXDB_TOKEN` and the other `DOCKER_INFLUXDB_INIT_*` values are only used on a fresh volume. After the first `docker compose up` they are baked in. Reset with `docker compose down -v`.
 
@@ -625,7 +668,8 @@ waterworks-ai/
 │   ├── session_store.py    session_summaries + action_events tables in metrics.db
 │   ├── control.py          asyncio Future registry for the operator approval flow
 │   ├── metrics.py          ai_metrics → InfluxDB + SQLite per turn
-│   ├── audit.py            JSONL audit log (tool calls, responses, errors)
+│   ├── audit.py            JSONL audit log — AES-256-GCM encrypted, hash-chained, append-only
+│   ├── audit_verify.py     CLI: verify chain integrity or decrypt for forensic export
 │   ├── providers.json      LLM provider and model configuration
 │   └── static/             index.html + app.js (no framework, no bundler)
 ├── tests/                  Import-level test suite (pytest, no infrastructure required)

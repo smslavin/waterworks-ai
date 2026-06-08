@@ -10,6 +10,7 @@ dist/
 build/
 .DS_Store
 chat-ui/audit.jsonl
+chat-ui/audit.*.jsonl
 chat-ui/metrics.db
 roadmap.md
 

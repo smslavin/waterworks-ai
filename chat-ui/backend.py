@@ -31,6 +31,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import uvicorn
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from sse_starlette.sse import EventSourceResponse
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -45,8 +48,6 @@ import metrics
 import mcp_client
 import multi_agent_loop
 import openai_loop
-
-load_dotenv()
 
 ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 MCP_AGGREGATOR_URL   = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
@@ -230,18 +231,19 @@ async def audit_endpoint(request: Request):
 
 
 async def audit_clear_endpoint(request: Request):
-    audit.clear_log()
-    return JSONResponse({"ok": True})
+    archive = audit.rotate_log()
+    return JSONResponse({"ok": True, "archived": archive})
 
 
 async def audit_download_endpoint(request: Request):
-    from starlette.responses import Response
-    entries = audit.read_log()
-    lines   = "\n".join(json.dumps(e) for e in entries)
-    return Response(
-        content=lines,
-        media_type="application/jsonl",
-        headers={"Content-Disposition": "attachment; filename=audit.jsonl"},
+    from starlette.responses import FileResponse, Response
+    if not audit.LOG_PATH.exists():
+        return Response(content="", media_type="application/octet-stream",
+                        headers={"Content-Disposition": "attachment; filename=audit.jsonl"})
+    return FileResponse(
+        audit.LOG_PATH,
+        media_type="application/octet-stream",
+        filename="audit.jsonl",
     )
 
 
