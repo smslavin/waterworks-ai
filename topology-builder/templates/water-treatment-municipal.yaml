@@ -7,6 +7,9 @@ equipment_types:
     topic_patterns:
       - "**/Pump/*/{attr}"
       - "**/*Pump*/*/{attr}"
+    legacy_patterns:
+      - "*/*Pump*/{attr}"     # 3-level paths: root/PumpName/attr
+      - "*/*pump*/{attr}"     # lowercase variant
     opcua_patterns:
       - "**/Pump/*/{attr}"
     required_attributes: [Flow, Pressure, Running]
@@ -17,6 +20,9 @@ equipment_types:
     topic_patterns:
       - "**/UV/*/{attr}"
       - "**/*UV*/*/{attr}"
+    legacy_patterns:
+      - "**/UV*Bank*/*/{attr}"
+      - "**/UV-Sys*/*/{attr}"
     opcua_patterns:
       - "**/UV/*/{attr}"
     required_attributes: [Intensity, Running]
@@ -29,6 +35,9 @@ equipment_types:
       - "**/*Chlor*/*/{attr}"
       - "**/*Fluor*/*/{attr}"
       - "**/*Chemical*/*/{attr}"
+    legacy_patterns:
+      - "**/Dose*/*/{attr}"
+      - "**/Chem*Feed*/*/{attr}"
     opcua_patterns:
       - "**/Dosing/*/{attr}"
     required_attributes: [FlowRate, Running]
@@ -39,6 +48,9 @@ equipment_types:
     topic_patterns:
       - "**/Clarif*/*/{attr}"
       - "**/Clarifier*/*/{attr}"
+    legacy_patterns:
+      - "**/Settle*/*/{attr}"
+      - "**/Sediment*/*/{attr}"
     opcua_patterns:
       - "**/Clarifier*/*/{attr}"
     required_attributes: [Level, Turbidity]
@@ -51,6 +63,9 @@ equipment_types:
       - "**/Tank*/*/{attr}"
       - "**/FinishedWater*/*/{attr}"
       - "**/Storage*/*/{attr}"
+    legacy_patterns:
+      - "**/Reservoir*/*/{attr}"
+      - "**/ClearWell*/*/{attr}"
     opcua_patterns:
       - "**/StorageTank/*/{attr}"
     required_attributes: [Level]

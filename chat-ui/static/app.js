@@ -924,8 +924,14 @@ function _updateActionBar(instances) {
   const sus = instances.filter(i => i.confidence_level === "suspect").length;
   document.getElementById("topo-status-text").textContent =
     `${instances.length} instances · ${v} verified · ${inf} inferred · ${sus} suspect`;
+  const flagged = instances.filter(i =>
+    i.confidence_level === "suspect" ||
+    (i.missing_required && i.missing_required.length > 0) ||
+    i.process_area === "Unknown" ||
+    i.via_legacy_pattern
+  ).length;
   document.getElementById("topo-legend-stats").textContent =
-    `${instances.length} · 3 areas · ${inf + sus} flagged`;
+    `${instances.length} · 3 areas · ${flagged} flagged`;
   document.getElementById("topo-commit-btn").disabled = !topoDiscoveryComplete || instances.length === 0;
 }
 

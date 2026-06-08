@@ -39,9 +39,9 @@ def infer_topology(
             match = _match_equipment(topic, spec)
             if not match:
                 continue
-            instance_id, attr_name = match
+            instance_id, attr_name, via_legacy = match
             if instance_id not in instances:
-                instances[instance_id] = _new_instance(instance_id, eq_type, spec)
+                instances[instance_id] = _new_instance(instance_id, eq_type, spec, via_legacy)
             instances[instance_id]["attributes"][attr_name] = {
                 "tag": topic,
                 "source": "mqtt",
@@ -62,7 +62,7 @@ def infer_topology(
     return results
 
 
-def _new_instance(instance_id: str, eq_type: str, spec: dict) -> dict:
+def _new_instance(instance_id: str, eq_type: str, spec: dict, via_legacy: bool = False) -> dict:
     return {
         "instance_id": instance_id,
         "equipment_type": eq_type,
@@ -74,14 +74,19 @@ def _new_instance(instance_id: str, eq_type: str, spec: dict) -> dict:
         "attributes": {},
         "missing_required": [],
         "sources": {"mqtt"},
+        "via_legacy_pattern": via_legacy,
     }
 
 
-def _match_equipment(topic: str, spec: dict) -> tuple[str, str] | None:
+def _match_equipment(topic: str, spec: dict) -> tuple[str, str, bool] | None:
     for pattern in spec["topic_patterns"]:
         result = _apply_pattern(topic, pattern)
         if result:
-            return result
+            return result[0], result[1], False
+    for pattern in spec.get("legacy_patterns", []):
+        result = _apply_pattern(topic, pattern)
+        if result:
+            return result[0], result[1], True
     return None
 
 
@@ -109,8 +114,11 @@ def _apply_pattern(topic: str, pattern: str) -> tuple[str, str] | None:
 
 
 def _has_opcua_match(topic: str, opcua_set: set[str]) -> bool:
-    segment = topic.split("/")[-1]
-    return any(segment in node for node in opcua_set)
+    parts = topic.split("/")
+    if len(parts) < 2:
+        return False
+    suffix = "/".join(parts[-2:])  # "InstanceId/AttrName" — avoids false positives on shared attr names
+    return any(suffix in node for node in opcua_set)
 
 
 def _assign_process_area(inst: dict, template: dict) -> None:
@@ -139,11 +147,17 @@ def _score_confidence(inst: dict, template: dict) -> None:
         inst["confidence_score"] = 0.95
         inst["confidence_level"] = "verified"
     elif all_required:
-        inst["confidence_score"] = 0.85
-        inst["confidence_level"] = "verified"
+        inst["confidence_score"] = 0.75
+        inst["confidence_level"] = "inferred"
     elif found:
         inst["confidence_score"] = 0.70
         inst["confidence_level"] = "inferred"
     else:
         inst["confidence_score"] = 0.40
         inst["confidence_level"] = "suspect"
+
+    # Legacy pattern matches are capped at inferred regardless of OPC-UA coverage.
+    # A match via abbreviated or non-standard topic structure can't be trusted as verified.
+    if inst.get("via_legacy_pattern") and inst["confidence_level"] == "verified":
+        inst["confidence_score"] = 0.75
+        inst["confidence_level"] = "inferred"
