@@ -326,7 +326,7 @@ main { position: relative; overflow: hidden; }
 }
 
 #topo-builder {
-  position: absolute; inset: 0; display: flex;
+  position: absolute; inset: 0; display: flex; flex-direction: column;
   transform: translateX(100%); opacity: 0; pointer-events: none;
   transition: transform 0.38s cubic-bezier(0.4,0,0.2,1),
               opacity   0.38s cubic-bezier(0.4,0,0.2,1);
@@ -335,16 +335,24 @@ main { position: relative; overflow: hidden; }
   transform: translateX(0); opacity: 1; pointer-events: all;
 }
 
+/* full-width header bar */
+#topo-header {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  padding: 0 14px; height: 44px;
+  border-bottom: 1px solid var(--color-border-tertiary);
+  background: var(--color-background-secondary);
+}
+#topo-area-pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-left: auto; }
+
+/* content row below header */
+#topo-content { display: flex; flex: 1; min-height: 0; }
+
 /* topo chat pane (left column) */
 #topo-chat-pane {
   width: var(--topo-chat-w); flex-shrink: 0;
   border-right: 1px solid var(--color-border-tertiary);
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; overflow: hidden;
   background: var(--color-background-secondary);
-}
-#topo-pane-header {
-  display: flex; align-items: center; gap: 8px; padding: 10px 12px; flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border-tertiary);
 }
 #topo-back-btn {
   font-size: 12px; padding: 4px 8px;
@@ -367,13 +375,13 @@ main { position: relative; overflow: hidden; }
   font-size: 13px; line-height: 1.55; padding: 8px 10px;
   border-radius: 8px; border: 1px solid var(--color-border-tertiary);
   background: var(--color-background-primary);
-  overflow-x: auto;
 }
+.topo-bubble pre { overflow-x: auto; }
 .topo-bubble.user {
   align-self: flex-end; background: var(--color-user-bubble);
   color: var(--color-user-text); border-color: transparent; max-width: 90%;
 }
-.topo-bubble.assistant { color: var(--color-text-primary); }
+.topo-bubble.assistant { color: var(--color-text-primary); border-bottom-left-radius: 3px; }
 #topo-input-area {
   padding: 10px 12px; border-top: 1px solid var(--color-border-tertiary); flex-shrink: 0;
 }
@@ -397,10 +405,6 @@ main { position: relative; overflow: hidden; }
   flex: 1; display: flex; flex-direction: column;
   background: var(--color-background-primary);
 }
-#topo-area-pills {
-  display: flex; gap: 6px; padding: 6px 10px; flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border-tertiary);
-}
 .topo-area-pill {
   font-size: 11px; padding: 3px 10px; border-radius: 20px;
   border: 1px solid var(--color-border-tertiary);
@@ -410,34 +414,40 @@ main { position: relative; overflow: hidden; }
 .topo-area-pill.active {
   background: var(--color-accent); color: #fff; border-color: var(--color-accent);
 }
-#topo-svg { flex: 1; min-height: 0; width: 100%; }
-.topo-node { cursor: pointer; }
-.topo-node circle { stroke: var(--color-border-tertiary); stroke-width: 2; transition: fill 0.3s; }
-.topo-node text { font-family: var(--font-sans); fill: var(--color-text-primary); pointer-events: none; }
-.topo-node.verified circle { fill: var(--topo-verified); }
-.topo-node.inferred circle { fill: var(--topo-inferred); }
-.topo-node.suspect  circle { fill: var(--topo-suspect); }
-.topo-node.dimmed { opacity: 0.15; }
-.topo-node.selected circle { stroke: var(--color-text-primary); stroke-width: 3; }
-.topo-area-svg-label { cursor: pointer; }
-.topo-area-svg-label rect { fill: var(--color-background-secondary); stroke: var(--color-border-tertiary); stroke-width: 1; }
-.topo-area-svg-label text { font-family: var(--font-sans); font-size: 11px; fill: var(--color-text-secondary); }
-.topo-area-svg-label.active rect { fill: var(--color-accent); stroke: var(--color-accent); }
-.topo-area-svg-label.active text { fill: #fff; font-weight: 600; }
-.topo-area-svg-label:hover rect { stroke: var(--color-text-secondary); }
+/* ── Topo canvas (HTML/CSS nodes + SVG edge overlay) ──────────────── */
+#topo-canvas { flex: 1; position: relative; overflow: auto; min-height: 0; }
+#topo-columns { display: flex; padding: 20px 16px; gap: 0; min-height: 100%; }
+#topo-edges { position: absolute; inset: 0; pointer-events: none; width: 100%; height: 100%; overflow: visible; }
+.topo-column { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.topo-column-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-secondary); text-align: center; }
+/* ── Topo node (HTML) ─────────────────────────────────────────────── */
+.topo-node { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.topo-node-circle { border-radius: 50%; border: 2px solid var(--color-border-tertiary); transition: transform 0.15s, box-shadow 0.15s; flex-shrink: 0; }
+.topo-node:hover .topo-node-circle { transform: scale(1.08); }
+.topo-node.verified .topo-node-circle { width: 44px; height: 44px; background: var(--topo-verified); }
+.topo-node.inferred .topo-node-circle { width: 36px; height: 36px; background: var(--topo-inferred); }
+.topo-node.suspect  .topo-node-circle { width: 28px; height: 28px; background: var(--topo-suspect); }
+.topo-node.dimmed { opacity: 0.15; pointer-events: none; }
+.topo-node.selected .topo-node-circle { box-shadow: 0 0 0 3px var(--color-text-primary); }
+.topo-node-label { font-size: 11px; font-weight: 600; color: var(--color-text-primary); text-align: center; max-width: 90px; word-break: break-word; }
+.topo-node-type  { font-size: 9px; color: var(--color-text-secondary); text-align: center; }
+/* ── Animations ───────────────────────────────────────────────────── */
 @keyframes topo-reveal {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
 }
-.topo-node.revealing { animation: topo-reveal 0.4s ease both; }
+.topo-node.revealing { animation: topo-reveal 0.35s cubic-bezier(0.34,1.56,0.64,1) both; }
 @keyframes topo-scan-pulse {
   0%,100% { opacity: 0.25; } 50% { opacity: 0.55; }
 }
-.topo-scan-text { animation: topo-scan-pulse 1.8s ease-in-out infinite; }
+.topo-scan-text { animation: topo-scan-pulse 1.8s ease-in-out infinite; font-size: 13px; color: var(--color-text-secondary); }
+.topo-scan-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; pointer-events: none; }
 @keyframes topo-commit {
-  0%   { r: 18; } 40% { r: 24; opacity: 0.7; } 100% { r: 18; fill: var(--topo-verified); }
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); box-shadow: 0 0 14px var(--topo-verified); }
+  100% { transform: scale(1); }
 }
-.topo-node.committing circle { animation: topo-commit 0.55s ease-in-out both; }
+.topo-node.committing .topo-node-circle { animation: topo-commit 0.55s ease-in-out both; }
 #topo-legend {
   display: flex; gap: 14px; padding: 6px 14px; font-size: 11px;
   color: var(--color-text-secondary); border-top: 1px solid var(--color-border-tertiary);
@@ -651,34 +661,44 @@ main { position: relative; overflow: hidden; }
 
   <!-- ── Topology builder mode ── -->
   <div id="topo-builder" aria-hidden="true">
-    <div id="topo-chat-pane">
-      <div id="topo-pane-header">
-        <button id="topo-back-btn" onclick="exitTopologyMode(false)">← Back</button>
-        <span class="topo-mode-badge">topology builder</span>
+
+    <!-- Single full-width header: back, badge, filter pills -->
+    <div id="topo-header">
+      <button id="topo-back-btn" onclick="exitTopologyMode(false)">← Back</button>
+      <span class="topo-mode-badge">topology builder</span>
+      <div id="topo-area-pills"></div>
+    </div>
+
+    <!-- Content: chat pane (left) + graph pane (right) -->
+    <div id="topo-content">
+      <div id="topo-chat-pane">
+        <div id="topo-messages"></div>
+        <div id="topo-input-area">
+          <div id="topo-input-row">
+            <textarea id="topo-user-input" rows="1" placeholder="Ask Cascade about the discovery…"></textarea>
+            <button id="topo-send-btn" onclick="sendTopoMessage()">Send</button>
+          </div>
+        </div>
       </div>
-      <div id="topo-messages"></div>
-      <div id="topo-input-area">
-        <div id="topo-input-row">
-          <textarea id="topo-user-input" rows="1" placeholder="Ask Cascade about the discovery…"></textarea>
-          <button id="topo-send-btn" onclick="sendTopoMessage()">Send</button>
+      <div id="topo-graph-pane">
+        <div id="topo-canvas">
+          <div id="topo-columns"></div>
+          <svg id="topo-edges" aria-hidden="true"></svg>
+        </div>
+        <div id="topo-legend">
+          <span class="topo-legend-item verified">verified</span>
+          <span class="topo-legend-item inferred">inferred</span>
+          <span class="topo-legend-item suspect">suspect</span>
+          <span id="topo-legend-stats" style="margin-left:auto;font-family:var(--font-mono)"></span>
+        </div>
+        <div id="topo-node-detail"></div>
+        <div id="topo-action-bar">
+          <span id="topo-status-text"></span>
+          <button id="topo-commit-btn" onclick="commitTopology()" disabled>commit to db</button>
         </div>
       </div>
     </div>
-    <div id="topo-graph-pane">
-      <div id="topo-area-pills"></div>
-      <svg id="topo-svg" aria-label="Plant topology graph"></svg>
-      <div id="topo-legend">
-        <span class="topo-legend-item verified">verified</span>
-        <span class="topo-legend-item inferred">inferred</span>
-        <span class="topo-legend-item suspect">suspect</span>
-        <span id="topo-legend-stats" style="margin-left:auto;font-family:var(--font-mono)"></span>
-      </div>
-      <div id="topo-node-detail"></div>
-      <div id="topo-action-bar">
-        <span id="topo-status-text"></span>
-        <button id="topo-commit-btn" onclick="commitTopology()" disabled>commit to db</button>
-      </div>
-    </div>
+
   </div>
 
 </main>

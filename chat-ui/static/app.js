@@ -28,7 +28,7 @@ const faultMode   = document.getElementById("fault-mode");
 const faultList   = document.getElementById("fault-status-list");
 
 // ── Markdown renderer ──────────────────────────────────────────────────────
-// Adapted from graccess-mcp. Handles tables, code blocks, inline formatting,
+// Handles tables, code blocks, inline formatting,
 // headings, lists, and horizontal rules. HTML-escapes first, then parses.
 
 function renderMarkdown(text) {
@@ -516,6 +516,42 @@ function updateContextIndicator(data) {
   label.textContent = `${pct.toFixed(1)}%  (${inTok} tok)`;
 }
 
+// ── Topo assistant message (mirrors createAssistantMessage bubble pattern) ──
+
+function createTopoAssistantMessage() {
+  const msgsEl = document.getElementById("topo-messages");
+
+  function scrollTopo() { msgsEl.scrollTop = msgsEl.scrollHeight; }
+
+  let activeBubble  = null;
+  let needNewBubble = false;
+
+  function ensureBubble() {
+    if (!activeBubble || needNewBubble) {
+      activeBubble = document.createElement("div");
+      activeBubble.className = "topo-bubble assistant";
+      activeBubble._rawText = "";
+      msgsEl.appendChild(activeBubble);
+      scrollTopo();
+      needNewBubble = false;
+    }
+    return activeBubble;
+  }
+
+  return {
+    addToken(text) {
+      const b = ensureBubble();
+      b._rawText += text;
+      b.innerHTML = renderMarkdown(b._rawText);
+      scrollTopo();
+    },
+    afterToolCall() { needNewBubble = true; },
+    finalize() {
+      if (activeBubble && !activeBubble._rawText?.trim()) activeBubble.remove();
+    },
+  };
+}
+
 // ── Send message ───────────────────────────────────────────────────────────
 
 function _setStreaming(active) {
@@ -540,9 +576,7 @@ async function sendMessage() {
   const msg = createAssistantMessage();
   if (multiAgentMode) msg.initSpecialistPanel();
   let assistantText = "";
-
-  // _topoLiveBubble is created lazily on first text token after topo mode is entered
-  // (topoMode may become true mid-stream when start_discovery fires enterTopologyMode)
+  let topoMsg = null;
 
   try {
     const response = await fetch("/api/chat", {
@@ -583,17 +617,8 @@ async function sendMessage() {
             assistantText += chunk.text;
             msg.addToken(chunk.text);
             if (topoMode) {
-              if (!_topoLiveBubble) {
-                _topoLiveBubble = document.createElement("div");
-                _topoLiveBubble.className = "topo-bubble assistant";
-                _topoLiveBubble._rawText = "";
-                const msgsEl = document.getElementById("topo-messages");
-                msgsEl.appendChild(_topoLiveBubble);
-              }
-              _topoLiveBubble._rawText += chunk.text;
-              _topoLiveBubble.innerHTML = renderMarkdown(_topoLiveBubble._rawText);
-              const tm = document.getElementById("topo-messages");
-              if (tm) tm.scrollTop = tm.scrollHeight;
+              if (!topoMsg) topoMsg = createTopoAssistantMessage();
+              topoMsg.addToken(chunk.text);
             }
             break;
           case "thinking_delta":
@@ -610,6 +635,7 @@ async function sendMessage() {
             } else {
               msg.addToolCall(chunk.tool, chunk.args);
             }
+            if (topoMode && topoMsg) topoMsg.afterToolCall();
             break;
           case "tool_result":
             msg.addToolResult(chunk.tool, chunk.result);
@@ -653,11 +679,7 @@ async function sendMessage() {
     if (assistantText) {
       messages.push({role: "assistant", content: assistantText});
     }
-    // Finalize live topo bubble (remove empty typing indicator if no text came through)
-    if (_topoLiveBubble) {
-      if (!_topoLiveBubble._rawText?.trim()) _topoLiveBubble.remove();
-      _topoLiveBubble = null;
-    }
+    if (topoMsg) topoMsg.finalize();
     abortController = null;
     _setStreaming(false);
     inputEl.focus();
@@ -699,7 +721,6 @@ let topoDiscoveryId       = null;
 let topoInstances         = [];
 let topoActiveArea        = "All";
 let topoDiscoveryComplete = false;
-let _topoLiveBubble       = null; // streaming bubble in topo pane
 
 function enterTopologyMode() {
   if (topoMode) return;
@@ -744,7 +765,7 @@ function exitTopologyMode(committed = false) {
     topoEl.setAttribute("aria-hidden", "true");
     topoEl.removeEventListener("transitionend", onHidden);
     // Reset graph for next use
-    document.getElementById("topo-svg").innerHTML = "";
+    document.getElementById("topo-columns").innerHTML = "";
     document.getElementById("topo-area-pills").innerHTML = "";
     document.getElementById("topo-node-detail").textContent = "";
     topoInstances = [];
@@ -754,60 +775,57 @@ function exitTopologyMode(committed = false) {
   if (committed) refreshFaultStatus();
 }
 
-// ── Graph rendering ────────────────────────────────────────────────────────
+// ── Graph rendering (HTML/CSS nodes, SVG edge overlay) ────────────────────
 
-const TOPO_NODE_R       = 18;
-const TOPO_SPACING_Y    = 90;
-const TOPO_AREA_SPAN_X  = 110;
-const TOPO_MARGIN_X     = 55;
-const TOPO_MARGIN_Y     = 65;
+const AREA_ORDER = ["Intake", "Treatment", "Distribution", "Unknown"];
 
 function renderTopologyGraph(instances, revealNew) {
-  const svg  = document.getElementById("topo-svg");
-  const W    = svg.clientWidth  || 600;
-  const H    = svg.clientHeight || 400;
+  const colsEl = document.getElementById("topo-columns");
 
-  const areaOrder = ["Intake", "Treatment", "Distribution", "Unknown"];
-  const byArea = Object.fromEntries(areaOrder.map(a => [a, []]));
+  const byArea = Object.fromEntries(AREA_ORDER.map(a => [a, []]));
   for (const inst of instances) {
     const a = inst.process_area || "Unknown";
     if (!byArea[a]) byArea[a] = [];
     byArea[a].push(inst);
   }
+  const activeAreas = AREA_ORDER.filter(a => byArea[a].length > 0);
 
-  const activeAreas = areaOrder.filter(a => byArea[a].length > 0);
-  const existingIds = new Set(
-    [...svg.querySelectorAll(".topo-node")].map(n => n.dataset.id)
-  );
-
-  // Clear scanning placeholder when real nodes arrive
   if (instances.length > 0) {
-    svg.querySelectorAll(".topo-scan-text").forEach(el => el.remove());
+    colsEl.querySelector(".topo-scan-placeholder")?.remove();
   }
 
-  // Remove nodes no longer in the instance list
-  svg.querySelectorAll(".topo-node").forEach(el => {
+  const existingIds = new Set(
+    [...colsEl.querySelectorAll(".topo-node")].map(n => n.dataset.id)
+  );
+
+  // Remove stale nodes and empty columns
+  colsEl.querySelectorAll(".topo-node").forEach(el => {
     if (!instances.find(i => i.instance_id === el.dataset.id)) el.remove();
   });
+  colsEl.querySelectorAll(".topo-column").forEach(col => {
+    if (!activeAreas.includes(col.dataset.area)) col.remove();
+  });
 
-  // Area names are shown in the pills row above the SVG — don't duplicate in SVG
-  svg.querySelectorAll("[data-area-label]").forEach(el => el.remove());
+  activeAreas.forEach(area => {
+    let colEl = colsEl.querySelector(`.topo-column[data-area="${area}"]`);
+    if (!colEl) {
+      colEl = document.createElement("div");
+      colEl.className = "topo-column";
+      colEl.dataset.area = area;
+      const lbl = document.createElement("div");
+      lbl.className = "topo-column-label";
+      lbl.textContent = area;
+      colEl.appendChild(lbl);
+      colsEl.appendChild(colEl);
+    }
 
-  activeAreas.forEach((area, col) => {
-    const cx = TOPO_MARGIN_X + col * TOPO_AREA_SPAN_X;
-
-    byArea[area].forEach((inst, row) => {
-      const cy   = TOPO_MARGIN_Y + row * TOPO_SPACING_Y;
-      const isNew = !existingIds.has(inst.instance_id);
-      let nodeEl  = svg.querySelector(`[data-id="${inst.instance_id}"]`);
+    byArea[area].forEach(inst => {
+      let nodeEl = colEl.querySelector(`[data-id="${inst.instance_id}"]`);
       if (!nodeEl) {
-        nodeEl = _createNode(inst, cx, cy, isNew && revealNew);
-        svg.appendChild(nodeEl);
+        nodeEl = _createNode(inst, !existingIds.has(inst.instance_id) && revealNew);
+        colEl.appendChild(nodeEl);
       } else {
-        // Update position
-        nodeEl.setAttribute("transform", `translate(${cx},${cy})`);
-        // Update confidence colour class
-        nodeEl.className.baseVal = `topo-node ${inst.confidence_level}`;
+        nodeEl.className = `topo-node ${inst.confidence_level}`;
       }
       _applyAreaFilter(nodeEl, inst.process_area);
     });
@@ -817,33 +835,30 @@ function renderTopologyGraph(instances, revealNew) {
   _updateActionBar(instances);
 }
 
-function _createNode(inst, cx, cy, animate) {
-  const g = _svgEl("g", {
-    class: `topo-node ${inst.confidence_level}`,
-    transform: `translate(${cx},${cy})`,
-    "data-id": inst.instance_id,
-  });
-  if (animate) {
-    g.classList.add("revealing");
-    g.addEventListener("animationend", () => g.classList.remove("revealing"), { once: true });
-  }
+function _createNode(inst, animate) {
+  const el = document.createElement("div");
+  el.className = `topo-node ${inst.confidence_level}`;
+  el.dataset.id = inst.instance_id;
 
-  const circle = _svgEl("circle", { r: TOPO_NODE_R, cx: 0, cy: 0 });
-  const label  = _svgEl("text", {
-    "text-anchor": "middle", "font-size": "10", "font-weight": "600",
-    y: TOPO_NODE_R + 13,
-  });
+  const circle = document.createElement("div");
+  circle.className = "topo-node-circle";
+
+  const label = document.createElement("div");
+  label.className = "topo-node-label";
   label.textContent = inst.instance_id;
 
-  const sub = _svgEl("text", {
-    "text-anchor": "middle", "font-size": "9", "opacity": "0.7",
-    y: TOPO_NODE_R + 23,
-  });
-  sub.textContent = inst.equipment_type;
+  const type = document.createElement("div");
+  type.className = "topo-node-type";
+  type.textContent = inst.equipment_type || "";
 
-  g.append(circle, label, sub);
-  g.addEventListener("click", () => _selectNode(inst));
-  return g;
+  el.append(circle, label, type);
+  el.onclick = () => _selectNode(inst);
+
+  if (animate) {
+    el.classList.add("revealing");
+    el.addEventListener("animationend", () => el.classList.remove("revealing"), { once: true });
+  }
+  return el;
 }
 
 function _svgEl(tag, attrs = {}) {
@@ -852,58 +867,29 @@ function _svgEl(tag, attrs = {}) {
   return el;
 }
 
-function _areaColor(area) {
-  return { Intake: "#0ea5e9", Treatment: "#8b5cf6", Distribution: "#f59e0b" }[area] || "#6b7280";
-}
-
 function _applyAreaFilter(nodeEl, nodeArea) {
   nodeEl.classList.toggle("dimmed", topoActiveArea !== "All" && topoActiveArea !== nodeArea);
 }
 
 function _updateAreaPills(activeAreas) {
   const pillsEl = document.getElementById("topo-area-pills");
-  // Only manage the "All" pill here; area labels live in the SVG for exact alignment
-  if (!pillsEl.querySelector("[data-area='All']")) {
-    pillsEl.innerHTML = "";
-    const allBtn = document.createElement("button");
-    allBtn.className = "topo-area-pill";
-    allBtn.dataset.area = "All";
-    allBtn.textContent  = "All";
-    allBtn.onclick = () => _setAreaFilter("All");
-    pillsEl.appendChild(allBtn);
+  const current = [...pillsEl.querySelectorAll(".topo-area-pill")].map(p => p.dataset.area);
+  const wanted  = ["All", ...activeAreas];
+  if (JSON.stringify(current) === JSON.stringify(wanted)) {
+    // Just refresh active state
+    pillsEl.querySelectorAll(".topo-area-pill").forEach(p =>
+      p.classList.toggle("active", p.dataset.area === topoActiveArea)
+    );
+    return;
   }
-  document.querySelector("[data-area='All']")
-    ?.classList.toggle("active", topoActiveArea === "All");
-
-  _renderAreaLabels(activeAreas);
-}
-
-function _renderAreaLabels(activeAreas) {
-  const svg = document.getElementById("topo-svg");
-  svg.querySelectorAll(".topo-area-svg-label").forEach(el => el.remove());
-  const pillH = 22;
-  activeAreas.forEach((area, col) => {
-    const cx    = TOPO_MARGIN_X + col * TOPO_AREA_SPAN_X;
-    const pillW = Math.max(area.length * 6.5 + 22, 50);
-    const g = _svgEl("g", {
-      class: `topo-area-svg-label${topoActiveArea === area ? " active" : ""}`,
-      "data-area": area,
-      transform: `translate(${cx},20)`,
-    });
-    const rect = _svgEl("rect", {
-      x: -(pillW / 2), y: -(pillH / 2),
-      width: pillW, height: pillH, rx: pillH / 2,
-    });
-    const text = _svgEl("text", {
-      x: 0, y: 1,
-      "text-anchor": "middle",
-      "dominant-baseline": "middle",
-    });
-    text.textContent = area;
-    g.appendChild(rect);
-    g.appendChild(text);
-    g.onclick = () => _setAreaFilter(area);
-    svg.insertBefore(g, svg.firstChild);
+  pillsEl.innerHTML = "";
+  wanted.forEach(area => {
+    const btn = document.createElement("button");
+    btn.className = `topo-area-pill${area === topoActiveArea ? " active" : ""}`;
+    btn.dataset.area = area;
+    btn.textContent  = area;
+    btn.onclick = () => _setAreaFilter(area);
+    pillsEl.appendChild(btn);
   });
 }
 
@@ -911,9 +897,6 @@ function _setAreaFilter(area) {
   topoActiveArea = area;
   document.querySelectorAll(".topo-area-pill").forEach(p => {
     p.classList.toggle("active", p.dataset.area === area);
-  });
-  document.querySelectorAll(".topo-area-svg-label").forEach(lbl => {
-    lbl.classList.toggle("active", lbl.dataset.area === area);
   });
   document.querySelectorAll(".topo-node").forEach(nodeEl => {
     const inst = topoInstances.find(i => i.instance_id === nodeEl.dataset.id);
@@ -1011,24 +994,19 @@ function appendTopoMessage(role, text) {
 }
 
 function _renderScanningState() {
-  const svg = document.getElementById("topo-svg");
-  const W = svg.clientWidth || 800;
-  const H = svg.clientHeight || 400;
-  svg.innerHTML = "";
-  const t1 = _svgEl("text", {
-    x: W / 2, y: H / 2 - 12, "text-anchor": "middle",
-    "font-size": "14", "font-family": "system-ui",
-    fill: "var(--color-text-secondary)", class: "topo-scan-text",
-  });
+  const colsEl = document.getElementById("topo-columns");
+  colsEl.innerHTML = "";
+  const ph = document.createElement("div");
+  ph.className = "topo-scan-placeholder";
+  const t1 = document.createElement("div");
+  t1.className = "topo-scan-text";
   t1.textContent = "Scanning MQTT topics…";
-  const t2 = _svgEl("text", {
-    x: W / 2, y: H / 2 + 10, "text-anchor": "middle",
-    "font-size": "11", "font-family": "var(--font-mono)",
-    fill: "var(--color-text-secondary)", class: "topo-scan-text",
-    "animation-delay": "0.6s",
-  });
+  const t2 = document.createElement("div");
+  t2.className = "topo-scan-text";
+  t2.style.cssText = "animation-delay:0.6s; font-size:11px; font-family:var(--font-mono)";
   t2.textContent = "listening for equipment signals";
-  svg.append(t1, t2);
+  ph.append(t1, t2);
+  colsEl.appendChild(ph);
 }
 
 async function commitTopology() {
