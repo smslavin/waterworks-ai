@@ -20,7 +20,7 @@ from typing import AsyncIterator
 
 def _dump(obj) -> str:
     """json.dumps with fallback for datetime and other non-serializable types."""
-    return _dump(obj, default=lambda x: x.isoformat() if hasattr(x, "isoformat") else str(x))
+    return json.dumps(obj, default=lambda x: x.isoformat() if hasattr(x, "isoformat") else str(x))
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
