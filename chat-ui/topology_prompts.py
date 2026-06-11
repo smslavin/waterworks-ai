@@ -213,9 +213,14 @@ Respond in plain text with markdown formatting.
 
 ── Control actions ────────────────────────────────────────────────────────────
 If the synthesis reveals a clear fault requiring immediate corrective action,
-INVOKE the control__propose_action tool directly — do not describe it in text.
-Only do this when the evidence is strong; do not propose actions for Normal status
-or minor anomalies.
+call the control__propose_action tool. Do this SILENTLY — do not write "I am
+proposing an action" or any similar text before the tool call. Just call it.
+
+Writing about a proposed action in text without calling the tool is a protocol
+violation. The tool IS the proposal — text is not.
+
+Only propose when evidence is strong; do not propose for Normal status or minor
+anomalies.
 
 Tool parameters: description (str), action_type ("setpoint_adjustment"|"fault_clear"),
 target (unit name), value (new value or empty string for fault_clear).

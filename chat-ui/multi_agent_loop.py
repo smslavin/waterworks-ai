@@ -51,7 +51,10 @@ MQTT: For your initial read of all current values, call get_full_topic_tree once
 repeatedly for an initial survey; use it only for targeted follow-up reads.
 
 InfluxDB: Available measurements are wtp_process and wtp_fault_events.
-Do NOT call list_measurements — use these directly."""
+Do NOT call list_measurements — use these directly.
+
+Flux syntax: boolean operators are lowercase — use `or`, `and`, `not`.
+Never use uppercase OR / AND / NOT — they are parsed as identifiers and will cause a 400 error."""
 
 _ORCHESTRATOR_TOOL_PREFIXES = ("control__",)
 
@@ -128,7 +131,7 @@ async def _run_specialist(
         while True:
             kwargs: dict = dict(
                 model=SPECIALIST_MODEL,
-                max_tokens=2048,
+                max_tokens=8192,
                 system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
                 messages=conv,
             )
@@ -149,11 +152,13 @@ async def _run_specialist(
                     try:
                         extr = await client.messages.create(
                             model=SPECIALIST_MODEL,
-                            max_tokens=120,
+                            max_tokens=256,
                             messages=[
                                 {"role": "user", "content": (
-                                    f"Based on this diagnostic analysis, complete the FINDINGS block:\n\n"
-                                    f"{full_text[-600:]}"
+                                    f"Based on this diagnostic analysis, complete the FINDINGS block.\n"
+                                    f"Required format:\nFINDINGS:\nStatus: <Normal|Anomaly Detected|Fault Detected>\n"
+                                    f"Confidence: <0.0-1.0>\nKey observations:\n- <bullet>\n\n"
+                                    f"Analysis:\n{full_text[-800:]}"
                                 )},
                                 {"role": "assistant", "content": "FINDINGS:\nStatus:"},
                             ],
@@ -372,6 +377,9 @@ async def run_multi_agent(
             orch_output_tokens += final.usage.output_tokens
 
             if final.stop_reason == "end_turn":
+                _action_keywords = ("propose", "control action", "corrective action", "clear fault", "set_setpoint")
+                if any(kw in orch_full_text.lower() for kw in _action_keywords):
+                    logger.warning("Orchestrator end_turn with action language but no tool call — text tail: %r", orch_full_text[-200:])
                 break
 
             if final.stop_reason == "tool_use":

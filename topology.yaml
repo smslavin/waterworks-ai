@@ -4,63 +4,76 @@ facility: WTP
 equipment_types:
   Pump:
     attributes:
-      Flow:     { unit: L/min, normal: [200, 450], lo: 0,   hi: 500,   step: 4.0 }
-      Pressure: { unit: bar,   normal: [3.5, 8.5], lo: 0,   hi: 10,    step: 0.08 }
-      Power:    { unit: kW,    normal: [10, 70],   lo: 0,   hi: 75,    step: 0.6 }
+      Flow:     { unit: L/min, normal: [200, 450], lo: 0,   hi: 500,   step: 4.0,  alarm_lo: critical, alarm_hi: advisory }
+      Pressure: { unit: bar,   normal: [3.5, 8.5], lo: 0,   hi: 10,    step: 0.08, alarm_lo: warning,  alarm_hi: warning  }
+      Power:    { unit: kW,    normal: [10, 70],   lo: 0,   hi: 75,    step: 0.6,  alarm_lo: warning,  alarm_hi: warning  }
       Running:  { type: bool, initial: true, flip: 0.01 }
     faults:
       suction_starvation:
+        severity: critical
         heuristic: "Flow ramping to zero + erratic pressure + Running=True → suction starvation"
       run_status_fault:
+        severity: warning
         heuristic: "Flow≈0 + Power≈0 + Running=True → run-status fault"
       pressure_drift:
+        severity: advisory
         heuristic: "Pressure diverging progressively from expected range → pressure drift"
       cavitation:
+        severity: critical
         heuristic: "High-frequency flow collapse + pressure spikes → cavitation"
 
   Clarifier:
     attributes:
-      Level:     { unit: "%",  normal: [20, 90], lo: 0,   hi: 100, step: 0.5 }
-      Turbidity: { unit: NTU,  normal: [0, 4],   lo: 0,   hi: 5,   step: 0.03 }
+      Level:     { unit: "%",  normal: [20, 90], lo: 0,   hi: 100, step: 0.5,  alarm_lo: warning,  alarm_hi: warning  }
+      Turbidity: { unit: NTU,  normal: [0, 4],   lo: 0,   hi: 5,   step: 0.03, alarm_lo: advisory, alarm_hi: warning  }
     faults:
       level_sensor_fault:
+        severity: advisory
         heuristic: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
       turbidity_spike:
+        severity: warning
         heuristic: "Turbidity rising above 4 NTU → sedimentation failure or upstream contamination"
 
   StorageTank:
     attributes:
-      Level:     { unit: "%",  normal: [20, 90],   lo: 0,   hi: 100, step: 0.4 }
-      Turbidity: { unit: NTU,  normal: [0, 1],     lo: 0,   hi: 5,   step: 0.03 }
-      pH:        { unit: pH,   normal: [6.5, 8.5], lo: 6.8, hi: 7.8, step: 0.01 }
+      Level:     { unit: "%",  normal: [20, 90],   lo: 0,   hi: 100, step: 0.4,  alarm_lo: warning,  alarm_hi: advisory }
+      Turbidity: { unit: NTU,  normal: [0, 1],     lo: 0,   hi: 5,   step: 0.03, alarm_lo: advisory, alarm_hi: critical }
+      pH:        { unit: pH,   normal: [6.5, 8.5], lo: 6.8, hi: 7.8, step: 0.01, alarm_lo: critical, alarm_hi: critical }
     faults:
       level_sensor_fault:
+        severity: advisory
         heuristic: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
       turbidity_spike:
+        severity: critical
         heuristic: "Finished water turbidity above 1 NTU → treatment failure or contamination"
 
   Dosing:
     attributes:
-      FlowRate:  { unit: L/h, normal: [4.5, 5.5], lo: 0,   hi: 10,  step: 0.05 }
-      TankLevel: { unit: "%", normal: [10, 100],  lo: 20,  hi: 100, step: 0.2 }
+      FlowRate:  { unit: L/h, normal: [4.5, 5.5], lo: 0,   hi: 10,  step: 0.05, alarm_lo: critical, alarm_hi: warning  }
+      TankLevel: { unit: "%", normal: [10, 100],  lo: 20,  hi: 100, step: 0.2,  alarm_lo: warning,  alarm_hi: advisory }
       Running:   { type: bool, initial: true, flip: 0.01 }
     faults:
       dosing_blockage:
+        severity: critical
         heuristic: "FlowRate ramping to zero + Running=True + TankLevel normal → discharge blockage"
       tank_empty:
+        severity: warning
         heuristic: "TankLevel depleting toward zero + FlowRate dropping → chemical tank empty"
       run_status_fault:
+        severity: warning
         heuristic: "FlowRate≈0 + Running=True + TankLevel not depleting → run-status fault"
 
   UV:
     attributes:
-      Intensity: { unit: "%", normal: [80, 100],  lo: 85, hi: 100,   step: 0.3 }
+      Intensity: { unit: "%", normal: [80, 100],  lo: 85, hi: 100,   step: 0.3,  alarm_lo: critical, alarm_hi: advisory }
       LampHours: { unit: hrs, normal: [0, 9000],  lo: 0,  hi: 10000, step: 0.01 }
       Running:   { type: bool, initial: true, flip: 0.005 }
     faults:
       lamp_degradation:
+        severity: advisory
         heuristic: "Intensity gradually decreasing over hours + LampHours accumulating → lamp degradation"
       lamp_failure:
+        severity: critical
         heuristic: "Intensity near zero immediately + Running=True → lamp failure"
 
 instances:
