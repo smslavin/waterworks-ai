@@ -298,14 +298,18 @@ async def main() -> None:
                     value = fault.apply(attr_name, raw)
                     sp_target = setpoint_overrides.get(instance_id, {}).get(attr_name)
                     if sp_target is not None:
-                        inst_ramp = _setpoint_ramp.setdefault(instance_id, {})
-                        if attr_name not in inst_ramp:
-                            inst_ramp[attr_name] = value  # seed from live value
-                        current = inst_ramp[attr_name]
-                        gap = sp_target - current
-                        current = sp_target if abs(gap) < 0.01 else round(current + gap * _RAMP_FRACTION, 2)
-                        inst_ramp[attr_name] = current
-                        value = current
+                        if isinstance(value, bool):
+                            # Boolean attributes (Running): apply directly, no ramping
+                            value = bool(sp_target)
+                        else:
+                            inst_ramp = _setpoint_ramp.setdefault(instance_id, {})
+                            if attr_name not in inst_ramp:
+                                inst_ramp[attr_name] = value  # seed from live value
+                            current = inst_ramp[attr_name]
+                            gap = sp_target - current
+                            current = sp_target if abs(gap) < 0.01 else round(current + gap * _RAMP_FRACTION, 2)
+                            inst_ramp[attr_name] = current
+                            value = current
 
                     topic   = f"{MQTT_ROOT}/{obj_type}/{instance_id}/{attr_name}"
                     payload = str(int(value) if isinstance(value, bool) else value)

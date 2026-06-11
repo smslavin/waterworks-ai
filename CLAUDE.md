@@ -135,7 +135,7 @@ pytest topology-builder/tests/
 
 ## Phase status
 
-Phases 0–10b complete. Phase 11 (reactive ISA-18.2 alarms) is next: `monitor.py`, `deadband.py`, `reactive_loop.py` in `chat-ui/`. Severity defined in `topology.yaml` per attribute+direction. Opt-in via `REACTIVE_ENABLED=1`.
+Phases 0–11 complete. Phase 11 added ISA-18.2 three-tier reactive alarms: `monitor.py`, `deadband.py`, `reactive_loop.py` in `chat-ui/`. Severity defined in `topology.yaml` per attribute+direction. Opt-in via `REACTIVE_ENABLED=1`.
 
 ## What not to touch
 

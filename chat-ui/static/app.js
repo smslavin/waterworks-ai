@@ -8,14 +8,18 @@ let thinkingEnabled  = false;
 let multiAgentMode   = false;
 let abortController  = null;
 let faultModeMap     = {}; // { instance_id: [mode, ...] }
-let _pendingActionId = null; // action_id awaiting operator decision
+const _pendingActions = []; // queue of {action_id, action_type, target, value, description}
 
 const SPECIALISTS = [
-  {name: "intake",       label: "Intake"},
-  {name: "treatment",    label: "Treatment"},
-  {name: "distribution", label: "Distribution"},
-  {name: "historian",    label: "Historian"},
+  {name: "intake",       label: "Intake",       units: ["RawWater_01", "RawWater_02"]},
+  {name: "treatment",    label: "Treatment",    units: ["Clarifier_01", "Chlorine_01", "Fluoride_01", "UV_01", "UV_02"]},
+  {name: "distribution", label: "Distribution", units: ["HighService_01", "HighService_02", "FinishedWater_01"]},
+  {name: "historian",    label: "Historian",    units: []},
 ];
+
+// Agent-detected faults: { instance_id → "anomaly" | "fault" | "critical" | "warning" }
+// Cleared on new conversation. Overlaid on the simulator fault status panel.
+const _agentFaults = {};
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -32,6 +36,8 @@ const faultList   = document.getElementById("fault-status-list");
 function newConversation() {
   messages.length = 0;
   messagesEl.innerHTML = "";
+  Object.keys(_agentFaults).forEach(k => delete _agentFaults[k]);
+  refreshFaultStatus();
 }
 
 function toggleThinking() {
@@ -44,6 +50,7 @@ function toggleMode() {
   const btn = document.getElementById("mode-toggle");
   btn.classList.toggle("active", multiAgentMode);
   btn.textContent = multiAgentMode ? "Multi Agent" : "Single Agent";
+  checkReactiveStatus();
   // Deep Reasoning is incompatible with multi-agent mode
   if (multiAgentMode && thinkingEnabled) {
     thinkingEnabled = false;
@@ -54,48 +61,106 @@ function toggleMode() {
 
 // ── Action approval dialog ─────────────────────────────────────────────────
 
-function showApprovalDialog(chunk) {
-  _pendingActionId = chunk.action_id;
-  const typeLabel = (chunk.action_type || "").replace(/_/g, " ")
-    .replace(/\b\w/g, c => c.toUpperCase());
+function _updateActionPill() {
+  const pill  = document.getElementById("action-pill");
+  const label = document.getElementById("action-pill-label");
+  if (_pendingActions.length === 0) {
+    pill.style.display = "none";
+  } else if (_pendingActions.length === 1) {
+    const a = _pendingActions[0];
+    const typeLabel = (a.action_type || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    label.textContent = typeLabel ? `${typeLabel} — ${a.target || ""}` : "Action pending";
+    pill.style.display = "flex";
+  } else {
+    label.textContent = `${_pendingActions.length} actions pending`;
+    pill.style.display = "flex";
+  }
+}
+
+function _loadActionIntoDialog(action) {
+  const typeLabel = (action.action_type || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   document.getElementById("approval-type").textContent        = typeLabel || "—";
-  document.getElementById("approval-target").textContent      = chunk.target || "—";
-  document.getElementById("approval-description").textContent = chunk.description || "—";
+  document.getElementById("approval-target").textContent      = action.target || "—";
+  document.getElementById("approval-description").textContent = action.description || "—";
   const valueRow = document.getElementById("approval-value-row");
-  if (chunk.value) {
-    document.getElementById("approval-value").textContent = chunk.value;
+  if (action.value) {
+    document.getElementById("approval-value").textContent = action.value;
     valueRow.style.display = "block";
   } else {
     valueRow.style.display = "none";
   }
+  const queueInfo = document.getElementById("approval-queue-info");
+  if (_pendingActions.length > 1) {
+    queueInfo.textContent = `1 of ${_pendingActions.length} pending — approve or deny to continue`;
+    queueInfo.style.display = "block";
+  } else {
+    queueInfo.style.display = "none";
+  }
+}
+
+function showApprovalDialog(chunk) {
+  _pendingActions.push({
+    action_id:   chunk.action_id,
+    action_type: chunk.action_type,
+    target:      chunk.target,
+    value:       chunk.value,
+    description: chunk.description,
+  });
+  _updateActionPill();
+}
+
+function reviewPendingAction() {
+  if (_pendingActions.length === 0) return;
+  _loadActionIntoDialog(_pendingActions[0]);
   document.getElementById("approval-overlay").classList.add("visible");
 }
 
-function _closeApprovalDialog() {
-  document.getElementById("approval-overlay").classList.remove("visible");
-  _pendingActionId = null;
+function _onActionDecision(action_id) {
+  const idx = _pendingActions.findIndex(a => a.action_id === action_id);
+  if (idx !== -1) {
+    _pendingActions.splice(idx, 1);
+    const overlay = document.getElementById("approval-overlay");
+    if (idx === 0 && overlay.classList.contains("visible")) {
+      if (_pendingActions.length > 0) {
+        _loadActionIntoDialog(_pendingActions[0]);
+      } else {
+        overlay.classList.remove("visible");
+      }
+    }
+  }
+  _updateActionPill();
 }
 
 async function approveAction() {
-  if (!_pendingActionId) return;
-  const id = _pendingActionId;
-  _closeApprovalDialog();
+  if (_pendingActions.length === 0) return;
+  const action = _pendingActions.shift();
   await fetch("/api/action/respond", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({action_id: id, decision: "approved"}),
+    body: JSON.stringify({action_id: action.action_id, decision: "approved"}),
   });
+  if (_pendingActions.length > 0) {
+    _loadActionIntoDialog(_pendingActions[0]);
+  } else {
+    document.getElementById("approval-overlay").classList.remove("visible");
+  }
+  _updateActionPill();
 }
 
 async function denyAction() {
-  if (!_pendingActionId) return;
-  const id = _pendingActionId;
-  _closeApprovalDialog();
+  if (_pendingActions.length === 0) return;
+  const action = _pendingActions.shift();
   await fetch("/api/action/respond", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({action_id: id, decision: "denied"}),
+    body: JSON.stringify({action_id: action.action_id, decision: "denied"}),
   });
+  if (_pendingActions.length > 0) {
+    _loadActionIntoDialog(_pendingActions[0]);
+  } else {
+    document.getElementById("approval-overlay").classList.remove("visible");
+  }
+  _updateActionPill();
 }
 
 async function clearAuditLog() {
@@ -204,11 +269,23 @@ async function refreshFaultStatus() {
       faultList.innerHTML = `<div style="color:var(--color-error);font-size:12px">${data.error}</div>`;
       return;
     }
-    faultList.innerHTML = Object.entries(data).map(([name, mode]) => `
-      <div class="status-row">
+    faultList.innerHTML = Object.entries(data).map(([name, mode]) => {
+      const injected = mode !== "normal";
+      const agent    = _agentFaults[name];
+      let badge, cls;
+      if (injected) {
+        badge = mode; cls = "fault";
+      } else if (agent) {
+        badge = agent; cls = "agent-fault";
+      } else {
+        badge = "normal"; cls = "";
+      }
+      const display = badge.replaceAll("_", " ");
+      return `<div class="status-row" title="${name}: ${badge}">
         <span class="status-name">${name}</span>
-        <span class="status-mode${mode !== "normal" ? " fault" : ""}">${mode}</span>
-      </div>`).join("");
+        <span class="status-mode${cls ? " " + cls : ""}">${display}</span>
+      </div>`;
+    }).join("");
   } catch {
     faultList.innerHTML = `<div style="color:var(--color-text-secondary);font-size:12px">Simulator offline</div>`;
   }
@@ -562,7 +639,7 @@ async function sendMessage(overrideText) {
             showApprovalDialog(chunk);
             break;
           case "action_decision":
-            _closeApprovalDialog();
+            _onActionDecision(chunk.action_id);
             msg.addToolResult(
               "propose_action",
               `Operator decision: ${chunk.decision}`,
@@ -573,6 +650,12 @@ async function sendMessage(overrideText) {
             break;
           case "specialist_done":
             msg.updateChip(chunk.specialist, chunk.status, chunk.confidence);
+            if (chunk.status === "Fault Detected" || chunk.status === "Anomaly Detected") {
+              const label = chunk.status === "Fault Detected" ? "fault" : "anomaly";
+              const spec  = SPECIALISTS.find(s => s.name === chunk.specialist);
+              (spec?.units ?? []).forEach(u => { _agentFaults[u] = label; });
+              refreshFaultStatus();
+            }
             break;
           case "synthesis_start":
             msg.showSynthesisStart();
@@ -618,6 +701,153 @@ sendBtn.addEventListener("click", () => {
   }
 });
 
+// ── Reactive toggle ────────────────────────────────────────────────────────
+
+async function checkReactiveStatus() {
+  try {
+    const r   = await fetch("/api/reactive");
+    const d   = await r.json();
+    const dot = document.getElementById("dot-reactive");
+    const btn = document.getElementById("reactive-toggle-btn");
+    if (!dot) return;
+    const active    = d.enabled && multiAgentMode;
+    dot.className   = "dot " + (active ? "ok" : "");
+    btn.textContent = d.enabled ? "Disable" : "Enable";
+    btn.disabled    = !multiAgentMode;
+    btn.title       = multiAgentMode ? "" : "Requires Multi Agent mode";
+  } catch (_) {}
+}
+
+async function toggleReactive() {
+  const btn     = document.getElementById("reactive-toggle-btn");
+  const current = btn.textContent.trim() === "Disable";
+  btn.disabled  = true;
+  try {
+    await fetch("/api/reactive/toggle", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({enable: !current}),
+    });
+    await checkReactiveStatus();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Reactive stream ────────────────────────────────────────────────────────
+
+const _advisories = [];
+const _warningBanners = {};
+
+function _injectReactiveActionContext(evt) {
+  const typeLabel = (evt.action_type || "").replace(/_/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase());
+  const div = document.createElement("div");
+  div.className = "message assistant reactive-critical-msg";
+  div.dataset.actionId = evt.action_id;
+  div.innerHTML =
+    `<div class="bubble">` +
+    `<div class="reactive-critical-label">Reactive — Proposed Action</div>` +
+    `<p><strong>${escHtml(typeLabel)}</strong> on <strong>${escHtml(evt.target || "")}</strong>` +
+    (evt.value ? ` → <code>${escHtml(String(evt.value))}</code>` : "") + `</p>` +
+    renderMarkdown(evt.description || "") +
+    `</div>`;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function connectReactiveStream() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (e) => {
+    try {
+      const evt = JSON.parse(e.data);
+      if      (evt.type === "reactive_advisory")        _handleAdvisory(evt);
+      else if (evt.type === "reactive_warning")         _handleWarning(evt);
+      else if (evt.type === "reactive_warning_update")  _handleWarningUpdate(evt);
+      else if (evt.type === "reactive_critical")        _handleCritical(evt);
+      else if (evt.type === "action_proposed")          { try { _injectReactiveActionContext(evt); } catch (_) {} showApprovalDialog(evt); }
+      else if (evt.type === "action_decision")          _onActionDecision(evt.action_id);
+    } catch (_) {}
+  };
+  // EventSource auto-reconnects per spec
+}
+
+function _markReactiveFault(evt, label) {
+  _agentFaults[evt.instance_id] = label;
+  refreshFaultStatus();
+}
+
+function _handleAdvisory(evt) {
+  const [lo, hi] = evt.normal_range;
+  _advisories.push(evt);
+  const btn   = document.getElementById("notif-btn");
+  const badge = document.getElementById("notif-badge");
+  btn.style.display   = "block";
+  badge.style.display = "inline";
+  badge.textContent   = _advisories.length;
+  const panel = document.getElementById("notif-panel");
+  const item  = document.createElement("div");
+  item.className = "notif-item";
+  item.innerHTML =
+    `<div class="notif-label">Advisory — ${escHtml(evt.instance_id)}</div>` +
+    `${escHtml(evt.attribute)}: ${evt.value.toFixed(2)} (normal: ${lo}–${hi})<br>` +
+    `<small>${escHtml(evt.reason)}</small>`;
+  panel.prepend(item);
+}
+
+function toggleNotifPanel() {
+  const panel = document.getElementById("notif-panel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+function _handleWarning(evt) {
+  _markReactiveFault(evt, "warning");
+  const [lo, hi] = evt.normal_range;
+  const key     = `${evt.instance_id}_${evt.attribute}`;
+  const banner  = document.getElementById("warning-banner");
+  const content = document.getElementById("warning-banner-content");
+  banner.classList.add("visible");
+  const detail = document.createElement("div");
+  detail.id        = `wd_${key}`;
+  detail.className = "warning-detail";
+  detail.innerHTML = "<em>Diagnostic running…</em>";
+  const row = document.createElement("div");
+  row.id = `wb_${key}`;
+  row.innerHTML =
+    `<div class="warning-banner-label">Warning — ${escHtml(evt.instance_id)} / ${escHtml(evt.attribute)}</div>` +
+    `<div class="warning-expandable" onclick="this.nextElementSibling.classList.toggle('open')">` +
+    `${evt.value.toFixed(2)} (normal: ${lo}–${hi}) — ${escHtml(evt.reason)} ▾</div>`;
+  row.appendChild(detail);
+  content.appendChild(row);
+  _warningBanners[key] = detail;
+}
+
+function _handleWarningUpdate(evt) {
+  const key    = `${evt.instance_id}_${evt.attribute}`;
+  const detail = _warningBanners[key];
+  if (detail) detail.innerHTML = renderMarkdown(evt.content);
+}
+
+function dismissWarning() {
+  const banner = document.getElementById("warning-banner");
+  banner.classList.remove("visible");
+}
+
+function _handleCritical(evt) {
+  _markReactiveFault(evt, "critical");
+  const [lo, hi] = evt.normal_range;
+  const div = document.createElement("div");
+  div.className = "message assistant reactive-critical-msg";
+  div.innerHTML =
+    `<div class="bubble">` +
+    `<div class="reactive-critical-label">Critical — ${escHtml(evt.instance_id)} / ${escHtml(evt.attribute)}</div>` +
+    `<p>${escHtml(evt.attribute)}: ${evt.value.toFixed(2)} (normal: ${lo}–${hi})<br>${escHtml(evt.reason)}</p>` +
+    renderMarkdown(evt.content) +
+    `</div>`;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 
 faultTarget.addEventListener("change", updateFaultModes);
@@ -625,7 +855,10 @@ faultTarget.addEventListener("change", updateFaultModes);
 loadModels();
 loadFaultModes();
 checkHealth();
+checkReactiveStatus();
 refreshFaultStatus();
-setInterval(checkHealth,        15_000);
-setInterval(refreshFaultStatus,  5_000);
+connectReactiveStream();
+setInterval(checkHealth,          15_000);
+setInterval(checkReactiveStatus,  15_000);
+setInterval(refreshFaultStatus,    5_000);
 

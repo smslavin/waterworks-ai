@@ -17,6 +17,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+
+def _dump(obj) -> str:
+    """json.dumps with fallback for datetime and other non-serializable types."""
+    return json.dumps(obj, default=lambda x: x.isoformat() if hasattr(x, "isoformat") else str(x))
+
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
@@ -45,7 +50,7 @@ mcp = FastMCP("memory-mcp", lifespan=_lifespan)
 @mcp.tool()
 def get_topology() -> str:
     """Full area → equipment → type tree. Use for Cascade routing decisions."""
-    return json.dumps(graph.get_topology())
+    return _dump(graph.get_topology())
 
 
 @mcp.tool()
@@ -53,25 +58,25 @@ def get_specialist_context(area_id: str) -> str:
     """Structured specialist context for area_id: equipment, attributes, fault modes, tag bindings, and area notes."""
     rows   = graph.get_specialist_context(area_id)
     result = graph.aggregate_specialist_query(rows)
-    return json.dumps(result)
+    return _dump(result)
 
 
 @mcp.tool()
 def get_equipment_history(equipment_id: str) -> str:
     """Past incidents, observations, and operator decision patterns for one equipment instance."""
-    return json.dumps(graph.get_equipment_history(equipment_id))
+    return _dump(graph.get_equipment_history(equipment_id))
 
 
 @mcp.tool()
 def get_writable_attributes() -> str:
     """All writable attributes with tag IDs, confirmation requirements, and write limits."""
-    return json.dumps(graph.get_writable_attributes())
+    return _dump(graph.get_writable_attributes())
 
 
 @mcp.tool()
 def query_graph(cypher: str) -> str:
     """Read-only Cypher query against LadybugDB. Write keywords (CREATE/MERGE/SET/DELETE) are rejected."""
-    return json.dumps(graph.query_graph(cypher))
+    return _dump(graph.query_graph(cypher))
 
 
 # ── Knowledge graph — write ───────────────────────────────────────────────────
@@ -93,7 +98,7 @@ def record_incident(
         session_id, equipment_id, diagnosis, confidence, status,
         fault_mode_id or None,
     )
-    return json.dumps({"incident_id": incident_id})
+    return _dump({"incident_id": incident_id})
 
 
 @mcp.tool()
@@ -106,14 +111,14 @@ def record_observation(
 ) -> str:
     """Write a specialist observation that should persist across sessions."""
     obs_id = graph.record_observation(session_id, equipment_id, text, confidence, specialist)
-    return json.dumps({"observation_id": obs_id})
+    return _dump({"observation_id": obs_id})
 
 
 @mcp.tool()
 def link_incident_precedes(incident_a_id: str, incident_b_id: str, hours_apart: float) -> str:
     """Create a PRECEDES relationship between two incidents for causality chain queries."""
     graph.link_incident_precedes(incident_a_id, incident_b_id, hours_apart)
-    return json.dumps({"status": "ok"})
+    return _dump({"status": "ok"})
 
 
 @mcp.tool()
@@ -128,7 +133,7 @@ def seed_discovered_topology(
     """
     conn = graph.get_conn()
     result = graph.seed_discovered_topology(conn, facility_id, facility_name, instances)
-    return json.dumps(result)
+    return _dump(result)
 
 
 # ── Analytical layer ──────────────────────────────────────────────────────────
@@ -136,7 +141,7 @@ def seed_discovered_topology(
 @mcp.tool()
 def run_correlation(sql: str) -> str:
     """SELECT query against DuckDB analytical layer. For long-horizon multi-equipment correlations."""
-    return json.dumps(analytical.run_correlation(sql))
+    return _dump(analytical.run_correlation(sql))
 
 
 # ── Specialist memory ─────────────────────────────────────────────────────────
@@ -151,7 +156,7 @@ def get_specialist_memory(specialist: str) -> str:
 def append_specialist_memory(specialist: str, content: str) -> str:
     """Append a timestamped entry to specialist memory. Call at session end with key findings."""
     specialist_mem.append_specialist_memory(specialist, content)
-    return json.dumps({"status": "ok"})
+    return _dump({"status": "ok"})
 
 
 if __name__ == "__main__":

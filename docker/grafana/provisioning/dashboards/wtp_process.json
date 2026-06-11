@@ -246,7 +246,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"Tank\")\n  |> filter(fn: (r) => r.attribute == \"Level\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"level\")"
+          "query": "from(bucket: \"waterworks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"wtp_process\")\n  |> filter(fn: (r) => r.type == \"StorageTank\" or r.type == \"Clarifier\")\n  |> filter(fn: (r) => r.attribute == \"Level\")\n  |> filter(fn: (r) => r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> yield(name: \"level\")"
         }
       ],
       "fieldConfig": {

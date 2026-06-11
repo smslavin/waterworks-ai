@@ -34,6 +34,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from contextlib import asynccontextmanager
+
 from sse_starlette.sse import EventSourceResponse
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -48,11 +50,21 @@ import metrics
 import mcp_client
 import multi_agent_loop
 import openai_loop
+import reactive_loop as _reactive_loop
 
 ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 MCP_AGGREGATOR_URL   = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
 SIMULATOR_CONTROL    = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
 STATIC_DIR           = os.path.join(os.path.dirname(__file__), "static")
+
+# ── Reactive alert pub-sub ─────────────────────────────────────────────────────
+
+_alert_subs: list[asyncio.Queue] = []
+
+
+def broadcast_alert(event: dict) -> None:
+    for q in _alert_subs:
+        q.put_nowait(event)
 
 _LOOP_MODULES = {"claude": claude_loop, "openai": openai_loop}
 
@@ -290,6 +302,29 @@ async def audit_page_endpoint(request: Request):
               <span class="badge response-badge">response</span>
               <div class="text">{e.get('text','')}</div>
             </div>"""
+        elif event == "action_decision":
+            decision = e.get("decision", "")
+            dcls = "approve-badge" if decision == "approved" else "deny-badge" if decision == "denied" else "warn-badge"
+            return f"""<div class="entry action-event">
+              <span class="ts">{ts}</span>
+              <span class="badge {dcls}">action {decision}</span>
+              <span class="tool-name">{e.get('action_id','')}</span>
+            </div>"""
+        elif event.startswith("reactive_"):
+            parts = []
+            if e.get("instance_id"): parts.append(f"<strong>{e['instance_id']}</strong>")
+            if e.get("attribute"):   parts.append(e["attribute"])
+            if e.get("escalate") is not None:
+                parts.append("↑ escalate" if e["escalate"] else "↓ suppress")
+            if e.get("severity"):    parts.append(e["severity"])
+            if e.get("reason"):      parts.append(f"<em>{e['reason'][:80]}</em>")
+            detail = " · ".join(parts)
+            label  = event.replace("reactive_", "").replace("_", " ")
+            return f"""<div class="entry reactive-event">
+              <span class="ts">{ts}</span>
+              <span class="badge reactive-badge">reactive {label}</span>
+              {'<span class="tool-name">' + detail + '</span>' if detail else ''}
+            </div>"""
         elif event == "error":
             return f"""<div class="entry tool-result err">
               <span class="ts">{ts}</span>
@@ -301,7 +336,9 @@ async def audit_page_endpoint(request: Request):
     def render_session(s, idx):
         h      = s["header"]
         inner  = "\n".join(render_entry(e) for e in s["entries"])
-        tc     = sum(1 for e in s["entries"] if e.get("event") == "tool_call")
+        tc      = sum(1 for e in s["entries"] if e.get("event") == "tool_call")
+        rc      = sum(1 for e in s["entries"] if e.get("event", "").startswith("reactive_"))
+        ac      = sum(1 for e in s["entries"] if e.get("event") == "action_decision")
         has_err = any(e.get("event") == "error" or
                       (e.get("event") == "tool_result" and
                        isinstance(e.get("result",""), str) and
@@ -312,7 +349,10 @@ async def audit_page_endpoint(request: Request):
             ts      = h.get("ts", "")[:19].replace("T", " ")
             model   = h.get("model", "")
             msg     = h.get("user_message", "")
-            summary = f"{tc} tool call{'s' if tc != 1 else ''}"
+            parts   = [f"{tc} tool call{'s' if tc != 1 else ''}"]
+            if rc:  parts.append(f"{rc} reactive")
+            if ac:  parts.append(f"{ac} action{'s' if ac != 1 else ''}")
+            summary = " · ".join(parts)
             return f"""<div class="session-block{err_cls}">
               <div class="session-header" onclick="toggle({idx})">
                 <span class="chevron" id="chev-{idx}">▶</span>
@@ -398,6 +438,19 @@ async def audit_page_endpoint(request: Request):
             margin:4px 0 0;overflow-x:auto;white-space:pre-wrap}}
   .no-entries{{color:var(--ts);font-style:italic;margin:0}}
   .empty{{color:var(--ts);text-align:center;padding:40px}}
+  .entry.reactive-event{{border-left:3px solid #0288d1}}
+  .entry.action-event{{border-left:3px solid #f57c00}}
+  .reactive-badge{{background:#e1f5fe;color:#0277bd}}
+  .approve-badge{{background:#e8f5e9;color:#2e7d32}}
+  .deny-badge{{background:#ffebee;color:#c62828}}
+  .warn-badge{{background:#fff3e0;color:#e65100}}
+  [data-theme="dark"] .reactive-badge{{background:#0a2a40;color:#4fc3f7}}
+  [data-theme="dark"] .approve-badge{{background:#1a2e1a;color:#66bb6a}}
+  [data-theme="dark"] .deny-badge{{background:#2e1a1a;color:#ef5350}}
+  body.hide-tools .entry.tool-call,
+  body.hide-tools .entry.tool-result{{display:none}}
+  body.reactive-only .entry:not(.reactive-event):not(.action-event):not(.response){{display:none}}
+  .filter-btn.active{{background:#2563eb!important;color:#fff!important;border-color:#2563eb!important}}
 </style>
 </head>
 <body>
@@ -409,6 +462,11 @@ async def audit_page_endpoint(request: Request):
 <div class="controls">
   <button class="btn" onclick="expandAll()">Expand all</button>
   <button class="btn" onclick="collapseAll()">Collapse all</button>
+  <span style="width:1px;background:var(--border);height:20px;display:inline-block;margin:0 4px"></span>
+  <button class="btn filter-btn" id="filter-all"      onclick="setFilter('')">All events</button>
+  <button class="btn filter-btn" id="filter-hide-tools" onclick="setFilter('hide-tools')">Hide tools</button>
+  <button class="btn filter-btn" id="filter-reactive-only" onclick="setFilter('reactive-only')">Reactive only</button>
+  <span style="width:1px;background:var(--border);height:20px;display:inline-block;margin:0 4px"></span>
   <button class="btn" id="theme-toggle" onclick="toggleTheme()">🌙 Dark mode</button>
 </div>
 {body}
@@ -438,6 +496,16 @@ async def audit_page_endpoint(request: Request):
     applyTheme(dark);
   }}
   applyTheme(localStorage.getItem('theme') === 'dark');
+  const _FILTERS = ['hide-tools', 'reactive-only'];
+  function setFilter(mode) {{
+    _FILTERS.forEach(f => document.body.classList.remove(f));
+    if (mode) document.body.classList.add(mode);
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    const activeId = mode ? 'filter-' + mode : 'filter-all';
+    document.getElementById(activeId)?.classList.add('active');
+    localStorage.setItem('audit-filter', mode);
+  }}
+  setFilter(localStorage.getItem('audit-filter') || '');
 </script>
 </body>
 </html>"""
@@ -558,6 +626,64 @@ async def metrics_api_endpoint(request: Request):
     })
 
 
+async def reactive_status_endpoint(request: Request):
+    return JSONResponse({"enabled": _reactive_loop.is_running()})
+
+
+async def reactive_toggle_endpoint(request: Request):
+    body   = await request.json()
+    enable = bool(body.get("enable", False))
+    if enable:
+        if _reactive_loop.is_running():
+            return JSONResponse({"enabled": True, "changed": False})
+        broker_url, aggregator_url, model = _reactive_params()
+        _reactive_loop.start(broker_url, aggregator_url, model, broadcast_alert)
+        logger.info("Reactive mode enabled via UI")
+        return JSONResponse({"enabled": True, "changed": True})
+    else:
+        if not _reactive_loop.is_running():
+            return JSONResponse({"enabled": False, "changed": False})
+        _reactive_loop.stop()
+        logger.info("Reactive mode disabled via UI")
+        return JSONResponse({"enabled": False, "changed": True})
+
+
+async def events_endpoint(request: Request):
+    """SSE stream for reactive alerts — all three severity tiers."""
+    q: asyncio.Queue = asyncio.Queue()
+    _alert_subs.append(q)
+
+    async def _gen():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=25.0)
+                    yield {"data": json.dumps(event)}
+                except asyncio.TimeoutError:
+                    yield {"data": json.dumps({"type": "ping"})}
+        finally:
+            if q in _alert_subs:
+                _alert_subs.remove(q)
+
+    return EventSourceResponse(_gen())
+
+
+def _reactive_params() -> tuple[str, str, str]:
+    broker_url     = os.environ.get("MQTT_BROKER_URL", "localhost:1883")
+    aggregator_url = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
+    model          = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
+    return broker_url, aggregator_url, model
+
+
+@asynccontextmanager
+async def lifespan(app):
+    if os.environ.get("REACTIVE_ENABLED", "0") == "1":
+        broker_url, aggregator_url, model = _reactive_params()
+        _reactive_loop.start(broker_url, aggregator_url, model, broadcast_alert)
+        logger.info("Reactive mode auto-started (broker=%s)", broker_url)
+    yield
+
+
 async def topology_commit_endpoint(request: Request):
     body          = await request.json()
     facility_id   = body.get("facility_id", "WTP_001")
@@ -593,12 +719,15 @@ routes = [
     Route("/api/audit/download",  audit_download_endpoint),
     Route("/api/metrics",         metrics_api_endpoint),
     Route("/api/topology/commit", topology_commit_endpoint, methods=["POST"]),
+    Route("/api/reactive",        reactive_status_endpoint),
+    Route("/api/reactive/toggle", reactive_toggle_endpoint, methods=["POST"]),
+    Route("/api/events",          events_endpoint),
     Route("/audit",               audit_page_endpoint),
     Route("/metrics",             metrics_page_endpoint),
     Mount("/static", StaticFiles(directory=STATIC_DIR), name="static"),
 ]
 
-app = Starlette(routes=routes)
+app = Starlette(routes=routes, lifespan=lifespan)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
