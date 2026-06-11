@@ -79,6 +79,14 @@ def _filter_tools(all_tools: list[dict], prefixes: tuple[str, ...]) -> list[dict
     return [t for t in all_tools if any(t["name"].startswith(p) for p in prefixes)]
 
 
+def _find_specialist_for_instance(instance_id: str) -> dict | None:
+    """Return the specialist config whose unit_names contains instance_id, or None."""
+    for spec in SPECIALISTS:
+        if instance_id in spec.get("unit_names", []):
+            return spec
+    return None
+
+
 async def _run_specialist(
     config: dict,
     query: str,
@@ -283,6 +291,8 @@ async def run_multi_agent(
     model: str,
     *,
     api_key: str | None = None,
+    scope_instance_id: str | None = None,
+    include_orchestrator: bool = True,
     **kwargs,
 ) -> AsyncIterator[str]:
     session_id = str(uuid.uuid4())
@@ -298,7 +308,14 @@ async def run_multi_agent(
 
     await _fetch_process_state()  # warm the cache and populate _unit_running before fan-out
 
-    # ── Fan-out: all specialists run in parallel ───────────────────────────────
+    # ── Scope specialists (reactive uses one; interactive uses all) ────────────
+    if scope_instance_id:
+        scoped = _find_specialist_for_instance(scope_instance_id)
+        active_specialists = [scoped] if scoped else SPECIALISTS
+    else:
+        active_specialists = SPECIALISTS
+
+    # ── Fan-out: specialists run in parallel ───────────────────────────────────
     queue = asyncio.Queue()
     tool_calls_all: list = []  # shared; list.append is GIL-safe across tasks
 
@@ -308,13 +325,13 @@ async def run_multi_agent(
                             SPECIALIST_MODEL, queue, tool_calls_all,
                             running_state=running_state_for(spec["unit_names"]))
         )
-        for spec in SPECIALISTS
+        for spec in active_specialists
     ]
 
     findings: dict[str, dict] = {}
     done_count = 0
 
-    while done_count < len(SPECIALISTS):
+    while done_count < len(active_specialists):
         event = await queue.get()
         if event is None:
             done_count += 1
@@ -325,13 +342,28 @@ async def run_multi_agent(
 
     await asyncio.gather(*tasks, return_exceptions=True)
 
+    # ── Warning tier: return specialist text directly, skip orchestrator ───────
+    if not include_orchestrator:
+        text = "\n\n".join(
+            findings.get(s["name"], {}).get("text", "")
+            for s in active_specialists
+            if findings.get(s["name"], {}).get("text")
+        )
+        if text:
+            yield json.dumps({"type": "text", "text": text})
+        yield json.dumps({
+            "type": "done", "input_tokens": 0, "output_tokens": 0,
+            "latency_ms": int((time.monotonic() - start_ts) * 1000),
+        })
+        return
+
     # ── Synthesis ──────────────────────────────────────────────────────────────
     yield json.dumps({"type": "synthesis_start"})
 
     findings_text = "\n\n".join(
         f"=== {spec['label']} Agent ===\n"
         + findings.get(spec["name"], {}).get("text", "[No findings received]")
-        for spec in SPECIALISTS
+        for spec in active_specialists
     )
     orchestrator_user = (
         f"User question: {user_message}\n\n"

@@ -82,9 +82,12 @@ async def _collect_text(gen, broadcast_fn=None) -> str:
     return "".join(chunks)
 
 
-async def _run_cascade(anomaly: dict, deadband_reason: str, model: str, broadcast_fn=None) -> str:
+async def _run_cascade(anomaly: dict, deadband_reason: str, model: str, broadcast_fn=None, *, include_orchestrator: bool = True) -> str:
     messages = [{"role": "user", "content": _trigger_message(anomaly, deadband_reason)}]
-    return await _collect_text(_cascade(messages, model), broadcast_fn)
+    return await _collect_text(
+        _cascade(messages, model, scope_instance_id=anomaly["instance_id"], include_orchestrator=include_orchestrator),
+        broadcast_fn,
+    )
 
 
 async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadcast_fn):
@@ -128,7 +131,7 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
                 "reason":       reason,
                 "content":      None,
             })
-            content = await _run_cascade(anomaly, reason, model, broadcast_fn)
+            content = await _run_cascade(anomaly, reason, model, broadcast_fn, include_orchestrator=False)
             broadcast_fn({
                 "type":        "reactive_warning_update",
                 "instance_id": instance_id,
