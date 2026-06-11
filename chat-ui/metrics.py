@@ -66,6 +66,10 @@ def _init_db() -> None:
             c.execute("ALTER TABLE turns ADD COLUMN specialist TEXT")
         except Exception:
             pass  # column already exists on existing databases
+        try:
+            c.execute("ALTER TABLE turns ADD COLUMN cascade_id TEXT")
+        except Exception:
+            pass  # column already exists on existing databases
         c.commit()
 
 
@@ -83,6 +87,7 @@ def log_turn(
     specialist: str | None = None,
     specialist_status: str | None = None,
     specialist_confidence: float | None = None,
+    cascade_id: str | None = None,
 ) -> None:
     # Write to InfluxDB — best-effort, for Grafana dashboards
     try:
@@ -91,6 +96,7 @@ def log_turn(
             .tag("model", model)
             .tag("session_id", session_id)
             .tag("specialist", specialist or "")
+            .tag("cascade_id", cascade_id or "")
             .field("input_tokens",    int(input_tokens  or 0))
             .field("output_tokens",   int(output_tokens or 0))
             .field("tool_call_count", int(tool_call_count))
@@ -115,8 +121,8 @@ def log_turn(
             c.execute(
                 """INSERT INTO turns
                    (ts, session_id, model, input_tokens, output_tokens,
-                    tool_call_count, error_count, latency_ms, context_pressure, user_message, specialist)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    tool_call_count, error_count, latency_ms, context_pressure, user_message, specialist, cascade_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     session_id, model,
@@ -125,6 +131,7 @@ def log_turn(
                     context_pressure,
                     (user_message or "")[:200],
                     specialist,
+                    cascade_id,
                 ),
             )
             c.commit()

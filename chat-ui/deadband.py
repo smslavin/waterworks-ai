@@ -5,9 +5,11 @@ import json
 import logging
 import os
 import re
+import time
 
 import anthropic
 
+import metrics
 from mcp_client import call_mcp_tool
 
 logger = logging.getLogger(__name__)
@@ -157,7 +159,7 @@ async def _dispatch(name, inputs, aggregator_url):
     return {"error": f"unknown tool: {name}"}
 
 
-async def run_deadband(anomaly: dict, aggregator_url: str) -> tuple[bool, str]:
+async def run_deadband(anomaly: dict, aggregator_url: str, cascade_id: str | None = None) -> tuple[bool, str]:
     """Returns (should_escalate, reason). Severity is not re-derived here — it's in anomaly dict."""
     client = anthropic.AsyncAnthropic()
     lo, hi = anomaly["normal_range"]
@@ -172,23 +174,54 @@ async def run_deadband(anomaly: dict, aggregator_url: str) -> tuple[bool, str]:
         "Use your three tools to validate, then return ESCALATE or SUPPRESS."
     )
     messages = [{"role": "user", "content": prompt}]
+    start = time.monotonic()
+    total_input = total_output = tool_call_count = 0
 
     for _ in range(8):
         resp = await client.messages.create(
             model=DEADBAND_MODEL, max_tokens=512,
             system=DEADBAND_SYSTEM, tools=DEADBAND_TOOLS, messages=messages,
         )
+        total_input  += resp.usage.input_tokens
+        total_output += resp.usage.output_tokens
         if resp.stop_reason == "end_turn":
             text = next((b.text for b in resp.content if hasattr(b, "text")), "")
             escalate = "ESCALATE" in text
             reason = text.split("ESCALATE:", 1)[-1].strip() if escalate else text.split("SUPPRESS:", 1)[-1].strip()
+            metrics.log_turn(
+                session_id=cascade_id or "reactive",
+                model=DEADBAND_MODEL,
+                input_tokens=total_input,
+                output_tokens=total_output,
+                tool_call_count=tool_call_count,
+                error_count=0,
+                latency_ms=int((time.monotonic() - start) * 1000),
+                context_pressure=None,
+                user_message=f"{anomaly['instance_id']}/{anomaly['attribute']}",
+                specialist="deadband",
+                cascade_id=cascade_id,
+            )
             return escalate, reason
         tool_results = []
         for block in resp.content:
             if block.type == "tool_use":
+                tool_call_count += 1
                 result = await _dispatch(block.name, block.input, aggregator_url)
                 tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(result)})
         messages.append({"role": "assistant", "content": resp.content})
         messages.append({"role": "user", "content": tool_results})
 
+    metrics.log_turn(
+        session_id=cascade_id or "reactive",
+        model=DEADBAND_MODEL,
+        input_tokens=total_input,
+        output_tokens=total_output,
+        tool_call_count=tool_call_count,
+        error_count=1,
+        latency_ms=int((time.monotonic() - start) * 1000),
+        context_pressure=None,
+        user_message=f"{anomaly['instance_id']}/{anomaly['attribute']}",
+        specialist="deadband",
+        cascade_id=cascade_id,
+    )
     return False, "max_rounds exceeded"

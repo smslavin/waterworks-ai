@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+import uuid
 
 import audit
 from deadband import run_deadband
@@ -82,10 +83,10 @@ async def _collect_text(gen, broadcast_fn=None) -> str:
     return "".join(chunks)
 
 
-async def _run_cascade(anomaly: dict, deadband_reason: str, model: str, broadcast_fn=None, *, include_orchestrator: bool = True) -> str:
+async def _run_cascade(anomaly: dict, deadband_reason: str, model: str, broadcast_fn=None, *, include_orchestrator: bool = True, cascade_id: str | None = None) -> str:
     messages = [{"role": "user", "content": _trigger_message(anomaly, deadband_reason)}]
     return await _collect_text(
-        _cascade(messages, model, scope_instance_id=anomaly["instance_id"], include_orchestrator=include_orchestrator),
+        _cascade(messages, model, scope_instance_id=anomaly["instance_id"], include_orchestrator=include_orchestrator, cascade_id=cascade_id),
         broadcast_fn,
     )
 
@@ -93,11 +94,12 @@ async def _run_cascade(anomaly: dict, deadband_reason: str, model: str, broadcas
 async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadcast_fn):
     instance_id = anomaly["instance_id"]
     severity    = anomaly["severity"]
+    cascade_id  = str(uuid.uuid4())
     _active.add(instance_id)
     escalated = False
     try:
-        audit.log("reactive_anomaly_detected", **anomaly)
-        escalate, reason = await run_deadband(anomaly, aggregator_url)
+        audit.log("reactive_anomaly_detected", cascade_id=cascade_id, **anomaly)
+        escalate, reason = await run_deadband(anomaly, aggregator_url, cascade_id=cascade_id)
         audit.log("reactive_deadband_verdict", instance_id=instance_id, escalate=escalate,
                   severity=severity, reason=reason)
 
@@ -131,7 +133,7 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
                 "reason":       reason,
                 "content":      None,
             })
-            content = await _run_cascade(anomaly, reason, model, broadcast_fn, include_orchestrator=False)
+            content = await _run_cascade(anomaly, reason, model, broadcast_fn, include_orchestrator=False, cascade_id=cascade_id)
             broadcast_fn({
                 "type":        "reactive_warning_update",
                 "instance_id": instance_id,
@@ -141,7 +143,7 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
             audit.log("reactive_warning_complete", instance_id=instance_id)
 
         else:  # critical
-            content = await _run_cascade(anomaly, reason, model, broadcast_fn)
+            content = await _run_cascade(anomaly, reason, model, broadcast_fn, cascade_id=cascade_id)
             broadcast_fn({
                 "type":         "reactive_critical",
                 "instance_id":  instance_id,

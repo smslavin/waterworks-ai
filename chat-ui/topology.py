@@ -1,14 +1,7 @@
-"""Load topology.yaml for the chat-ui layer."""
-
-import os
+"""Shim — delegates to shared loader at repo root."""
+import importlib.util
 from pathlib import Path
 
-import yaml
-
-_DEFAULT_PATH = Path(__file__).parent.parent / "topology.yaml"
-
-
-def load(path: str | Path | None = None) -> dict:
-    p = Path(path) if path else Path(os.environ.get("TOPOLOGY_FILE", _DEFAULT_PATH))
-    with open(p) as f:
-        return yaml.safe_load(f)
+_spec = importlib.util.spec_from_file_location("_topology_shared", Path(__file__).parent.parent / "topology.py")
+_mod  = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_mod)
+load  = _mod.load

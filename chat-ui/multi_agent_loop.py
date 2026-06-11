@@ -97,6 +97,7 @@ async def _run_specialist(
     queue: asyncio.Queue,
     tool_calls_all: list,
     running_state: str = "",
+    cascade_id: str | None = None,
 ) -> None:
     name    = config["name"]
     start   = time.monotonic()
@@ -274,6 +275,7 @@ async def _run_specialist(
         specialist=name,
         specialist_status=status,
         specialist_confidence=confidence,
+        cascade_id=cascade_id,
     )
 
     await queue.put({
@@ -293,6 +295,7 @@ async def run_multi_agent(
     api_key: str | None = None,
     scope_instance_id: str | None = None,
     include_orchestrator: bool = True,
+    cascade_id: str | None = None,
     **kwargs,
 ) -> AsyncIterator[str]:
     session_id = str(uuid.uuid4())
@@ -323,7 +326,8 @@ async def run_multi_agent(
         asyncio.create_task(
             _run_specialist(spec, user_message, client, all_tools, session_id,
                             SPECIALIST_MODEL, queue, tool_calls_all,
-                            running_state=running_state_for(spec["unit_names"]))
+                            running_state=running_state_for(spec["unit_names"]),
+                            cascade_id=cascade_id)
         )
         for spec in active_specialists
     ]
@@ -532,6 +536,7 @@ async def run_multi_agent(
         context_pressure=None,
         user_message=user_message,
         specialist="orchestrator",
+        cascade_id=cascade_id,
     )
 
     total_latency_ms = int((time.monotonic() - start_ts) * 1000)
