@@ -31,6 +31,7 @@ Everything in this stack is open source. No proprietary historians, SCADA platfo
 - [Dashboards](#dashboards)
 - [Context management](#context-management)
 - [Multi-agent diagnostic mode](#multi-agent-diagnostic-mode)
+- [Reactive alarms](#reactive-alarms)
 - [Agent memory](#agent-memory)
 - [Configuration](#configuration)
 - [Project layout](#project-layout)
@@ -555,6 +556,62 @@ Multi-agent mode requires a Claude API key. It is incompatible with the Deep Rea
 
 ---
 
+## Reactive alarms
+
+Phase 11 adds autonomous ISA-18.2 three-tier reactive monitoring. The system watches live MQTT sensor data and initiates diagnostic cycles without waiting for an operator query.
+
+### How it works
+
+```
+MQTT broker
+    │
+    ▼
+AnomalyMonitor          watches Plant/WTP/# against normal ranges in topology.yaml
+    │                   fires after a sustained violation (default 30s, 2% dead zone)
+    ▼
+Deadband agent          Haiku — validates the anomaly is real and sustained
+    │                   calls verify_sustained, get_trend_direction, check_confidence_threshold
+    │                   returns ESCALATE or SUPPRESS
+    ▼
+ISA-18.2 severity router
+    ├── advisory   ──►  surface alert in UI immediately, no model call
+    ├── warning    ──►  one scoped specialist (Haiku) → diagnostic bubble in UI
+    └── critical   ──►  one scoped specialist + orchestrator (Sonnet) → diagnostic bubble
+                        orchestrator may call propose_action → operator approval pill
+```
+
+**Scoped routing:** each reactive cascade runs only the specialist that covers the faulting equipment rather than fanning out to all four agents. A `RawWater_01` fault routes to the Intake specialist only. This cuts reactive token spend by ~75% versus a full fan-out.
+
+**Non-blocking approval:** when a reactive cascade proposes a control action, a pulsing orange pill appears in the header rather than interrupting the operator with an immediate modal. The operator clicks the pill when ready. Multiple pending proposals queue — the pill shows a count ("3 actions pending") and the dialog advances automatically after each approve or deny.
+
+**Severity is defined in `topology.yaml`** per attribute and direction (`alarm_lo` / `alarm_hi`). Values are `advisory`, `warning`, or `critical`. The routing logic reads severity from the anomaly dict — no hardcoding.
+
+### Enabling reactive mode
+
+Reactive monitoring is opt-in and requires multi-agent mode to be active in the UI.
+
+```bash
+# .env — set to 1 to auto-start on backend launch
+REACTIVE_ENABLED=1
+
+# Or toggle from the UI: switch to Multi Agent mode, then use the Reactive toggle in the status panel
+```
+
+The toggle in the UI starts and stops the monitor and Deadband loop at runtime without a restart.
+
+### Reactive demo sequence
+
+1. Start all services and open http://localhost:8080
+2. Switch to **Multi Agent** mode and click **Enable** in the Reactive section of the status panel
+3. Wait for the status dot to turn green — the anomaly monitor is now watching MQTT
+4. Inject a fault: `RawWater_01 → suction_starvation`
+5. Within ~30–90 seconds a warning or critical bubble appears in the chat autonomously — no query needed
+6. For critical events: a pulsing orange pill appears in the header. You can keep working; click it when ready to review the proposed action
+7. Inject a second fault on a different unit while the first pill is pending — the count increments. Approve or deny each in turn; the dialog auto-advances
+8. Clear both faults and watch the monitor stop firing
+
+---
+
 ## Agent memory
 
 `memory-mcp` (:8006) gives specialists a four-store memory architecture so knowledge accumulates across sessions.
@@ -629,6 +686,11 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `DUCKDB_SYNC_INTERVAL` | `3600` | Seconds between InfluxDB → DuckDB syncs |
 | `AUDIT_KEY` | _(empty)_ | Base64-encoded 32-byte AES key for audit log encryption. Unset = plaintext (dev only). |
 | `AUDIT_LOG_PATH` | `chat-ui/audit.jsonl` | Override the audit log file path. |
+| `REACTIVE_ENABLED` | `0` | Set to `1` to auto-start reactive monitoring on backend launch. Can also be toggled from the UI. |
+| `REACTIVE_MODEL` | `claude-haiku-4-5-20251001` | Model for Deadband agent and reactive specialist calls. |
+| `REACTIVE_MIN_DURATION` | `30` | Seconds a violation must persist before AnomalyMonitor fires. |
+| `REACTIVE_COOLDOWN` | `60` | Seconds before the same instance can trigger again after a full cascade. |
+| `MQTT_BROKER_URL` | `localhost:1883` | MQTT broker address for AnomalyMonitor. |
 
 > **Note:** `INFLUXDB_TOKEN` and the other `DOCKER_INFLUXDB_INIT_*` values are only used on a fresh volume. After the first `docker compose up` they are baked in. Reset with `docker compose down -v`.
 
@@ -663,6 +725,9 @@ waterworks-ai/
 │   ├── topology_prompts.py Builds specialist and orchestrator system prompts from topology.yaml
 │   ├── claude_loop.py      Claude API streaming loop — MCP tools, propose_action intercept
 │   ├── multi_agent_loop.py Fan-out to specialist agents + orchestrator; memory injection + recording
+│   ├── monitor.py          AnomalyMonitor — MQTT watcher, sustained-violation detection, ISA-18.2 severity
+│   ├── deadband.py         Deadband agent — Haiku signal validator, ESCALATE/SUPPRESS decision
+│   ├── reactive_loop.py    Reactive loop — anomaly queue, Deadband gate, tiered cascade routing
 │   ├── openai_loop.py      OpenAI-compatible loop for Ollama
 │   ├── mcp_client.py       MCP aggregator client (per-url tool cache, list/call tools)
 │   ├── session_store.py    session_summaries + action_events tables in metrics.db
