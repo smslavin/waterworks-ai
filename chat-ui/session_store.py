@@ -198,8 +198,8 @@ def get_session_summaries(
             params.append(cutoff)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
-        rows = c.execute(  # nosec B608 — where clause is built from hardcoded strings; all values are parameterized
-            f"SELECT * FROM session_summaries {where} ORDER BY id DESC LIMIT ?",
+        rows = c.execute(
+            f"SELECT * FROM session_summaries {where} ORDER BY id DESC LIMIT ?",  # nosec B608
             params,
         ).fetchall()
         return [dict(r) for r in rows]
