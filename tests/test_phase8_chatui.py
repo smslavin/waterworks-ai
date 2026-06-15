@@ -60,9 +60,10 @@ def test_area_specialists_have_mqtt_prefix(specialists):
             assert "mqtt__" in s["tool_prefixes"], f"{s['name']} missing mqtt__ prefix"
 
 
-def test_historian_influxdb_only(specialists):
+def test_historian_tool_prefixes(specialists):
     hist = next(s for s in specialists if s["name"] == "historian")
-    assert hist["tool_prefixes"] == ("influxdb__",)
+    assert "influxdb__" in hist["tool_prefixes"]
+    assert "memory__run_correlation" in hist["tool_prefixes"]
     assert "mqtt__" not in hist["tool_prefixes"]
 
 
