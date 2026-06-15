@@ -44,14 +44,21 @@ DEADBAND_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "instance_id":       {"type": "string"},
-                "attribute":         {"type": "string"},
-                "condition":         {"type": "string", "enum": ["below_min", "above_max"]},
-                "duration_minutes":  {"type": "number"},
-                "normal_lo":         {"type": "number"},
-                "normal_hi":         {"type": "number"},
+                "instance_id": {"type": "string"},
+                "attribute": {"type": "string"},
+                "condition": {"type": "string", "enum": ["below_min", "above_max"]},
+                "duration_minutes": {"type": "number"},
+                "normal_lo": {"type": "number"},
+                "normal_hi": {"type": "number"},
             },
-            "required": ["instance_id", "attribute", "condition", "duration_minutes", "normal_lo", "normal_hi"],
+            "required": [
+                "instance_id",
+                "attribute",
+                "condition",
+                "duration_minutes",
+                "normal_lo",
+                "normal_hi",
+            ],
         },
     },
     {
@@ -60,8 +67,8 @@ DEADBAND_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "instance_id":        {"type": "string"},
-                "attribute":          {"type": "string"},
+                "instance_id": {"type": "string"},
+                "attribute": {"type": "string"},
                 "time_window_minutes": {"type": "number"},
             },
             "required": ["instance_id", "attribute", "time_window_minutes"],
@@ -74,7 +81,7 @@ DEADBAND_TOOLS = [
             "type": "object",
             "properties": {
                 "confidence": {"type": "number"},
-                "threshold":  {"type": "number"},
+                "threshold": {"type": "number"},
             },
             "required": ["confidence"],
         },
@@ -82,7 +89,15 @@ DEADBAND_TOOLS = [
 ]
 
 
-async def _verify_sustained(instance_id, attribute, condition, duration_minutes, normal_lo, normal_hi, aggregator_url):
+async def _verify_sustained(
+    instance_id,
+    attribute,
+    condition,
+    duration_minutes,
+    normal_lo,
+    normal_hi,
+    aggregator_url,
+):
     comp = "<" if condition == "below_min" else ">"
     limit = normal_lo if condition == "below_min" else normal_hi
     # Use seconds for sub-minute precision. Clamp to 30s minimum.
@@ -91,19 +106,39 @@ async def _verify_sustained(instance_id, attribute, condition, duration_minutes,
         f'from(bucket:"wtp") |> range(start: -{window_s}s) '
         f'|> filter(fn: (r) => r._measurement == "wtp_process" '
         f'and r.instance == "{instance_id}" and r._field == "{attribute}") '
-        f'|> filter(fn: (r) => r._value {comp} {limit}) |> count()'
+        f"|> filter(fn: (r) => r._value {comp} {limit}) |> count()"
     )
-    flux_total = flux_viol.replace(f'|> filter(fn: (r) => r._value {comp} {limit}) ', "")
+    flux_total = flux_viol.replace(
+        f"|> filter(fn: (r) => r._value {comp} {limit}) ", ""
+    )
     try:
-        v = _extract_count(await call_mcp_tool("influxdb__query", {"bucket": "wtp", "flux_query": flux_viol}, aggregator_url))
-        t = _extract_count(await call_mcp_tool("influxdb__query", {"bucket": "wtp", "flux_query": flux_total}, aggregator_url))
+        v = _extract_count(
+            await call_mcp_tool(
+                "influxdb__query",
+                {"bucket": "wtp", "flux_query": flux_viol},
+                aggregator_url,
+            )
+        )
+        t = _extract_count(
+            await call_mcp_tool(
+                "influxdb__query",
+                {"bucket": "wtp", "flux_query": flux_total},
+                aggregator_url,
+            )
+        )
         fraction = v / t if t > 0 else 0.0
-        return {"sustained": fraction >= 0.5, "fraction_in_violation": round(fraction, 2), "sample_count": t}
+        return {
+            "sustained": fraction >= 0.5,
+            "fraction_in_violation": round(fraction, 2),
+            "sample_count": t,
+        }
     except Exception as e:
         return {"sustained": False, "error": str(e)}
 
 
-async def _get_trend_direction(instance_id, attribute, time_window_minutes, aggregator_url):
+async def _get_trend_direction(
+    instance_id, attribute, time_window_minutes, aggregator_url
+):
     flux = (
         f'from(bucket:"wtp") |> range(start: -{int(time_window_minutes)}m) '
         f'|> filter(fn: (r) => r._measurement == "wtp_process" '
@@ -111,23 +146,39 @@ async def _get_trend_direction(instance_id, attribute, time_window_minutes, aggr
         f'|> sort(columns: ["_time"])'
     )
     try:
-        values = _extract_values(await call_mcp_tool("influxdb__query", {"bucket": "wtp", "flux_query": flux}, aggregator_url))
+        values = _extract_values(
+            await call_mcp_tool(
+                "influxdb__query", {"bucket": "wtp", "flux_query": flux}, aggregator_url
+            )
+        )
         if len(values) < 4:
             return {"direction": "stable", "slope": 0.0, "confidence": 0.3}
         slope = _linear_slope(values)
-        direction = "stable" if abs(slope) < 0.5 else ("worsening" if slope < 0 else "improving")
+        direction = (
+            "stable"
+            if abs(slope) < 0.5
+            else ("worsening" if slope < 0 else "improving")
+        )
         # Confidence reflects how actionable the trend is, not how steep the slope is:
         # stable   = system is stuck in a bad state — high confidence it won't self-correct
         # worsening = actively deteriorating — highest confidence
         # improving = may self-correct — lower confidence
         confidence = {"stable": 0.80, "worsening": 0.95, "improving": 0.35}[direction]
-        return {"direction": direction, "slope": round(slope, 3), "confidence": confidence}
+        return {
+            "direction": direction,
+            "slope": round(slope, 3),
+            "confidence": confidence,
+        }
     except Exception as e:
         return {"direction": "stable", "slope": 0.0, "confidence": 0.0, "error": str(e)}
 
 
 def _check_confidence_threshold(confidence, threshold=0.7):
-    return {"escalate": confidence >= threshold, "confidence": confidence, "threshold": threshold}
+    return {
+        "escalate": confidence >= threshold,
+        "confidence": confidence,
+        "threshold": threshold,
+    }
 
 
 def _extract_count(r) -> int:
@@ -159,11 +210,13 @@ async def _dispatch(name, inputs, aggregator_url):
     return {"error": f"unknown tool: {name}"}
 
 
-async def run_deadband(anomaly: dict, aggregator_url: str, cascade_id: str | None = None) -> tuple[bool, str]:
+async def run_deadband(
+    anomaly: dict, aggregator_url: str, cascade_id: str | None = None
+) -> tuple[bool, str]:
     """Returns (should_escalate, reason). Severity is not re-derived here — it's in anomaly dict."""
     client = anthropic.AsyncAnthropic()
     lo, hi = anomaly["normal_range"]
-    dur_min = max(1, round(anomaly['duration_seconds'] / 60, 1))
+    dur_min = max(1, round(anomaly["duration_seconds"] / 60, 1))
     prompt = (
         f"Anomaly detected:\n"
         f"  Equipment: {anomaly['instance_id']} ({anomaly['equipment_type']})\n"
@@ -179,15 +232,22 @@ async def run_deadband(anomaly: dict, aggregator_url: str, cascade_id: str | Non
 
     for _ in range(8):
         resp = await client.messages.create(
-            model=DEADBAND_MODEL, max_tokens=512,
-            system=DEADBAND_SYSTEM, tools=DEADBAND_TOOLS, messages=messages,
+            model=DEADBAND_MODEL,
+            max_tokens=512,
+            system=DEADBAND_SYSTEM,
+            tools=DEADBAND_TOOLS,
+            messages=messages,
         )
-        total_input  += resp.usage.input_tokens
+        total_input += resp.usage.input_tokens
         total_output += resp.usage.output_tokens
         if resp.stop_reason == "end_turn":
             text = next((b.text for b in resp.content if hasattr(b, "text")), "")
             escalate = "ESCALATE" in text
-            reason = text.split("ESCALATE:", 1)[-1].strip() if escalate else text.split("SUPPRESS:", 1)[-1].strip()
+            reason = (
+                text.split("ESCALATE:", 1)[-1].strip()
+                if escalate
+                else text.split("SUPPRESS:", 1)[-1].strip()
+            )
             metrics.log_turn(
                 session_id=cascade_id or "reactive",
                 model=DEADBAND_MODEL,
@@ -207,7 +267,13 @@ async def run_deadband(anomaly: dict, aggregator_url: str, cascade_id: str | Non
             if block.type == "tool_use":
                 tool_call_count += 1
                 result = await _dispatch(block.name, block.input, aggregator_url)
-                tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(result)})
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": json.dumps(result),
+                    }
+                )
         messages.append({"role": "assistant", "content": resp.content})
         messages.append({"role": "user", "content": tool_results})
 

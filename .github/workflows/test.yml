@@ -1,15 +1,34 @@
-name: tests
+name: CI
+
 on:
   push:
     branches: [main, dev]
   pull_request:
+
 jobs:
-  test:
+  ci:
+    name: Lint, security, test
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false  # mcp-servers and mcp-aggregator are not scanned
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r topology-builder/requirements.txt pytest
-      - run: pytest topology-builder/tests/ -v
+
+      - name: Install dependencies
+        run: |
+          pip install black bandit pytest pyyaml
+          pip install -r topology-builder/requirements.txt
+
+      - name: black
+        run: black --check --exclude "/(mcp-servers|mcp-aggregator|\.venv)/" .
+
+      - name: bandit
+        run: bandit -r . -ll --exclude ./mcp-servers,./mcp-aggregator,./.git
+
+      - name: pytest
+        run: pytest tests/ topology-builder/tests/ -v

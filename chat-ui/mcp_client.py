@@ -9,7 +9,9 @@ from mcp.client.sse import sse_client
 
 load_dotenv()
 
-_DEFAULT_AGGREGATOR_URL = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
+_DEFAULT_AGGREGATOR_URL = os.environ.get(
+    "MCP_AGGREGATOR_URL", "http://localhost:8100/sse"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,9 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
         return []
 
 
-async def call_mcp_tool(name: str, args: dict, aggregator_url: str | None = None) -> str:
+async def call_mcp_tool(
+    name: str, args: dict, aggregator_url: str | None = None
+) -> str:
     url = aggregator_url or _DEFAULT_AGGREGATOR_URL
     try:
         async with sse_client(url, timeout=30) as (read, write):

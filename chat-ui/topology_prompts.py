@@ -2,7 +2,6 @@
 
 from topology import load as _load
 
-
 _HISTORIAN_SYSTEM = """You are the Historian diagnostic specialist for a water treatment plant.
 
 You provide HISTORICAL trend analysis only. Do NOT read live sensor data.
@@ -86,12 +85,12 @@ def _fmt_attr(name: str, cfg: dict) -> str:
 
 
 def build_specialist_system(area_name: str, area_cfg: dict, topology: dict) -> str:
-    site     = topology.get("site", "Plant")
+    site = topology.get("site", "Plant")
     facility = topology.get("facility", "WTP")
     eq_types = topology.get("equipment_types", {})
-    imap     = _inst_type_map(topology)
+    imap = _inst_type_map(topology)
 
-    instances   = area_cfg.get("instances", [])
+    instances = area_cfg.get("instances", [])
     description = area_cfg.get("description", "")
 
     by_type: dict[str, list[str]] = {}
@@ -117,9 +116,12 @@ def build_specialist_system(area_name: str, area_cfg: dict, topology: dict) -> s
                 if isinstance(fault_cfg, dict) and "heuristic" in fault_cfg:
                     heuristic_lines.append(f"  - {fault_cfg['heuristic']}")
 
-    scope_block       = "\n".join(scope_lines)
-    mqtt_block        = "\n".join(mqtt_lines)
-    heuristic_block   = "\n".join(heuristic_lines) or "  - Check for deviations from normal operating ranges"
+    scope_block = "\n".join(scope_lines)
+    mqtt_block = "\n".join(mqtt_lines)
+    heuristic_block = (
+        "\n".join(heuristic_lines)
+        or "  - Check for deviations from normal operating ranges"
+    )
     description_block = f"\n\nArea context: {description}" if description else ""
 
     return (
@@ -144,7 +146,7 @@ def build_specialists(topology: dict | None = None) -> list[dict]:
         topology = _load()
 
     _SOURCE_PREFIXES = {
-        "mqtt":     ("mqtt__",),
+        "mqtt": ("mqtt__",),
         "influxdb": ("influxdb__",),
     }
 
@@ -154,13 +156,15 @@ def build_specialists(topology: dict | None = None) -> list[dict]:
         tool_prefixes = tuple(
             p for src in data_sources for p in _SOURCE_PREFIXES.get(src, ())
         )
-        specialists.append({
-            "name":          area_name.lower(),
-            "label":         area_name,
-            "unit_names":    area_cfg.get("instances", []),
-            "tool_prefixes": tool_prefixes,
-            "system":        build_specialist_system(area_name, area_cfg, topology),
-        })
+        specialists.append(
+            {
+                "name": area_name.lower(),
+                "label": area_name,
+                "unit_names": area_cfg.get("instances", []),
+                "tool_prefixes": tool_prefixes,
+                "system": build_specialist_system(area_name, area_cfg, topology),
+            }
+        )
 
     # Read-only memory tools for Historian — full names used as exact-match "prefixes".
     # Write tools (record_incident, record_observation, link_incident_precedes,
@@ -176,20 +180,22 @@ def build_specialists(topology: dict | None = None) -> list[dict]:
         "memory__get_specialist_memory",
     )
 
-    hist_cfg     = topology.get("specialists", {}).get("historian", {})
+    hist_cfg = topology.get("specialists", {}).get("historian", {})
     hist_sources = hist_cfg.get("data_sources", ["influxdb"])
     hist_prefixes = tuple(
         p for src in hist_sources for p in _SOURCE_PREFIXES.get(src, ())
     )
     if "memory" in hist_sources:
         hist_prefixes = hist_prefixes + _MEMORY_READ_TOOLS
-    specialists.append({
-        "name":          "historian",
-        "label":         "Historian",
-        "unit_names":    [],
-        "tool_prefixes": hist_prefixes,
-        "system":        _HISTORIAN_SYSTEM,
-    })
+    specialists.append(
+        {
+            "name": "historian",
+            "label": "Historian",
+            "unit_names": [],
+            "tool_prefixes": hist_prefixes,
+            "system": _HISTORIAN_SYSTEM,
+        }
+    )
 
     return specialists
 

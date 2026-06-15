@@ -15,10 +15,10 @@ from pathlib import Path
 
 import ladybug as lb
 
-_DB_PATH     = os.environ.get("LADYBUG_DB_PATH", "../data/ladybugdb/fieldworks.db")
+_DB_PATH = os.environ.get("LADYBUG_DB_PATH", "../data/ladybugdb/fieldworks.db")
 _SCHEMA_PATH = Path(__file__).parent.parent / "ladybugdb" / "schema.cypher"
 
-_db:   lb.Database   | None = None
+_db: lb.Database | None = None
 _conn: lb.Connection | None = None
 _lock = threading.Lock()
 
@@ -28,7 +28,7 @@ def get_conn() -> lb.Connection:
     with _lock:
         if _conn is None:
             Path(_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-            _db   = lb.Database(_DB_PATH)
+            _db = lb.Database(_DB_PATH)
             _conn = lb.Connection(_db)
             _maybe_seed(_conn)
     return _conn
@@ -38,8 +38,8 @@ def _maybe_seed(conn: lb.Connection) -> None:
     """Seed from schema.cypher if the database is empty."""
     try:
         result = conn.execute("MATCH (n:Facility) RETURN count(n) AS c")
-        rows   = list(result.rows_as_dict())
-        count  = rows[0]["c"] if rows else 0
+        rows = list(result.rows_as_dict())
+        count = rows[0]["c"] if rows else 0
     except Exception:
         count = 0
     if count == 0:
@@ -86,6 +86,7 @@ def _load_schema(conn: lb.Connection) -> None:
 
 # ── Read tools ────────────────────────────────────────────────────────────────
 
+
 def get_topology() -> list[dict]:
     conn = get_conn()
     result = conn.execute("""
@@ -124,29 +125,37 @@ def aggregate_specialist_query(rows: list[dict]) -> dict:
     """Collapse flat join rows into structured specialist context."""
     if not rows:
         return {}
-    area_name    = rows[0]["process_area"]
+    area_name = rows[0]["process_area"]
     area_context = rows[0]["area_context"]
     equipment: dict[str, dict] = {}
     for row in rows:
         eq = row["equipment"]
         if eq not in equipment:
             equipment[eq] = {
-                "name": eq, "type": row["equipment_type"],
+                "name": eq,
+                "type": row["equipment_type"],
                 "notes": row["equipment_notes"],
-                "attributes": {}, "fault_modes": {},
+                "attributes": {},
+                "fault_modes": {},
             }
         if row["attribute"]:
             equipment[eq]["attributes"][row["attribute"]] = {
                 "units": row["units"],
-                "normal_min": row["normal_min"], "normal_max": row["normal_max"],
-                "tag_id": row["tag_id"], "confidence": row["binding_confidence"],
+                "normal_min": row["normal_min"],
+                "normal_max": row["normal_max"],
+                "tag_id": row["tag_id"],
+                "confidence": row["binding_confidence"],
             }
         if row["fault_mode"] and row["fault_mode"] not in equipment[eq]["fault_modes"]:
             equipment[eq]["fault_modes"][row["fault_mode"]] = {
                 "severity": row["fault_severity"],
                 "description": row["fault_description"],
             }
-    return {"area": area_name, "context": area_context, "equipment": list(equipment.values())}
+    return {
+        "area": area_name,
+        "context": area_context,
+        "equipment": list(equipment.values()),
+    }
 
 
 def get_equipment_history(equipment_id: str, limit: int = 10) -> dict:
@@ -178,9 +187,9 @@ def get_equipment_history(equipment_id: str, limit: int = 10) -> dict:
     decisions = list(dec.rows_as_dict())
 
     return {
-        "equipment_id":    equipment_id,
-        "incidents":       incidents,
-        "observations":    observations,
+        "equipment_id": equipment_id,
+        "incidents": incidents,
+        "observations": observations,
         "decision_patterns": decisions,
     }
 
@@ -203,21 +212,27 @@ def query_graph(cypher: str) -> list[dict]:
     upper = cypher.strip().upper()
     for kw in ("CREATE", "MERGE", "SET", "DELETE", "DETACH", "DROP"):
         if kw in upper:
-            raise ValueError(f"query_graph is read-only. Found '{kw}'. Use record_* tools to write.")
+            raise ValueError(
+                f"query_graph is read-only. Found '{kw}'. Use record_* tools to write."
+            )
     conn = get_conn()
     return conn.execute(cypher).rows_as_dict()
 
 
 # ── Write tools ───────────────────────────────────────────────────────────────
 
+
 def record_incident(
-    session_id: str, equipment_id: str, diagnosis: str,
-    confidence: float, status: str,
+    session_id: str,
+    equipment_id: str,
+    diagnosis: str,
+    confidence: float,
+    status: str,
     fault_mode_id: str | None = None,
 ) -> str:
-    conn        = get_conn()
+    conn = get_conn()
     incident_id = str(uuid.uuid4())[:12]
-    ts          = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(timezone.utc).isoformat()
 
     # Escape single quotes in diagnosis text
     diagnosis_safe = diagnosis.replace("'", "\\'")
@@ -242,12 +257,15 @@ def record_incident(
 
 
 def record_observation(
-    session_id: str, equipment_id: str, text: str,
-    confidence: float, specialist: str,
+    session_id: str,
+    equipment_id: str,
+    text: str,
+    confidence: float,
+    specialist: str,
 ) -> str:
-    conn   = get_conn()
+    conn = get_conn()
     obs_id = str(uuid.uuid4())[:12]
-    ts     = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(timezone.utc).isoformat()
 
     text_safe = text.replace("'", "\\'")
 
@@ -264,7 +282,9 @@ def record_observation(
     return obs_id
 
 
-def link_incident_precedes(incident_a_id: str, incident_b_id: str, hours_apart: float) -> None:
+def link_incident_precedes(
+    incident_a_id: str, incident_b_id: str, hours_apart: float
+) -> None:
     conn = get_conn()
     conn.execute(f"""
         MATCH (a:Incident {{id: '{incident_a_id}'}}), (b:Incident {{id: '{incident_b_id}'}})
@@ -287,7 +307,7 @@ def seed_discovered_topology(
     seeded = 0
     errors = 0
 
-    fid   = facility_id.replace("'", "\\'")
+    fid = facility_id.replace("'", "\\'")
     fname = facility_name.replace("'", "\\'")
 
     # Ensure Facility exists
@@ -302,9 +322,9 @@ def seed_discovered_topology(
 
     for inst in instances:
         try:
-            eid        = inst["instance_id"].replace("'", "\\'")
-            type_id    = inst.get("ladybug_type_id", "").replace("'", "\\'")
-            area_id    = inst.get("area_id", "").replace("'", "\\'")
+            eid = inst["instance_id"].replace("'", "\\'")
+            type_id = inst.get("ladybug_type_id", "").replace("'", "\\'")
+            area_id = inst.get("area_id", "").replace("'", "\\'")
             confidence = inst.get("confidence_level", "suspect").replace("'", "\\'")
 
             # ── Equipment node ────────────────────────────────────────────────
@@ -355,8 +375,10 @@ def seed_discovered_topology(
             for attr_name, attr_info in inst.get("attributes", {}).items():
                 try:
                     tag_id = attr_info["tag"].replace("'", "\\'")
-                    safe_attr = attr_name.replace("/", "_").replace(" ", "_").replace("'", "")
-                    bind_id   = f"topo_{eid}_{safe_attr}"
+                    safe_attr = (
+                        attr_name.replace("/", "_").replace(" ", "_").replace("'", "")
+                    )
+                    bind_id = f"topo_{eid}_{safe_attr}"
 
                     # Create TagBinding if absent
                     result = conn.execute(
@@ -377,7 +399,7 @@ def seed_discovered_topology(
                               -[:DEFINES_ATTRIBUTE]->(a:Attribute {{name: '{attr_name_safe}'}})
                         RETURN a.id AS attr_id
                     """)
-                    attr_rows  = list(attr_result.rows_as_dict())
+                    attr_rows = list(attr_result.rows_as_dict())
                     attr_id_db = attr_rows[0]["attr_id"] if attr_rows else ""
 
                     # BINDS_ATTRIBUTE relationship

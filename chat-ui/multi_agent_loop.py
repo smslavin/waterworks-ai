@@ -25,15 +25,15 @@ logger = logging.getLogger(__name__)
 
 TOOL_RESULT_MAX_CHARS = 8_000
 
-SPECIALIST_MODEL    = "claude-haiku-4-5-20251001"
-ORCHESTRATOR_MODEL  = "claude-sonnet-4-6"
+SPECIALIST_MODEL = "claude-haiku-4-5-20251001"
+ORCHESTRATOR_MODEL = "claude-sonnet-4-6"
 
 # Tool name prefixes allowed per specialist. OPC-UA excluded from all specialists.
-_MQTT_PREFIXES     = ("mqtt__",)
+_MQTT_PREFIXES = ("mqtt__",)
 _INFLUXDB_PREFIXES = ("influxdb__",)
 
-_topology            = _load_topology()
-SPECIALISTS          = build_specialists(_topology)
+_topology = _load_topology()
+SPECIALISTS = build_specialists(_topology)
 _ORCHESTRATOR_SYSTEM = build_orchestrator_system(SPECIALISTS)
 
 _FINDINGS_FORMAT = """
@@ -70,7 +70,7 @@ def _parse_findings(text: str) -> tuple[str, float]:
     if not m:
         logger.warning("FINDINGS parse failed. tail: %r", text[-300:])
         return "Unknown", 0.0
-    status     = m.group(1).strip().strip("*").strip()
+    status = m.group(1).strip().strip("*").strip()
     confidence = float(m.group(2))
     return status, confidence
 
@@ -99,13 +99,17 @@ async def _run_specialist(
     running_state: str = "",
     cascade_id: str | None = None,
 ) -> None:
-    name    = config["name"]
-    start   = time.monotonic()
-    tools   = _filter_tools(all_tools, config["tool_prefixes"])
+    name = config["name"]
+    start = time.monotonic()
+    tools = _filter_tools(all_tools, config["tool_prefixes"])
     api_tools = [
         {**t, "cache_control": {"type": "ephemeral"}} if i == len(tools) - 1 else t
         for i, t in enumerate(
-            {"name": t["name"], "description": t["description"], "input_schema": t["inputSchema"]}
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "input_schema": t["inputSchema"],
+            }
             for t in tools
         )
     ]
@@ -118,7 +122,9 @@ async def _run_specialist(
 
     # ── Inject accumulated cross-session memory ───────────────────────────────
     try:
-        mem_content = await call_mcp_tool("memory__get_specialist_memory", {"specialist": name})
+        mem_content = await call_mcp_tool(
+            "memory__get_specialist_memory", {"specialist": name}
+        )
         if mem_content and not mem_content.startswith("Error") and mem_content.strip():
             system_text = (
                 "── Accumulated knowledge from prior sessions ──────────────────\n"
@@ -129,10 +135,15 @@ async def _run_specialist(
     except Exception:
         pass  # memory-mcp unavailable — degrade gracefully
 
-    conv    = [{"role": "user", "content": f"{query}\n\nEnd your response with the FINDINGS block as instructed."}]
-    full_text       = ""
-    input_tokens    = output_tokens = 0
-    tool_call_count = error_count   = 0
+    conv = [
+        {
+            "role": "user",
+            "content": f"{query}\n\nEnd your response with the FINDINGS block as instructed.",
+        }
+    ]
+    full_text = ""
+    input_tokens = output_tokens = 0
+    tool_call_count = error_count = 0
 
     await queue.put({"type": "specialist_start", "specialist": name})
 
@@ -141,7 +152,13 @@ async def _run_specialist(
             kwargs: dict = dict(
                 model=SPECIALIST_MODEL,
                 max_tokens=8192,
-                system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_text,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 messages=conv,
             )
             if api_tools:
@@ -153,7 +170,7 @@ async def _run_specialist(
 
                 final = await stream.get_final_message()
 
-            input_tokens  += final.usage.input_tokens
+            input_tokens += final.usage.input_tokens
             output_tokens += final.usage.output_tokens
 
             if final.stop_reason == "end_turn":
@@ -163,19 +180,24 @@ async def _run_specialist(
                             model=SPECIALIST_MODEL,
                             max_tokens=256,
                             messages=[
-                                {"role": "user", "content": (
-                                    f"Based on this diagnostic analysis, complete the FINDINGS block.\n"
-                                    f"Required format:\nFINDINGS:\nStatus: <Normal|Anomaly Detected|Fault Detected>\n"
-                                    f"Confidence: <0.0-1.0>\nKey observations:\n- <bullet>\n\n"
-                                    f"Analysis:\n{full_text[-800:]}"
-                                )},
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"Based on this diagnostic analysis, complete the FINDINGS block.\n"
+                                        f"Required format:\nFINDINGS:\nStatus: <Normal|Anomaly Detected|Fault Detected>\n"
+                                        f"Confidence: <0.0-1.0>\nKey observations:\n- <bullet>\n\n"
+                                        f"Analysis:\n{full_text[-800:]}"
+                                    ),
+                                },
                                 {"role": "assistant", "content": "FINDINGS:\nStatus:"},
                             ],
                         )
                         if extr.content:
                             full_text += "\nFINDINGS:\nStatus:" + extr.content[0].text
                     except Exception as exc:
-                        logger.warning("FINDINGS extraction failed for %s: %s", name, exc)
+                        logger.warning(
+                            "FINDINGS extraction failed for %s: %s", name, exc
+                        )
                 break
 
             if final.stop_reason == "tool_use":
@@ -184,12 +206,14 @@ async def _run_specialist(
                     if block.type == "text":
                         assistant_content.append({"type": "text", "text": block.text})
                     elif block.type == "tool_use":
-                        assistant_content.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": dict(block.input),
-                        })
+                        assistant_content.append(
+                            {
+                                "type": "tool_use",
+                                "id": block.id,
+                                "name": block.name,
+                                "input": dict(block.input),
+                            }
+                        )
 
                 tool_results = []
                 for block in final.content:
@@ -198,25 +222,58 @@ async def _run_specialist(
                     tool_call_count += 1
                     args = dict(block.input)
                     tool_calls_all.append((block.name, args))
-                    audit.log("tool_call", session_id=session_id, tool=block.name, args=args, specialist=name)
-                    await queue.put({"type": "tool_call", "tool": block.name, "args": args, "specialist": name})
+                    audit.log(
+                        "tool_call",
+                        session_id=session_id,
+                        tool=block.name,
+                        args=args,
+                        specialist=name,
+                    )
+                    await queue.put(
+                        {
+                            "type": "tool_call",
+                            "tool": block.name,
+                            "args": args,
+                            "specialist": name,
+                        }
+                    )
 
                     result = await call_mcp_tool(block.name, args)
                     if result.startswith("Error"):
                         error_count += 1
 
-                    audit.log("tool_result", session_id=session_id, tool=block.name, result=result, specialist=name)
-                    await queue.put({"type": "tool_result", "tool": block.name, "result": result, "specialist": name})
+                    audit.log(
+                        "tool_result",
+                        session_id=session_id,
+                        tool=block.name,
+                        result=result,
+                        specialist=name,
+                    )
+                    await queue.put(
+                        {
+                            "type": "tool_result",
+                            "tool": block.name,
+                            "result": result,
+                            "specialist": name,
+                        }
+                    )
 
                     stored = (
-                        result if len(result) <= TOOL_RESULT_MAX_CHARS
+                        result
+                        if len(result) <= TOOL_RESULT_MAX_CHARS
                         else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]"
                     )
-                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": stored})
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": stored,
+                        }
+                    )
 
                 conv = conv + [
                     {"role": "assistant", "content": assistant_content},
-                    {"role": "user",      "content": tool_results},
+                    {"role": "user", "content": tool_results},
                 ]
                 continue
 
@@ -235,14 +292,17 @@ async def _run_specialist(
     if status not in ("Normal", "Unknown"):
         for unit_id in config.get("unit_names", []):
             try:
-                await call_mcp_tool("memory__record_incident", {
-                    "session_id":   session_id,
-                    "equipment_id": unit_id,
-                    "diagnosis":    full_text[-500:],
-                    "confidence":   confidence,
-                    "status":       status.lower().replace(" ", "_"),
-                    "fault_mode_id": "",
-                })
+                await call_mcp_tool(
+                    "memory__record_incident",
+                    {
+                        "session_id": session_id,
+                        "equipment_id": unit_id,
+                        "diagnosis": full_text[-500:],
+                        "confidence": confidence,
+                        "status": status.lower().replace(" ", "_"),
+                        "fault_mode_id": "",
+                    },
+                )
             except Exception:
                 pass  # non-fatal
 
@@ -250,14 +310,17 @@ async def _run_specialist(
     if status not in ("Normal", "Unknown") and confidence >= 0.7:
         try:
             unit_summary = ", ".join(config.get("unit_names", []))
-            await call_mcp_tool("memory__append_specialist_memory", {
-                "specialist": name,
-                "content": (
-                    f"Session {session_id[:8]}: {status} on {unit_summary}. "
-                    f"Confidence {confidence}. "
-                    f"Key finding: {full_text[-300:]}"
-                ),
-            })
+            await call_mcp_tool(
+                "memory__append_specialist_memory",
+                {
+                    "specialist": name,
+                    "content": (
+                        f"Session {session_id[:8]}: {status} on {unit_summary}. "
+                        f"Confidence {confidence}. "
+                        f"Key finding: {full_text[-300:]}"
+                    ),
+                },
+            )
         except Exception:
             pass  # non-fatal
 
@@ -278,13 +341,15 @@ async def _run_specialist(
         cascade_id=cascade_id,
     )
 
-    await queue.put({
-        "type":       "specialist_done",
-        "specialist": name,
-        "status":     status,
-        "confidence": confidence,
-        "text":       full_text,
-    })
+    await queue.put(
+        {
+            "type": "specialist_done",
+            "specialist": name,
+            "status": status,
+            "confidence": confidence,
+            "text": full_text,
+        }
+    )
     await queue.put(None)  # sentinel — this specialist is done
 
 
@@ -299,14 +364,19 @@ async def run_multi_agent(
     **kwargs,
 ) -> AsyncIterator[str]:
     session_id = str(uuid.uuid4())
-    start_ts   = time.monotonic()
+    start_ts = time.monotonic()
 
     user_message = next(
         (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
     )
-    audit.log("session_start", session_id=session_id, model=f"multi/{model}", user_message=user_message)
+    audit.log(
+        "session_start",
+        session_id=session_id,
+        model=f"multi/{model}",
+        user_message=user_message,
+    )
 
-    client    = anthropic.AsyncAnthropic(api_key=api_key)
+    client = anthropic.AsyncAnthropic(api_key=api_key)
     all_tools = await list_mcp_tools()
 
     await _fetch_process_state()  # warm the cache and populate _unit_running before fan-out
@@ -324,10 +394,18 @@ async def run_multi_agent(
 
     tasks = [
         asyncio.create_task(
-            _run_specialist(spec, user_message, client, all_tools, session_id,
-                            SPECIALIST_MODEL, queue, tool_calls_all,
-                            running_state=running_state_for(spec["unit_names"]),
-                            cascade_id=cascade_id)
+            _run_specialist(
+                spec,
+                user_message,
+                client,
+                all_tools,
+                session_id,
+                SPECIALIST_MODEL,
+                queue,
+                tool_calls_all,
+                running_state=running_state_for(spec["unit_names"]),
+                cascade_id=cascade_id,
+            )
         )
         for spec in active_specialists
     ]
@@ -355,10 +433,14 @@ async def run_multi_agent(
         )
         if text:
             yield json.dumps({"type": "text", "text": text})
-        yield json.dumps({
-            "type": "done", "input_tokens": 0, "output_tokens": 0,
-            "latency_ms": int((time.monotonic() - start_ts) * 1000),
-        })
+        yield json.dumps(
+            {
+                "type": "done",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "latency_ms": int((time.monotonic() - start_ts) * 1000),
+            }
+        )
         return
 
     # ── Synthesis ──────────────────────────────────────────────────────────────
@@ -370,8 +452,7 @@ async def run_multi_agent(
         for spec in active_specialists
     )
     orchestrator_user = (
-        f"User question: {user_message}\n\n"
-        f"Specialist findings:\n\n{findings_text}"
+        f"User question: {user_message}\n\n" f"Specialist findings:\n\n{findings_text}"
     )
 
     orch_input_tokens = orch_output_tokens = 0
@@ -381,7 +462,11 @@ async def run_multi_agent(
     orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
     orch_api_tools = [
         {
-            **({"cache_control": {"type": "ephemeral"}} if i == len(orch_tools) - 1 else {}),
+            **(
+                {"cache_control": {"type": "ephemeral"}}
+                if i == len(orch_tools) - 1
+                else {}
+            ),
             "name": t["name"],
             "description": t["description"],
             "input_schema": t["inputSchema"],
@@ -396,8 +481,13 @@ async def run_multi_agent(
             orch_kwargs: dict = dict(
                 model=ORCHESTRATOR_MODEL,
                 max_tokens=2048,
-                system=[{"type": "text", "text": _ORCHESTRATOR_SYSTEM,
-                          "cache_control": {"type": "ephemeral"}}],
+                system=[
+                    {
+                        "type": "text",
+                        "text": _ORCHESTRATOR_SYSTEM,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 messages=orch_conv,
             )
             if orch_api_tools:
@@ -409,13 +499,22 @@ async def run_multi_agent(
                     yield json.dumps({"type": "text", "text": text})
                 final = await stream.get_final_message()
 
-            orch_input_tokens  += final.usage.input_tokens
+            orch_input_tokens += final.usage.input_tokens
             orch_output_tokens += final.usage.output_tokens
 
             if final.stop_reason == "end_turn":
-                _action_keywords = ("propose", "control action", "corrective action", "clear fault", "set_setpoint")
+                _action_keywords = (
+                    "propose",
+                    "control action",
+                    "corrective action",
+                    "clear fault",
+                    "set_setpoint",
+                )
                 if any(kw in orch_full_text.lower() for kw in _action_keywords):
-                    logger.warning("Orchestrator end_turn with action language but no tool call — text tail: %r", orch_full_text[-200:])
+                    logger.warning(
+                        "Orchestrator end_turn with action language but no tool call — text tail: %r",
+                        orch_full_text[-200:],
+                    )
                 break
 
             if final.stop_reason == "tool_use":
@@ -424,10 +523,14 @@ async def run_multi_agent(
                     if block.type == "text":
                         assistant_content.append({"type": "text", "text": block.text})
                     elif block.type == "tool_use":
-                        assistant_content.append({
-                            "type": "tool_use", "id": block.id,
-                            "name": block.name, "input": dict(block.input),
-                        })
+                        assistant_content.append(
+                            {
+                                "type": "tool_use",
+                                "id": block.id,
+                                "name": block.name,
+                                "input": dict(block.input),
+                            }
+                        )
 
                 tool_results = []
                 for block in final.content:
@@ -435,20 +538,29 @@ async def run_multi_agent(
                         continue
                     orch_tool_call_count += 1
                     args = dict(block.input)
-                    audit.log("tool_call", session_id=session_id, tool=block.name,
-                              args=args, specialist="orchestrator")
-                    yield json.dumps({"type": "tool_call", "tool": block.name, "args": args})
+                    audit.log(
+                        "tool_call",
+                        session_id=session_id,
+                        tool=block.name,
+                        args=args,
+                        specialist="orchestrator",
+                    )
+                    yield json.dumps(
+                        {"type": "tool_call", "tool": block.name, "args": args}
+                    )
 
                     if block.name == "control__propose_action":
                         action_id = str(uuid.uuid4())[:8]
-                        yield json.dumps({
-                            "type":        "action_proposed",
-                            "action_id":   action_id,
-                            "description": args.get("description", ""),
-                            "action_type": args.get("action_type", ""),
-                            "target":      args.get("target", ""),
-                            "value":       args.get("value", ""),
-                        })
+                        yield json.dumps(
+                            {
+                                "type": "action_proposed",
+                                "action_id": action_id,
+                                "description": args.get("description", ""),
+                                "action_type": args.get("action_type", ""),
+                                "target": args.get("target", ""),
+                                "value": args.get("value", ""),
+                            }
+                        )
                         fut = control.register(action_id)
                         try:
                             decision = await asyncio.wait_for(fut, timeout=300)
@@ -463,31 +575,59 @@ async def run_multi_agent(
                             description=args.get("description", ""),
                             decision=decision,
                         )
-                        audit.log("action_decision", session_id=session_id,
-                                  action_id=action_id, decision=decision)
-                        yield json.dumps({"type": "action_decision",
-                                          "action_id": action_id, "decision": decision})
+                        audit.log(
+                            "action_decision",
+                            session_id=session_id,
+                            action_id=action_id,
+                            decision=decision,
+                        )
+                        yield json.dumps(
+                            {
+                                "type": "action_decision",
+                                "action_id": action_id,
+                                "decision": decision,
+                            }
+                        )
                         if decision == "approved":
-                            result = (f"Action approved by operator. Proceed with "
-                                      f"{args.get('action_type', '')} on {args.get('target', '')}.")
+                            result = (
+                                f"Action approved by operator. Proceed with "
+                                f"{args.get('action_type', '')} on {args.get('target', '')}."
+                            )
                         else:
-                            result = (f"Action denied by operator ({decision}). "
-                                      f"No changes to {args.get('target', '')}.")
+                            result = (
+                                f"Action denied by operator ({decision}). "
+                                f"No changes to {args.get('target', '')}."
+                            )
                     else:
                         result = await call_mcp_tool(block.name, args)
 
-                    audit.log("tool_result", session_id=session_id,
-                              tool=block.name, result=result, specialist="orchestrator")
-                    yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
+                    audit.log(
+                        "tool_result",
+                        session_id=session_id,
+                        tool=block.name,
+                        result=result,
+                        specialist="orchestrator",
+                    )
+                    yield json.dumps(
+                        {"type": "tool_result", "tool": block.name, "result": result}
+                    )
 
-                    stored = (result if len(result) <= TOOL_RESULT_MAX_CHARS
-                              else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]")
-                    tool_results.append({"type": "tool_result",
-                                         "tool_use_id": block.id, "content": stored})
+                    stored = (
+                        result
+                        if len(result) <= TOOL_RESULT_MAX_CHARS
+                        else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]"
+                    )
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": stored,
+                        }
+                    )
 
                 orch_conv = orch_conv + [
                     {"role": "assistant", "content": assistant_content},
-                    {"role": "user",      "content": tool_results},
+                    {"role": "user", "content": tool_results},
                 ]
                 continue
 
@@ -498,17 +638,24 @@ async def run_multi_agent(
 
         # Write session summary for compliance audit trail
         _statuses = [
-            f.get("status", "Unknown") for f in findings.values()
+            f.get("status", "Unknown")
+            for f in findings.values()
             if f.get("status") not in ("Unknown", "Error", None)
         ]
         _confs = [
-            f.get("confidence", 0.0) for f in findings.values()
-            if isinstance(f.get("confidence"), (int, float)) and f.get("confidence", 0) > 0
+            f.get("confidence", 0.0)
+            for f in findings.values()
+            if isinstance(f.get("confidence"), (int, float))
+            and f.get("confidence", 0) > 0
         ]
         overall_status = (
-            "Fault Detected"   if any("Fault"   in s for s in _statuses) else
-            "Anomaly Detected" if any("Anomaly" in s for s in _statuses) else
-            "Normal"           if _statuses else "Unknown"
+            "Fault Detected"
+            if any("Fault" in s for s in _statuses)
+            else (
+                "Anomaly Detected"
+                if any("Anomaly" in s for s in _statuses)
+                else "Normal" if _statuses else "Unknown"
+            )
         )
         avg_confidence = round(sum(_confs) / len(_confs), 3) if _confs else None
         session_store.log_session_summary(
@@ -540,9 +687,11 @@ async def run_multi_agent(
     )
 
     total_latency_ms = int((time.monotonic() - start_ts) * 1000)
-    yield json.dumps({
-        "type":          "done",
-        "input_tokens":  orch_input_tokens,
-        "output_tokens": orch_output_tokens,
-        "latency_ms":    total_latency_ms,
-    })
+    yield json.dumps(
+        {
+            "type": "done",
+            "input_tokens": orch_input_tokens,
+            "output_tokens": orch_output_tokens,
+            "latency_ms": total_latency_ms,
+        }
+    )

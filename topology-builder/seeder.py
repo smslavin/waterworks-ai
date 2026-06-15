@@ -6,7 +6,9 @@ import os
 MEMORY_MCP_URL = os.environ.get("MEMORY_MCP_URL", "http://localhost:8006")
 
 
-async def seed_topology(facility_id: str, facility_name: str, instances: list[dict]) -> dict:
+async def seed_topology(
+    facility_id: str, facility_name: str, instances: list[dict]
+) -> dict:
     """Call memory-mcp's seed_discovered_topology tool over SSE."""
     from fastmcp import Client
 

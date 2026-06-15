@@ -20,64 +20,54 @@ get cleaned up before MQTT bridges do.
 
 LEGACY_TOPICS: dict[str, str] = {
     # ── Clean pump — all standard attrs + duplicate flow sensors ────────────────
-    "Plant/WTP/Pump/RawWater_01/Flow":          "312.4",
-    "Plant/WTP/Pump/RawWater_01/Pressure":      "4.2",
-    "Plant/WTP/Pump/RawWater_01/Power":         "42.1",
-    "Plant/WTP/Pump/RawWater_01/Running":       "true",
-    "Plant/WTP/Pump/RawWater_01/FlowPrimary":   "313.1",
-    "Plant/WTP/Pump/RawWater_01/FlowBackup":    "310.8",
-
+    "Plant/WTP/Pump/RawWater_01/Flow": "312.4",
+    "Plant/WTP/Pump/RawWater_01/Pressure": "4.2",
+    "Plant/WTP/Pump/RawWater_01/Power": "42.1",
+    "Plant/WTP/Pump/RawWater_01/Running": "true",
+    "Plant/WTP/Pump/RawWater_01/FlowPrimary": "313.1",
+    "Plant/WTP/Pump/RawWater_01/FlowBackup": "310.8",
     # ── Abbreviated attribute names ──────────────────────────────────────────────
-    "Plant/WTP/Pump/RawWater_02/FLW":           "298.0",
-    "Plant/WTP/Pump/RawWater_02/PRS":           "4.0",
-    "Plant/WTP/Pump/RawWater_02/PWR":           "39.5",
-    "Plant/WTP/Pump/RawWater_02/RUN":           "1",
-
+    "Plant/WTP/Pump/RawWater_02/FLW": "298.0",
+    "Plant/WTP/Pump/RawWater_02/PRS": "4.0",
+    "Plant/WTP/Pump/RawWater_02/PWR": "39.5",
+    "Plant/WTP/Pump/RawWater_02/RUN": "1",
     # ── Ghost tag — decommissioned pump, stale zeros, no OPC-UA ─────────────────
-    "Plant/WTP/Pump/OldPump_03/Flow":           "0.0",
-    "Plant/WTP/Pump/OldPump_03/Pressure":       "0.0",
-
+    "Plant/WTP/Pump/OldPump_03/Flow": "0.0",
+    "Plant/WTP/Pump/OldPump_03/Pressure": "0.0",
     # ── Non-standard depth (3 levels) — matches only via legacy_patterns ─────────
-    "WTP/HS_Pump_1/Flow":                       "220.1",
-    "WTP/HS_Pump_1/Pressure":                   "6.8",
-    "WTP/HS_Pump_1/Running":                    "true",
-
+    "WTP/HS_Pump_1/Flow": "220.1",
+    "WTP/HS_Pump_1/Pressure": "6.8",
+    "WTP/HS_Pump_1/Running": "true",
     # ── Ambiguous equipment — no matching type in template ───────────────────────
     "Plant/WTP/Drive/ABB_Drive_01/ActualSpeed": "1450.0",
-    "Plant/WTP/Drive/ABB_Drive_01/Torque":      "85.0",
-    "Plant/WTP/Drive/ABB_Drive_01/Running":     "true",
-
+    "Plant/WTP/Drive/ABB_Drive_01/Torque": "85.0",
+    "Plant/WTP/Drive/ABB_Drive_01/Running": "true",
     # ── Clarifier — clean + deprecated alias still publishing ────────────────────
-    "Plant/WTP/Clarifier/Clarifier_01/Level":     "62.3",
+    "Plant/WTP/Clarifier/Clarifier_01/Level": "62.3",
     "Plant/WTP/Clarifier/Clarifier_01/Turbidity": "2.1",
-    "Plant/WTP/Clarifier/Clarifier_01/TRBD":      "2.0",
-
+    "Plant/WTP/Clarifier/Clarifier_01/TRBD": "2.0",
     # ── Storage tank — pH absent (sensor offline); non-standard pH attrs present ─
-    "Plant/WTP/StorageTank/FinishedWater_01/Level":     "78.5",
+    "Plant/WTP/StorageTank/FinishedWater_01/Level": "78.5",
     "Plant/WTP/StorageTank/FinishedWater_01/Turbidity": "0.4",
-    "Plant/WTP/StorageTank/FinishedWater_01/pH_raw":    "7.1",
-    "Plant/WTP/StorageTank/FinishedWater_01/pH_units":  "pH",
-
+    "Plant/WTP/StorageTank/FinishedWater_01/pH_raw": "7.1",
+    "Plant/WTP/StorageTank/FinishedWater_01/pH_units": "pH",
     # ── Dosing — clean ────────────────────────────────────────────────────────────
-    "Plant/WTP/Dosing/Chlorine_01/FlowRate":    "3.2",
-    "Plant/WTP/Dosing/Chlorine_01/TankLevel":   "68.0",
-    "Plant/WTP/Dosing/Chlorine_01/Running":     "true",
-
+    "Plant/WTP/Dosing/Chlorine_01/FlowRate": "3.2",
+    "Plant/WTP/Dosing/Chlorine_01/TankLevel": "68.0",
+    "Plant/WTP/Dosing/Chlorine_01/Running": "true",
     # ── UV — active bank (clean) + retired bank (constant zero, no OPC-UA) ──────
-    "Plant/WTP/UV/UV_01/Intensity":             "92.4",
-    "Plant/WTP/UV/UV_01/LampHours":             "4312.0",
-    "Plant/WTP/UV/UV_01/Running":               "true",
-    "Plant/WTP/UV/UV_03/Intensity":             "0.0",
-    "Plant/WTP/UV/UV_03/LampHours":             "9999.0",
-    "Plant/WTP/UV/UV_03/Running":               "false",
-
+    "Plant/WTP/UV/UV_01/Intensity": "92.4",
+    "Plant/WTP/UV/UV_01/LampHours": "4312.0",
+    "Plant/WTP/UV/UV_01/Running": "true",
+    "Plant/WTP/UV/UV_03/Intensity": "0.0",
+    "Plant/WTP/UV/UV_03/LampHours": "9999.0",
+    "Plant/WTP/UV/UV_03/Running": "false",
     # ── Vendor-prefixed namespace — Siemens S7 OPC-UA bridge, wrong root ─────────
-    "Siemens/S7/Pump/HS_Pump_2/Speed_rpm":     "2900.0",
-    "Siemens/S7/Pump/HS_Pump_2/Current_mA":    "14.2",
-
+    "Siemens/S7/Pump/HS_Pump_2/Speed_rpm": "2900.0",
+    "Siemens/S7/Pump/HS_Pump_2/Current_mA": "14.2",
     # ── Flat single-level legacy tags — match no equipment pattern ────────────────
-    "wtp_rawpump_flow":                         "305.0",
-    "wtp_rawpump_pressure":                     "4.1",
+    "wtp_rawpump_flow": "305.0",
+    "wtp_rawpump_pressure": "4.1",
 }
 
 # OPC-UA covers modern, actively maintained equipment only.

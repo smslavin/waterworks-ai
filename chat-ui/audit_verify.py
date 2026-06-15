@@ -49,7 +49,9 @@ def verify(log_path: str, key: bytes | None, verbose: bool = False) -> bool:
             )
             ok = False
         elif verbose:
-            print(f"  {i:>5} seq={payload.get('seq')} {payload.get('ts')} {payload.get('event')} ✓")
+            print(
+                f"  {i:>5} seq={payload.get('seq')} {payload.get('ts')} {payload.get('event')} ✓"
+            )
 
         prev_hash = hashlib.sha256(line.encode()).hexdigest()
 
@@ -73,10 +75,16 @@ def decrypt_all(log_path: str, key: bytes) -> None:
 def main():
     ap = argparse.ArgumentParser(description="Audit log integrity verifier")
     ap.add_argument("log", help="Path to audit.jsonl")
-    ap.add_argument("--key", help="Base64-encoded 32-byte AES key (or set AUDIT_KEY env var)")
+    ap.add_argument(
+        "--key", help="Base64-encoded 32-byte AES key (or set AUDIT_KEY env var)"
+    )
     ap.add_argument("--verbose", "-v", action="store_true")
-    ap.add_argument("--decrypt", "-d", action="store_true",
-                    help="Print all records as plaintext JSONL (requires --key)")
+    ap.add_argument(
+        "--decrypt",
+        "-d",
+        action="store_true",
+        help="Print all records as plaintext JSONL (requires --key)",
+    )
     args = ap.parse_args()
 
     raw = args.key or os.environ.get("AUDIT_KEY", "")

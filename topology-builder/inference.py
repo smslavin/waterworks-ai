@@ -41,7 +41,9 @@ def infer_topology(
                 continue
             instance_id, attr_name, via_legacy = match
             if instance_id not in instances:
-                instances[instance_id] = _new_instance(instance_id, eq_type, spec, via_legacy)
+                instances[instance_id] = _new_instance(
+                    instance_id, eq_type, spec, via_legacy
+                )
             instances[instance_id]["attributes"][attr_name] = {
                 "tag": topic,
                 "source": "mqtt",
@@ -58,11 +60,15 @@ def infer_topology(
         results.append(inst)
 
     area_order = {a["name"]: i for i, a in enumerate(template["process_areas"])}
-    results.sort(key=lambda x: (area_order.get(x["process_area"], 99), x["instance_id"]))
+    results.sort(
+        key=lambda x: (area_order.get(x["process_area"], 99), x["instance_id"])
+    )
     return results
 
 
-def _new_instance(instance_id: str, eq_type: str, spec: dict, via_legacy: bool = False) -> dict:
+def _new_instance(
+    instance_id: str, eq_type: str, spec: dict, via_legacy: bool = False
+) -> dict:
     return {
         "instance_id": instance_id,
         "equipment_type": eq_type,
@@ -96,8 +102,7 @@ def _apply_pattern(topic: str, pattern: str) -> tuple[str, str] | None:
     The instance_id is the second-to-last path segment; {attr} is the last.
     """
     regex = (
-        pattern
-        .replace(".", r"\.")
+        pattern.replace(".", r"\.")
         .replace("{attr}", r"(?P<attr>[^/]+)")
         .replace("**", r"(?:.+)")
         .replace("*", r"([^/]+)")
@@ -117,7 +122,9 @@ def _has_opcua_match(topic: str, opcua_set: set[str]) -> bool:
     parts = topic.split("/")
     if len(parts) < 2:
         return False
-    suffix = "/".join(parts[-2:])  # "InstanceId/AttrName" — avoids false positives on shared attr names
+    suffix = "/".join(
+        parts[-2:]
+    )  # "InstanceId/AttrName" — avoids false positives on shared attr names
     return any(suffix in node for node in opcua_set)
 
 

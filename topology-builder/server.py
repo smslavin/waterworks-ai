@@ -103,7 +103,9 @@ async def override_instance_type(
             inst["confidence_score"] = confidence
             inst["confidence_level"] = "verified"
             return {"ok": True, "instance_id": instance_id, "new_type": equipment_type}
-    return {"error": f"instance_id '{instance_id}' not found in session '{discovery_id}'"}
+    return {
+        "error": f"instance_id '{instance_id}' not found in session '{discovery_id}'"
+    }
 
 
 @mcp.tool()

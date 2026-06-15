@@ -28,7 +28,9 @@ async def run_chat(
         (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
     )
 
-    audit.log("session_start", session_id=session_id, model=model, user_message=user_message)
+    audit.log(
+        "session_start", session_id=session_id, model=model, user_message=user_message
+    )
 
     client = AsyncOpenAI(
         base_url=f"{base_url.rstrip('/')}/v1",
@@ -42,7 +44,9 @@ async def run_chat(
             "function": {
                 "name": t["name"],
                 "description": t["description"],
-                "parameters": t.get("inputSchema", {"type": "object", "properties": {}}),
+                "parameters": t.get(
+                    "inputSchema", {"type": "object", "properties": {}}
+                ),
             },
         }
         for t in mcp_tools
@@ -76,17 +80,23 @@ async def run_chat(
                     for tc in delta.tool_calls:
                         idx = tc.index
                         if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = {"id": "", "name": "", "arguments_str": ""}
+                            tool_calls_acc[idx] = {
+                                "id": "",
+                                "name": "",
+                                "arguments_str": "",
+                            }
                         if tc.id:
                             tool_calls_acc[idx]["id"] = tc.id
                         if tc.function:
                             if tc.function.name:
                                 tool_calls_acc[idx]["name"] += tc.function.name
                             if tc.function.arguments:
-                                tool_calls_acc[idx]["arguments_str"] += tc.function.arguments
+                                tool_calls_acc[idx][
+                                    "arguments_str"
+                                ] += tc.function.arguments
 
                 if getattr(chunk, "usage", None):
-                    input_tokens  += chunk.usage.prompt_tokens or 0
+                    input_tokens += chunk.usage.prompt_tokens or 0
                     output_tokens += chunk.usage.completion_tokens or 0
 
             if full_text:
@@ -102,34 +112,55 @@ async def run_chat(
             for idx in sorted(tool_calls_acc):
                 tc = tool_calls_acc[idx]
                 try:
-                    args = json.loads(tc["arguments_str"]) if tc["arguments_str"] else {}
+                    args = (
+                        json.loads(tc["arguments_str"]) if tc["arguments_str"] else {}
+                    )
                 except json.JSONDecodeError:
                     args = {}
 
                 tool_call_count += 1
-                audit.log("tool_call", session_id=session_id, tool=tc["name"], args=args)
-                yield json.dumps({"type": "tool_call", "tool": tc["name"], "args": args})
+                audit.log(
+                    "tool_call", session_id=session_id, tool=tc["name"], args=args
+                )
+                yield json.dumps(
+                    {"type": "tool_call", "tool": tc["name"], "args": args}
+                )
 
                 result = await call_mcp_tool(tc["name"], args)
                 if result.startswith("Error"):
                     error_count += 1
 
-                audit.log("tool_result", session_id=session_id, tool=tc["name"], result=result)
-                yield json.dumps({"type": "tool_result", "tool": tc["name"], "result": result})
+                audit.log(
+                    "tool_result", session_id=session_id, tool=tc["name"], result=result
+                )
+                yield json.dumps(
+                    {"type": "tool_result", "tool": tc["name"], "result": result}
+                )
 
-                assistant_tool_calls.append({
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {"name": tc["name"], "arguments": tc["arguments_str"]},
-                })
-                tool_result_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": result,
-                })
+                assistant_tool_calls.append(
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments_str"],
+                        },
+                    }
+                )
+                tool_result_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result,
+                    }
+                )
 
             conv_messages = conv_messages + [
-                {"role": "assistant", "content": full_text or None, "tool_calls": assistant_tool_calls},
+                {
+                    "role": "assistant",
+                    "content": full_text or None,
+                    "tool_calls": assistant_tool_calls,
+                },
                 *tool_result_messages,
             ]
 

@@ -20,7 +20,10 @@ from typing import AsyncIterator
 
 def _dump(obj) -> str:
     """json.dumps with fallback for datetime and other non-serializable types."""
-    return json.dumps(obj, default=lambda x: x.isoformat() if hasattr(x, "isoformat") else str(x))
+    return json.dumps(
+        obj, default=lambda x: x.isoformat() if hasattr(x, "isoformat") else str(x)
+    )
+
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -36,8 +39,8 @@ PORT = int(os.environ.get("MEMORY_MCP_PORT", 8006))
 
 @asynccontextmanager
 async def _lifespan(server: FastMCP) -> AsyncIterator[None]:
-    graph.get_conn()           # warm LadybugDB — triggers auto-seed if empty
-    analytical.get_conn()      # warm DuckDB
+    graph.get_conn()  # warm LadybugDB — triggers auto-seed if empty
+    analytical.get_conn()  # warm DuckDB
     asyncio.create_task(analytical.sync_loop())
     yield
 
@@ -46,6 +49,7 @@ mcp = FastMCP("memory-mcp", lifespan=_lifespan)
 
 
 # ── Knowledge graph — read ────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def get_topology() -> str:
@@ -56,7 +60,7 @@ def get_topology() -> str:
 @mcp.tool()
 def get_specialist_context(area_id: str) -> str:
     """Structured specialist context for area_id: equipment, attributes, fault modes, tag bindings, and area notes."""
-    rows   = graph.get_specialist_context(area_id)
+    rows = graph.get_specialist_context(area_id)
     result = graph.aggregate_specialist_query(rows)
     return _dump(result)
 
@@ -81,6 +85,7 @@ def query_graph(cypher: str) -> str:
 
 # ── Knowledge graph — write ───────────────────────────────────────────────────
 
+
 @mcp.tool()
 def record_incident(
     session_id: str,
@@ -95,7 +100,11 @@ def record_incident(
     fault_mode_id: optional; links Incident to a FaultMode node.
     """
     incident_id = graph.record_incident(
-        session_id, equipment_id, diagnosis, confidence, status,
+        session_id,
+        equipment_id,
+        diagnosis,
+        confidence,
+        status,
         fault_mode_id or None,
     )
     return _dump({"incident_id": incident_id})
@@ -110,12 +119,16 @@ def record_observation(
     specialist: str,
 ) -> str:
     """Write a specialist observation that should persist across sessions."""
-    obs_id = graph.record_observation(session_id, equipment_id, text, confidence, specialist)
+    obs_id = graph.record_observation(
+        session_id, equipment_id, text, confidence, specialist
+    )
     return _dump({"observation_id": obs_id})
 
 
 @mcp.tool()
-def link_incident_precedes(incident_a_id: str, incident_b_id: str, hours_apart: float) -> str:
+def link_incident_precedes(
+    incident_a_id: str, incident_b_id: str, hours_apart: float
+) -> str:
     """Create a PRECEDES relationship between two incidents for causality chain queries."""
     graph.link_incident_precedes(incident_a_id, incident_b_id, hours_apart)
     return _dump({"status": "ok"})
@@ -138,6 +151,7 @@ def seed_discovered_topology(
 
 # ── Analytical layer ──────────────────────────────────────────────────────────
 
+
 @mcp.tool()
 def run_correlation(sql: str) -> str:
     """SELECT query against DuckDB analytical layer. For long-horizon multi-equipment correlations."""
@@ -145,6 +159,7 @@ def run_correlation(sql: str) -> str:
 
 
 # ── Specialist memory ─────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def get_specialist_memory(specialist: str) -> str:

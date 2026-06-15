@@ -10,17 +10,22 @@ from pathlib import Path
 
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
     _CRYPTO_AVAILABLE = True
 except ImportError:
     _CRYPTO_AVAILABLE = False
     import warnings
-    warnings.warn("cryptography package not installed — audit log will be unencrypted", stacklevel=1)
 
-LOG_PATH   = Path(os.environ.get("AUDIT_LOG_PATH", Path(__file__).parent / "audit.jsonl"))
-_KEY_B64   = os.environ.get("AUDIT_KEY", "")
-_lock      = threading.Lock()
-_seq       = 0
-_prev_hash = ""   # SHA-256 hex of last written encoded line
+    warnings.warn(
+        "cryptography package not installed — audit log will be unencrypted",
+        stacklevel=1,
+    )
+
+LOG_PATH = Path(os.environ.get("AUDIT_LOG_PATH", Path(__file__).parent / "audit.jsonl"))
+_KEY_B64 = os.environ.get("AUDIT_KEY", "")
+_lock = threading.Lock()
+_seq = 0
+_prev_hash = ""  # SHA-256 hex of last written encoded line
 
 
 def _get_key() -> bytes | None:

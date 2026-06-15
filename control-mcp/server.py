@@ -30,8 +30,11 @@ os.makedirs(_log_dir, exist_ok=True)
 _fh = logging.handlers.RotatingFileHandler(
     os.path.join(_log_dir, "control_mcp.log"), maxBytes=5 * 1024 * 1024, backupCount=3
 )
-_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
-                                   datefmt="%Y-%m-%d %H:%M:%S"))
+_fh.setFormatter(
+    logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -67,10 +70,12 @@ def propose_action(
     """
     # The backend intercepts this before routing through the aggregator.
     # This code only runs if the tool is called directly (not via waterworks-ai).
-    return json.dumps({
-        "status": "not_intercepted",
-        "message": "propose_action must be called through the waterworks-ai backend.",
-    })
+    return json.dumps(
+        {
+            "status": "not_intercepted",
+            "message": "propose_action must be called through the waterworks-ai backend.",
+        }
+    )
 
 
 @mcp.tool()

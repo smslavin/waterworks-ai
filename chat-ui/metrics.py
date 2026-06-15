@@ -13,9 +13,9 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 
 load_dotenv()
 
-INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
-INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
-INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
+INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
+INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
+INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
 logger = logging.getLogger(__name__)
@@ -97,13 +97,13 @@ def log_turn(
             .tag("session_id", session_id)
             .tag("specialist", specialist or "")
             .tag("cascade_id", cascade_id or "")
-            .field("input_tokens",    int(input_tokens  or 0))
-            .field("output_tokens",   int(output_tokens or 0))
+            .field("input_tokens", int(input_tokens or 0))
+            .field("output_tokens", int(output_tokens or 0))
             .field("tool_call_count", int(tool_call_count))
-            .field("error_count",     int(error_count))
-            .field("latency_ms",      int(latency_ms))
+            .field("error_count", int(error_count))
+            .field("latency_ms", int(latency_ms))
             .field("context_pressure", float(context_pressure or 0.0))
-            .field("user_message",    (user_message or "")[:200])
+            .field("user_message", (user_message or "")[:200])
         )
         if specialist_status is not None:
             point = point.field("specialist_status", specialist_status)
@@ -125,9 +125,13 @@ def log_turn(
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
-                    session_id, model,
-                    input_tokens, output_tokens,
-                    tool_call_count, error_count, latency_ms,
+                    session_id,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    tool_call_count,
+                    error_count,
+                    latency_ms,
                     context_pressure,
                     (user_message or "")[:200],
                     specialist,

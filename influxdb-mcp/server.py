@@ -34,8 +34,11 @@ os.makedirs(_log_dir, exist_ok=True)
 _fh = logging.handlers.RotatingFileHandler(
     os.path.join(_log_dir, "influxdb_mcp.log"), maxBytes=5 * 1024 * 1024, backupCount=3
 )
-_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
-                                   datefmt="%Y-%m-%d %H:%M:%S"))
+_fh.setFormatter(
+    logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -44,9 +47,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
-INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
-INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
+INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
+INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
+INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
 mcp = FastMCP("influxdb-mcp", port=int(os.environ.get("FASTMCP_PORT", 8003)))
@@ -94,6 +97,7 @@ def _format_tables(tables: list) -> str:
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_measurements(bucket: str = "") -> str:
@@ -154,7 +158,7 @@ def write_point(
         _get_client().write_api(write_options=SYNCHRONOUS).write(
             bucket=target, record=point
         )
-        tag_str   = ", ".join(f"{k}={v}" for k, v in (tags or {}).items())
+        tag_str = ", ".join(f"{k}={v}" for k, v in (tags or {}).items())
         field_str = ", ".join(f"{k}={v}" for k, v in fields.items())
         return (
             f"Written  bucket={target}  measurement={measurement}"
@@ -184,9 +188,7 @@ def query(flux_query: str, org: str = "") -> str:
         org:        InfluxDB org. Omit to use the configured default org.
     """
     try:
-        tables = _get_client().query_api().query(
-            flux_query, org=org or INFLUXDB_ORG
-        )
+        tables = _get_client().query_api().query(flux_query, org=org or INFLUXDB_ORG)
         return _format_tables(tables)
     except Exception as exc:
         return f"Error: {exc}"

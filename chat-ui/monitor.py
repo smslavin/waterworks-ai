@@ -24,10 +24,10 @@ def _build_normal_map() -> dict[tuple, dict]:
                 continue
             for inst in _topology.get("instances", {}).get(eq_type, []):
                 result[(inst["id"], attr)] = {
-                    "normal":    attr_def["normal"],
-                    "alarm_lo":  attr_def.get("alarm_lo", "warning"),
-                    "alarm_hi":  attr_def.get("alarm_hi", "warning"),
-                    "eq_type":   eq_type,
+                    "normal": attr_def["normal"],
+                    "alarm_lo": attr_def.get("alarm_lo", "warning"),
+                    "alarm_hi": attr_def.get("alarm_hi", "warning"),
+                    "eq_type": eq_type,
                 }
     return result
 
@@ -37,7 +37,9 @@ _NORMAL_MAP = _build_normal_map()
 
 class AnomalyMonitor:
     def __init__(self, broker_url: str, min_duration: float = 30.0):
-        host, port = broker_url.split(":") if ":" in broker_url else (broker_url, "1883")
+        host, port = (
+            broker_url.split(":") if ":" in broker_url else (broker_url, "1883")
+        )
         self._host = host
         self._port = int(port)
         self._min_duration = min_duration
@@ -69,9 +71,8 @@ class AnomalyMonitor:
 
             span = hi - lo
             in_normal = lo <= value <= hi
-            minor_excursion = (
-                (value < lo and (lo - value) < 0.02 * span) or
-                (value > hi and (value - hi) < 0.02 * span)
+            minor_excursion = (value < lo and (lo - value) < 0.02 * span) or (
+                value > hi and (value - hi) < 0.02 * span
             )
 
             if in_normal or minor_excursion:
@@ -85,14 +86,16 @@ class AnomalyMonitor:
                 return
 
             condition = "below_min" if value < lo else "above_max"
-            severity = meta["alarm_lo"] if condition == "below_min" else meta["alarm_hi"]
+            severity = (
+                meta["alarm_lo"] if condition == "below_min" else meta["alarm_hi"]
+            )
 
             if key not in _window:
                 _window[key] = {
                     "violation_start": now,
-                    "condition":       condition,
-                    "severity":        severity,
-                    "value":           value,
+                    "condition": condition,
+                    "severity": severity,
+                    "value": value,
                 }
                 return
 
@@ -108,13 +111,13 @@ class AnomalyMonitor:
             if elapsed >= self._min_duration and now - last_fire >= self._min_duration:
                 _window[key]["last_fire"] = now
                 anomaly = {
-                    "instance_id":    instance_id,
+                    "instance_id": instance_id,
                     "equipment_type": eq_type,
-                    "attribute":      attribute,
-                    "current_value":  value,
-                    "normal_range":   [lo, hi],
-                    "condition":      condition,
-                    "severity":       severity,
+                    "attribute": attribute,
+                    "current_value": value,
+                    "normal_range": [lo, hi],
+                    "condition": condition,
+                    "severity": severity,
                     "duration_seconds": elapsed,
                 }
                 if self._loop:

@@ -26,6 +26,7 @@ _EQUIP_RE = re.compile(
 
 # ── Equipment extraction ───────────────────────────────────────────────────────
 
+
 def extract_equipment(tool_calls: list[tuple[str, dict]]) -> list[str]:
     """Scan tool call args for equipment instance IDs (e.g. RawWater_01)."""
     found: set[str] = set()
@@ -39,16 +40,36 @@ def extract_equipment(tool_calls: list[tuple[str, dict]]) -> list[str]:
 def extract_status_single(text: str) -> tuple[str, float | None]:
     """Heuristic status/confidence extraction from a free-form response."""
     t = text.lower()
-    if any(w in t for w in ("fault detected", "fault condition", "run-status fault",
-                             "cavitation", "suction starvation", "pressure drift")):
+    if any(
+        w in t
+        for w in (
+            "fault detected",
+            "fault condition",
+            "run-status fault",
+            "cavitation",
+            "suction starvation",
+            "pressure drift",
+        )
+    ):
         return "Fault Detected", 0.7
-    if any(w in t for w in ("anomaly", "abnormal", "irregular", "out of range",
-                             "concern", "elevated", "below threshold")):
+    if any(
+        w in t
+        for w in (
+            "anomaly",
+            "abnormal",
+            "irregular",
+            "out of range",
+            "concern",
+            "elevated",
+            "below threshold",
+        )
+    ):
         return "Anomaly Detected", 0.6
     return "Normal", 0.8
 
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
+
 
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(_DB_PATH)
@@ -87,6 +108,7 @@ def _init_db() -> None:
 
 
 # ── Write functions ────────────────────────────────────────────────────────────
+
 
 def log_session_summary(
     *,
@@ -140,8 +162,14 @@ def log_action_event(
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
-                    session_id, action_type, target, value, description,
-                    operator_id, decision, outcome,
+                    session_id,
+                    action_type,
+                    target,
+                    value,
+                    description,
+                    operator_id,
+                    decision,
+                    outcome,
                 ),
             )
             c.commit()
@@ -150,6 +178,7 @@ def log_action_event(
 
 
 # ── Read functions (used by audit page + audit-mcp) ───────────────────────────
+
 
 def get_session_summaries(
     limit: int = 50,
@@ -162,7 +191,9 @@ def get_session_summaries(
             clauses.append("status LIKE ?")
             params.append(f"%{status_filter}%")
         if hours_back is not None:
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).isoformat()
+            cutoff = (
+                datetime.now(timezone.utc) - timedelta(hours=hours_back)
+            ).isoformat()
             clauses.append("ts >= ?")
             params.append(cutoff)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""

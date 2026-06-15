@@ -11,12 +11,12 @@ from pathlib import Path
 import duckdb
 from influxdb_client import InfluxDBClient
 
-_DUCKDB_PATH     = os.environ.get("DUCKDB_PATH",       "../data/duckdb/analytical.duckdb")
-_INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",      "http://localhost:8086")
-_INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",    "")
-_INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",      "waterworks")
-_INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET",   "waterworks")
-_SYNC_INTERVAL   = int(os.environ.get("DUCKDB_SYNC_INTERVAL", "3600"))
+_DUCKDB_PATH = os.environ.get("DUCKDB_PATH", "../data/duckdb/analytical.duckdb")
+_INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
+_INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
+_INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
+_INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
+_SYNC_INTERVAL = int(os.environ.get("DUCKDB_SYNC_INTERVAL", "3600"))
 
 _conn: duckdb.DuckDBPyConnection | None = None
 
@@ -67,15 +67,19 @@ from(bucket: "{_INFLUXDB_BUCKET}")
                 for attr, val in record.values.items():
                     if attr.startswith("_") or not isinstance(val, (int, float)):
                         continue
-                    rows.append((
-                        record.get_time(),
-                        record.values.get("type"),
-                        record.values.get("instance"),
-                        attr,
-                        float(val),
-                    ))
+                    rows.append(
+                        (
+                            record.get_time(),
+                            record.values.get("type"),
+                            record.values.get("instance"),
+                            attr,
+                            float(val),
+                        )
+                    )
         if rows:
-            conn.execute("DELETE FROM wtp_process WHERE time > NOW() - INTERVAL '90 days'")
+            conn.execute(
+                "DELETE FROM wtp_process WHERE time > NOW() - INTERVAL '90 days'"
+            )
             conn.executemany("INSERT INTO wtp_process VALUES (?, ?, ?, ?, ?)", rows)
         print(f"[analytical] sync complete: {len(rows)} rows")
     finally:
@@ -96,6 +100,6 @@ def run_correlation(sql: str) -> list[dict]:
     """Read-only analytical query against DuckDB. SELECT only."""
     if not sql.strip().upper().startswith("SELECT"):
         raise ValueError("run_correlation accepts SELECT queries only.")
-    conn   = get_conn()
+    conn = get_conn()
     result = conn.execute(sql).fetchdf()
     return result.to_dict(orient="records")

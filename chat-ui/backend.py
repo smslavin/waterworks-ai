@@ -10,8 +10,9 @@ from logging.handlers import RotatingFileHandler
 _log_dir = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(_log_dir, exist_ok=True)
 
-_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
-                         datefmt="%Y-%m-%d %H:%M:%S")
+_fmt = logging.Formatter(
+    "%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+)
 _file_handler = RotatingFileHandler(
     os.path.join(_log_dir, "chat_ui.log"),
     maxBytes=5 * 1024 * 1024,  # 5 MB
@@ -52,10 +53,10 @@ import multi_agent_loop
 import openai_loop
 import reactive_loop as _reactive_loop
 
-ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
-MCP_AGGREGATOR_URL   = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
-SIMULATOR_CONTROL    = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
-STATIC_DIR           = os.path.join(os.path.dirname(__file__), "static")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+MCP_AGGREGATOR_URL = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
+SIMULATOR_CONTROL = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 # ── Reactive alert pub-sub ─────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ _alert_subs: list[asyncio.Queue] = []
 def broadcast_alert(event: dict) -> None:
     for q in _alert_subs:
         q.put_nowait(event)
+
 
 _LOOP_MODULES = {"claude": claude_loop, "openai": openai_loop}
 
@@ -94,20 +96,20 @@ def _resolve_provider(model: str) -> dict:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+
 async def index(request: Request):
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
 async def models_endpoint(request: Request):
     import httpx
+
     local: list[str] = []
     for p in PROVIDERS:
         if p.get("loop") == "openai":
             try:
                 async with httpx.AsyncClient() as http:
-                    resp = await http.get(
-                        f"{p['base_url']}/api/tags", timeout=3.0
-                    )
+                    resp = await http.get(f"{p['base_url']}/api/tags", timeout=3.0)
                     local = [m["name"] for m in resp.json().get("models", [])]
             except Exception:
                 pass
@@ -137,16 +139,24 @@ async def health_endpoint(request: Request):
         tcp_ok("localhost", 8005),  # control-mcp
         tcp_ok("localhost", 8006),  # memory-mcp
     )
-    keys = ("aggregator", "influxdb", "mqtt", "simulator", "audit_mcp", "control_mcp", "memory_mcp")
+    keys = (
+        "aggregator",
+        "influxdb",
+        "mqtt",
+        "simulator",
+        "audit_mcp",
+        "control_mcp",
+        "memory_mcp",
+    )
     return JSONResponse({k: "ok" if v else "error" for k, v in zip(keys, results)})
 
 
 async def chat_endpoint(request: Request):
-    body             = await request.json()
-    messages         = body.get("messages", [])
-    model            = body.get("model", claude_loop.CLAUDE_MODELS[0])
+    body = await request.json()
+    messages = body.get("messages", [])
+    model = body.get("model", claude_loop.CLAUDE_MODELS[0])
     thinking_enabled = bool(body.get("thinking", False))
-    mode             = body.get("mode", "single")
+    mode = body.get("mode", "single")
 
     if mode == "multi":
         api_key = os.environ.get("ANTHROPIC_API_KEY") or ANTHROPIC_API_KEY
@@ -164,8 +174,10 @@ async def chat_endpoint(request: Request):
         return EventSourceResponse(generate_multi())
 
     provider = _resolve_provider(model)
-    run_fn   = _LOOP_MODULES[provider["loop"]].run_chat
-    api_key  = os.environ.get(provider["api_key_env"]) if provider.get("api_key_env") else None
+    run_fn = _LOOP_MODULES[provider["loop"]].run_chat
+    api_key = (
+        os.environ.get(provider["api_key_env"]) if provider.get("api_key_env") else None
+    )
 
     extra = {}
     if provider["loop"] == "claude" and thinking_enabled:
@@ -174,7 +186,8 @@ async def chat_endpoint(request: Request):
     async def generate():
         try:
             async for chunk in run_fn(
-                messages, model,
+                messages,
+                model,
                 base_url=provider["base_url"],
                 api_key=api_key,
                 **extra,
@@ -190,9 +203,10 @@ async def chat_endpoint(request: Request):
 async def fault_endpoint(request: Request):
     """Proxy fault injection requests to the simulator control plane."""
     import httpx
-    body   = await request.json()
+
+    body = await request.json()
     target = body.get("target", "")
-    mode   = body.get("mode", "normal")
+    mode = body.get("mode", "normal")
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.post(
@@ -207,6 +221,7 @@ async def fault_endpoint(request: Request):
 
 async def fault_status_endpoint(request: Request):
     import httpx
+
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.get(f"{SIMULATOR_CONTROL}/status", timeout=5.0)
@@ -217,6 +232,7 @@ async def fault_status_endpoint(request: Request):
 
 async def fault_modes_endpoint(request: Request):
     import httpx
+
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.get(f"{SIMULATOR_CONTROL}/fault-modes", timeout=5.0)
@@ -227,14 +243,19 @@ async def fault_modes_endpoint(request: Request):
 
 async def action_respond_endpoint(request: Request):
     """Operator approval/denial for a pending AI-proposed action."""
-    body      = await request.json()
+    body = await request.json()
     action_id = body.get("action_id", "")
-    decision  = body.get("decision", "")
+    decision = body.get("decision", "")
     if not action_id or decision not in ("approved", "denied"):
-        return JSONResponse({"error": "Requires action_id and decision (approved|denied)"}, status_code=400)
+        return JSONResponse(
+            {"error": "Requires action_id and decision (approved|denied)"},
+            status_code=400,
+        )
     ok = control.resolve(action_id, decision)
     if not ok:
-        return JSONResponse({"error": "Unknown or already-resolved action_id"}, status_code=404)
+        return JSONResponse(
+            {"error": "Unknown or already-resolved action_id"}, status_code=404
+        )
     return JSONResponse({"ok": True, "action_id": action_id, "decision": decision})
 
 
@@ -249,9 +270,13 @@ async def audit_clear_endpoint(request: Request):
 
 async def audit_download_endpoint(request: Request):
     from starlette.responses import FileResponse, Response
+
     if not audit.LOG_PATH.exists():
-        return Response(content="", media_type="application/octet-stream",
-                        headers={"Content-Disposition": "attachment; filename=audit.jsonl"})
+        return Response(
+            content="",
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": "attachment; filename=audit.jsonl"},
+        )
     return FileResponse(
         audit.LOG_PATH,
         media_type="application/octet-stream",
@@ -261,10 +286,11 @@ async def audit_download_endpoint(request: Request):
 
 async def audit_page_endpoint(request: Request):
     from starlette.responses import HTMLResponse
+
     entries = audit.read_log()
 
     sessions = []
-    current  = None
+    current = None
     for e in entries:
         if e.get("event") == "session_start":
             current = {"header": e, "entries": []}
@@ -275,7 +301,7 @@ async def audit_page_endpoint(request: Request):
             sessions.append({"header": None, "entries": [e]})
 
     def render_entry(e):
-        ts    = e.get("ts", "")[:19].replace("T", " ")
+        ts = e.get("ts", "")[:19].replace("T", " ")
         event = e.get("event", "")
         if event == "tool_call":
             args = json.dumps(e.get("args", {}), indent=2)
@@ -287,9 +313,9 @@ async def audit_page_endpoint(request: Request):
             </div>"""
         elif event == "tool_result":
             result = e.get("result", "")
-            err    = isinstance(result, str) and result.startswith("Error")
-            cls    = "error-badge" if err else "result-badge"
-            label  = "error" if err else "result"
+            err = isinstance(result, str) and result.startswith("Error")
+            cls = "error-badge" if err else "result-badge"
+            label = "error" if err else "result"
             return f"""<div class="entry tool-result {'err' if err else ''}">
               <span class="ts">{ts}</span>
               <span class="badge {cls}">{label}</span>
@@ -304,7 +330,11 @@ async def audit_page_endpoint(request: Request):
             </div>"""
         elif event == "action_decision":
             decision = e.get("decision", "")
-            dcls = "approve-badge" if decision == "approved" else "deny-badge" if decision == "denied" else "warn-badge"
+            dcls = (
+                "approve-badge"
+                if decision == "approved"
+                else "deny-badge" if decision == "denied" else "warn-badge"
+            )
             return f"""<div class="entry action-event">
               <span class="ts">{ts}</span>
               <span class="badge {dcls}">action {decision}</span>
@@ -312,14 +342,18 @@ async def audit_page_endpoint(request: Request):
             </div>"""
         elif event.startswith("reactive_"):
             parts = []
-            if e.get("instance_id"): parts.append(f"<strong>{e['instance_id']}</strong>")
-            if e.get("attribute"):   parts.append(e["attribute"])
+            if e.get("instance_id"):
+                parts.append(f"<strong>{e['instance_id']}</strong>")
+            if e.get("attribute"):
+                parts.append(e["attribute"])
             if e.get("escalate") is not None:
                 parts.append("↑ escalate" if e["escalate"] else "↓ suppress")
-            if e.get("severity"):    parts.append(e["severity"])
-            if e.get("reason"):      parts.append(f"<em>{e['reason'][:80]}</em>")
+            if e.get("severity"):
+                parts.append(e["severity"])
+            if e.get("reason"):
+                parts.append(f"<em>{e['reason'][:80]}</em>")
             detail = " · ".join(parts)
-            label  = event.replace("reactive_", "").replace("_", " ")
+            label = event.replace("reactive_", "").replace("_", " ")
             return f"""<div class="entry reactive-event">
               <span class="ts">{ts}</span>
               <span class="badge reactive-badge">reactive {label}</span>
@@ -334,24 +368,30 @@ async def audit_page_endpoint(request: Request):
         return ""
 
     def render_session(s, idx):
-        h      = s["header"]
-        inner  = "\n".join(render_entry(e) for e in s["entries"])
-        tc      = sum(1 for e in s["entries"] if e.get("event") == "tool_call")
-        rc      = sum(1 for e in s["entries"] if e.get("event", "").startswith("reactive_"))
-        ac      = sum(1 for e in s["entries"] if e.get("event") == "action_decision")
-        has_err = any(e.get("event") == "error" or
-                      (e.get("event") == "tool_result" and
-                       isinstance(e.get("result",""), str) and
-                       e.get("result","").startswith("Error"))
-                      for e in s["entries"])
+        h = s["header"]
+        inner = "\n".join(render_entry(e) for e in s["entries"])
+        tc = sum(1 for e in s["entries"] if e.get("event") == "tool_call")
+        rc = sum(1 for e in s["entries"] if e.get("event", "").startswith("reactive_"))
+        ac = sum(1 for e in s["entries"] if e.get("event") == "action_decision")
+        has_err = any(
+            e.get("event") == "error"
+            or (
+                e.get("event") == "tool_result"
+                and isinstance(e.get("result", ""), str)
+                and e.get("result", "").startswith("Error")
+            )
+            for e in s["entries"]
+        )
         err_cls = " has-error" if has_err else ""
         if h:
-            ts      = h.get("ts", "")[:19].replace("T", " ")
-            model   = h.get("model", "")
-            msg     = h.get("user_message", "")
-            parts   = [f"{tc} tool call{'s' if tc != 1 else ''}"]
-            if rc:  parts.append(f"{rc} reactive")
-            if ac:  parts.append(f"{ac} action{'s' if ac != 1 else ''}")
+            ts = h.get("ts", "")[:19].replace("T", " ")
+            model = h.get("model", "")
+            msg = h.get("user_message", "")
+            parts = [f"{tc} tool call{'s' if tc != 1 else ''}"]
+            if rc:
+                parts.append(f"{rc} reactive")
+            if ac:
+                parts.append(f"{ac} action{'s' if ac != 1 else ''}")
             summary = " · ".join(parts)
             return f"""<div class="session-block{err_cls}">
               <div class="session-header" onclick="toggle({idx})">
@@ -370,7 +410,7 @@ async def audit_page_endpoint(request: Request):
         return f'<div class="session-body">{inner}</div>'
 
     blocks = "\n".join(render_session(s, i) for i, s in enumerate(sessions))
-    body   = blocks if sessions else "<p class='empty'>No audit entries yet.</p>"
+    body = blocks if sessions else "<p class='empty'>No audit entries yet.</p>"
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -514,8 +554,9 @@ async def audit_page_endpoint(request: Request):
 
 async def metrics_page_endpoint(request: Request):
     from starlette.responses import HTMLResponse
+
     summary = metrics.get_summary()
-    turns   = metrics.get_recent_turns(100)
+    turns = metrics.get_recent_turns(100)
 
     def fmt_tokens(n):
         return "—" if n is None else f"{int(n):,}"
@@ -525,7 +566,7 @@ async def metrics_page_endpoint(request: Request):
 
     rows_html = ""
     for t in turns:
-        ts      = (t.get("ts") or "")[:19].replace("T", " ")
+        ts = (t.get("ts") or "")[:19].replace("T", " ")
         err_cls = " class='row-err'" if t.get("error_count", 0) else ""
         rows_html += f"""<tr{err_cls}>
           <td>{ts}</td>
@@ -538,7 +579,7 @@ async def metrics_page_endpoint(request: Request):
           <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{(t.get('user_message') or '')[:80]}</td>
         </tr>"""
 
-    s   = summary
+    s = summary
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -620,10 +661,12 @@ async def metrics_page_endpoint(request: Request):
 
 
 async def metrics_api_endpoint(request: Request):
-    return JSONResponse({
-        "summary": metrics.get_summary(),
-        "turns":   metrics.get_recent_turns(100),
-    })
+    return JSONResponse(
+        {
+            "summary": metrics.get_summary(),
+            "turns": metrics.get_recent_turns(100),
+        }
+    )
 
 
 async def reactive_status_endpoint(request: Request):
@@ -631,7 +674,7 @@ async def reactive_status_endpoint(request: Request):
 
 
 async def reactive_toggle_endpoint(request: Request):
-    body   = await request.json()
+    body = await request.json()
     enable = bool(body.get("enable", False))
     if enable:
         if _reactive_loop.is_running():
@@ -669,9 +712,9 @@ async def events_endpoint(request: Request):
 
 
 def _reactive_params() -> tuple[str, str, str]:
-    broker_url     = os.environ.get("MQTT_BROKER_URL", "localhost:1883")
+    broker_url = os.environ.get("MQTT_BROKER_URL", "localhost:1883")
     aggregator_url = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
-    model          = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
+    model = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
     return broker_url, aggregator_url, model
 
 
@@ -685,45 +728,51 @@ async def lifespan(app):
 
 
 async def topology_commit_endpoint(request: Request):
-    body          = await request.json()
-    facility_id   = body.get("facility_id", "WTP_001")
+    body = await request.json()
+    facility_id = body.get("facility_id", "WTP_001")
     facility_name = body.get("facility_name", "Water Treatment Plant")
-    instances     = body.get("instances", [])
+    instances = body.get("instances", [])
     if not instances:
         return JSONResponse({"error": "no instances provided"}, status_code=400)
     result_str = await mcp_client.call_mcp_tool(
         "memory__seed_discovered_topology",
-        {"facility_id": facility_id, "facility_name": facility_name, "instances": instances},
+        {
+            "facility_id": facility_id,
+            "facility_name": facility_name,
+            "instances": instances,
+        },
     )
     try:
         result = json.loads(result_str)
     except Exception:
         result = {"seeded_count": 0, "errors": 1}
-    return JSONResponse({
-        "committed_count": result.get("seeded_count", 0),
-        "errors": result.get("errors", 0),
-    })
+    return JSONResponse(
+        {
+            "committed_count": result.get("seeded_count", 0),
+            "errors": result.get("errors", 0),
+        }
+    )
 
 
 routes = [
-    Route("/",                    index),
-    Route("/api/models",          models_endpoint),
-    Route("/api/health",          health_endpoint),
-    Route("/api/chat",            chat_endpoint,         methods=["POST"]),
-    Route("/api/action/respond",   action_respond_endpoint, methods=["POST"]),
-    Route("/api/fault",           fault_endpoint,        methods=["POST"]),
-    Route("/api/fault/status",    fault_status_endpoint),
-    Route("/api/fault/modes",     fault_modes_endpoint),
-    Route("/api/audit",           audit_endpoint),
-    Route("/api/audit/clear",     audit_clear_endpoint,  methods=["POST"]),
-    Route("/api/audit/download",  audit_download_endpoint),
-    Route("/api/metrics",         metrics_api_endpoint),
+    Route("/", index),
+    Route("/api/models", models_endpoint),
+    Route("/api/health", health_endpoint),
+    Route("/api/chat", chat_endpoint, methods=["POST"]),
+    Route("/api/action/respond", action_respond_endpoint, methods=["POST"]),
+    Route("/api/fault", fault_endpoint, methods=["POST"]),
+    Route("/api/fault/status", fault_status_endpoint),
+    Route("/api/fault/modes", fault_modes_endpoint),
+    Route("/api/audit", audit_endpoint),
+    Route("/api/audit/clear", audit_clear_endpoint, methods=["POST"]),
+    Route("/api/audit/download", audit_download_endpoint),
+    Route("/api/metrics", metrics_api_endpoint),
     Route("/api/topology/commit", topology_commit_endpoint, methods=["POST"]),
-    Route("/api/reactive",        reactive_status_endpoint),
+    Route("/api/reactive", reactive_status_endpoint),
     Route("/api/reactive/toggle", reactive_toggle_endpoint, methods=["POST"]),
-    Route("/api/events",          events_endpoint),
-    Route("/audit",               audit_page_endpoint),
-    Route("/metrics",             metrics_page_endpoint),
+    Route("/api/events", events_endpoint),
+    Route("/audit", audit_page_endpoint),
+    Route("/metrics", metrics_page_endpoint),
     Mount("/static", StaticFiles(directory=STATIC_DIR), name="static"),
 ]
 

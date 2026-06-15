@@ -23,7 +23,7 @@ def get_specialist_memory(specialist: str) -> str:
 
 
 def append_specialist_memory(specialist: str, content: str) -> None:
-    p  = _path(specialist)
+    p = _path(specialist)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     with open(p, "a") as f:
         f.write(f"\n## {ts}\n{content.strip()}\n")

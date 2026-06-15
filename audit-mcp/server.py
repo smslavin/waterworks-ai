@@ -33,8 +33,11 @@ os.makedirs(_log_dir, exist_ok=True)
 _fh = logging.handlers.RotatingFileHandler(
     os.path.join(_log_dir, "audit_mcp.log"), maxBytes=5 * 1024 * 1024, backupCount=3
 )
-_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
-                                   datefmt="%Y-%m-%d %H:%M:%S"))
+_fh.setFormatter(
+    logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -45,7 +48,9 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = os.environ.get(
     "METRICS_DB_PATH",
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "chat-ui", "metrics.db")),
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "chat-ui", "metrics.db")
+    ),
 )
 mcp = FastMCP("audit-mcp", port=int(os.environ.get("FASTMCP_PORT", 8004)))
 
@@ -57,6 +62,7 @@ def _conn() -> sqlite3.Connection:
 
 
 # ── Tools ──────────────────────────────────────────────────────────────────────
+
 
 @mcp.tool()
 def list_incidents(date: str = "", hours_back: int = 24) -> str:
@@ -77,7 +83,9 @@ def list_incidents(date: str = "", hours_back: int = 24) -> str:
                 (f"{date}%",),
             ).fetchall()
         else:
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).isoformat()
+            cutoff = (
+                datetime.now(timezone.utc) - timedelta(hours=hours_back)
+            ).isoformat()
             rows = c.execute(
                 """SELECT session_id, ts, user_question, equipment, status, confidence, mode
                    FROM session_summaries
@@ -87,10 +95,12 @@ def list_incidents(date: str = "", hours_back: int = 24) -> str:
             ).fetchall()
         incidents = [dict(r) for r in rows]
         if not incidents:
-            return json.dumps({
-                "incidents": [],
-                "message": "No faults or anomalies found in the requested period.",
-            })
+            return json.dumps(
+                {
+                    "incidents": [],
+                    "message": "No faults or anomalies found in the requested period.",
+                }
+            )
         return json.dumps({"incidents": incidents}, indent=2, default=str)
     except Exception as exc:
         return f"Error: {exc}"
@@ -141,14 +151,17 @@ def query_by_equipment(equipment_id: str, hours_back: int = 24) -> str:
         ).fetchall()
         results = [dict(r) for r in rows]
         if not results:
-            return json.dumps({
-                "equipment_id": equipment_id,
-                "sessions": [],
-                "message": f"No sessions found for {equipment_id} in the last {hours_back} hours.",
-            })
+            return json.dumps(
+                {
+                    "equipment_id": equipment_id,
+                    "sessions": [],
+                    "message": f"No sessions found for {equipment_id} in the last {hours_back} hours.",
+                }
+            )
         return json.dumps(
             {"equipment_id": equipment_id, "sessions": results},
-            indent=2, default=str,
+            indent=2,
+            default=str,
         )
     except Exception as exc:
         return f"Error: {exc}"
@@ -194,16 +207,22 @@ def query_history(start: str, end: str, equipment: str = "") -> str:
             records.append(s)
 
         if not records:
-            return json.dumps({
+            return json.dumps(
+                {
+                    "range": {"start": start, "end": end},
+                    "equipment": equipment or "all",
+                    "sessions": [],
+                    "message": "No sessions found for the requested range.",
+                }
+            )
+        return json.dumps(
+            {
                 "range": {"start": start, "end": end},
                 "equipment": equipment or "all",
-                "sessions": [],
-                "message": "No sessions found for the requested range.",
-            })
-        return json.dumps(
-            {"range": {"start": start, "end": end}, "equipment": equipment or "all",
-             "sessions": records},
-            indent=2, default=str,
+                "sessions": records,
+            },
+            indent=2,
+            default=str,
         )
     except Exception as exc:
         return f"Error: {exc}"

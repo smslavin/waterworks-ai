@@ -21,29 +21,31 @@ from topology import load as _load_topology
 logger = logging.getLogger(__name__)
 
 TOOL_RESULT_MAX_CHARS = 8_000
-MAX_HISTORY_MESSAGES  = 20   # ~10 conversation turns
+MAX_HISTORY_MESSAGES = 20  # ~10 conversation turns
 
 CONTEXT_WINDOW_TOKENS = int(os.environ.get("CONTEXT_WINDOW_TOKENS", "200000"))
-_CONTEXT_WARN_PCT     = 0.70
-_CONTEXT_COMPACT_PCT  = 0.85
+_CONTEXT_WARN_PCT = 0.70
+_CONTEXT_COMPACT_PCT = 0.85
 
-_INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
-_INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
-_INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
+_INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
+_INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
+_INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
 _INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
 _process_state_cache: tuple[float, str] | None = None
 _PROCESS_STATE_TTL = 60.0
-_unit_running: dict[str, bool] = {}  # populated by _fetch_process_state; keyed by unit name
+_unit_running: dict[str, bool] = (
+    {}
+)  # populated by _fetch_process_state; keyed by unit name
 
-_topo        = _load_topology()
-_TYPE_ORDER  = list(_topo.get("equipment_types", {}).keys())
+_topo = _load_topology()
+_TYPE_ORDER = list(_topo.get("equipment_types", {}).keys())
 _LABEL_OVERRIDES = {"UV": "UV", "Dosing": "Dosing", "StorageTank": "Storage Tanks"}
 _TYPE_LABELS = {k: _LABEL_OVERRIDES.get(k, k + "s") for k in _TYPE_ORDER}
 
 # Tool name as exposed by the aggregator (backend_name__tool_name)
 _PROPOSE_ACTION_TOOL = "control__propose_action"
-_ACTION_TIMEOUT      = 300  # seconds to wait for operator decision
+_ACTION_TIMEOUT = 300  # seconds to wait for operator decision
 
 
 def _query_fault_history() -> str:
@@ -61,17 +63,16 @@ from(bucket: "{_INFLUXDB_BUCKET}")
         events = []
         for table in tables:
             for record in table.records:
-                ts     = record.get_time().strftime("%Y-%m-%d %H:%M UTC")
+                ts = record.get_time().strftime("%Y-%m-%d %H:%M UTC")
                 target = record.values.get("target", "?")
-                mode   = record.get_value()
+                mode = record.get_value()
                 events.append(f"  {ts}  {target} → {mode}")
         if not events:
             return ""
         lines = "\n".join(events)
         return (
             "\n\n── Recent fault history (last 10 events) "
-            "─────────────────────────────────────\n"
-            + lines
+            "─────────────────────────────────────\n" + lines
         )
     finally:
         client.close()
@@ -106,7 +107,13 @@ def _parse_topic_tree(raw: str) -> dict[str, dict[str, list[str]]]:
                 units[current_type] = {"running": [], "stopped": []}
         elif depth == 3 and current_type:
             current_instance = key
-        elif depth == 4 and current_type and current_instance and key == "Running" and val is not None:
+        elif (
+            depth == 4
+            and current_type
+            and current_instance
+            and key == "Running"
+            and val is not None
+        ):
             bucket = "running" if val.lower() in ("true", "1") else "stopped"
             units[current_type][bucket].append(current_instance)
 
@@ -122,11 +129,11 @@ def _format_process_state(units: dict[str, dict[str, list[str]]]) -> str:
     ordered = [t for t in _TYPE_ORDER if t in units]
     ordered += sorted(t for t in units if t not in _TYPE_ORDER)
     for type_key in ordered:
-        label  = _TYPE_LABELS.get(type_key, type_key)
-        data   = units[type_key]
-        run_s  = ", ".join(data["running"]) or "none"
+        label = _TYPE_LABELS.get(type_key, type_key)
+        data = units[type_key]
+        run_s = ", ".join(data["running"]) or "none"
         stop_s = ", ".join(data["stopped"])
-        row    = f"{label:<10} Running: {run_s}"
+        row = f"{label:<10} Running: {run_s}"
         if stop_s:
             row += f"\n           Stopped: {stop_s}"
         lines.append(row)
@@ -150,7 +157,10 @@ def running_state_for(unit_names: list[str]) -> str:
 
 async def _fetch_process_state() -> str:
     global _process_state_cache, _unit_running
-    if _process_state_cache and (time.monotonic() - _process_state_cache[0]) < _PROCESS_STATE_TTL:
+    if (
+        _process_state_cache
+        and (time.monotonic() - _process_state_cache[0]) < _PROCESS_STATE_TTL
+    ):
         return _process_state_cache[1]
     try:
         raw = await asyncio.wait_for(
@@ -159,11 +169,11 @@ async def _fetch_process_state() -> str:
         )
         parsed = _parse_topic_tree(raw)
         _unit_running = {
-            name: True  for data in parsed.values() for name in data["running"]
+            name: True for data in parsed.values() for name in data["running"]
         }
-        _unit_running.update({
-            name: False for data in parsed.values() for name in data["stopped"]
-        })
+        _unit_running.update(
+            {name: False for data in parsed.values() for name in data["stopped"]}
+        )
         state = _format_process_state(parsed)
     except Exception as exc:
         logger.warning("Could not fetch process state from MQTT: %s", exc)
@@ -268,14 +278,16 @@ async def run_chat(
     start_ts = time.monotonic()
     input_tokens = output_tokens = 0
     tool_call_count = error_count = 0
-    last_input_tokens  = 0
-    _warn_triggered    = False
+    last_input_tokens = 0
+    _warn_triggered = False
     _compact_triggered = False
     user_message = next(
         (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
     )
 
-    audit.log("session_start", session_id=session_id, model=model, user_message=user_message)
+    audit.log(
+        "session_start", session_id=session_id, model=model, user_message=user_message
+    )
 
     effective_model = "claude-opus-4-7" if thinking_enabled else model
     client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
@@ -305,7 +317,11 @@ async def run_chat(
         process_units = await _fetch_process_state()
         alarm_history = ""
     cached_system = [
-        {"type": "text", "text": build_system_prompt(process_units, alarm_history), "cache_control": {"type": "ephemeral"}}
+        {
+            "type": "text",
+            "text": build_system_prompt(process_units, alarm_history),
+            "cache_control": {"type": "ephemeral"},
+        }
     ]
 
     # Track all tool calls for equipment extraction at session end
@@ -322,10 +338,13 @@ async def run_chat(
             )
             if tools:
                 cached_tools = list(tools)
-                cached_tools[-1] = {**cached_tools[-1], "cache_control": {"type": "ephemeral"}}
+                cached_tools[-1] = {
+                    **cached_tools[-1],
+                    "cache_control": {"type": "ephemeral"},
+                }
                 stream_kwargs["tools"] = cached_tools
             if thinking_enabled:
-                stream_kwargs["thinking"]      = {"type": "adaptive"}
+                stream_kwargs["thinking"] = {"type": "adaptive"}
                 stream_kwargs["output_config"] = {"effort": "high"}
 
             async with client.messages.stream(**stream_kwargs) as stream:
@@ -345,7 +364,9 @@ async def run_chat(
                         elif event.type == "content_block_delta":
                             delta = event.delta
                             if _in_thinking and hasattr(delta, "thinking"):
-                                yield json.dumps({"type": "thinking_delta", "text": delta.thinking})
+                                yield json.dumps(
+                                    {"type": "thinking_delta", "text": delta.thinking}
+                                )
                             elif not _in_thinking and hasattr(delta, "text"):
                                 yield json.dumps({"type": "text", "text": delta.text})
                 else:
@@ -357,12 +378,14 @@ async def run_chat(
                 if thinking_enabled and not _thinking_streamed:
                     for block in final.content:
                         if hasattr(block, "thinking") and block.thinking:
-                            yield json.dumps({"type": "thinking_delta", "text": block.thinking})
+                            yield json.dumps(
+                                {"type": "thinking_delta", "text": block.thinking}
+                            )
                             yield json.dumps({"type": "thinking_stop"})
                             break
 
-            last_input_tokens  = final.usage.input_tokens
-            input_tokens  += last_input_tokens
+            last_input_tokens = final.usage.input_tokens
+            input_tokens += last_input_tokens
             output_tokens += final.usage.output_tokens
 
             if final.stop_reason == "end_turn":
@@ -380,12 +403,14 @@ async def run_chat(
                     if block.type == "text":
                         assistant_content.append({"type": "text", "text": block.text})
                     elif block.type == "tool_use":
-                        assistant_content.append({
-                            "type": "tool_use",
-                            "id": block.id,
-                            "name": block.name,
-                            "input": dict(block.input),
-                        })
+                        assistant_content.append(
+                            {
+                                "type": "tool_use",
+                                "id": block.id,
+                                "name": block.name,
+                                "input": dict(block.input),
+                            }
+                        )
 
                 tool_results = []
                 for block in final.content:
@@ -395,23 +420,31 @@ async def run_chat(
                     args = dict(block.input)
                     _tool_calls_made.append((block.name, args))
 
-                    audit.log("tool_call", session_id=session_id, tool=block.name, args=args)
-                    yield json.dumps({"type": "tool_call", "tool": block.name, "args": args})
+                    audit.log(
+                        "tool_call", session_id=session_id, tool=block.name, args=args
+                    )
+                    yield json.dumps(
+                        {"type": "tool_call", "tool": block.name, "args": args}
+                    )
 
                     # ── propose_action intercept ───────────────────────────────
                     if block.name == _PROPOSE_ACTION_TOOL:
                         action_id = str(uuid.uuid4())[:8]
-                        yield json.dumps({
-                            "type":        "action_proposed",
-                            "action_id":   action_id,
-                            "description": args.get("description", ""),
-                            "action_type": args.get("action_type", ""),
-                            "target":      args.get("target", ""),
-                            "value":       args.get("value", ""),
-                        })
+                        yield json.dumps(
+                            {
+                                "type": "action_proposed",
+                                "action_id": action_id,
+                                "description": args.get("description", ""),
+                                "action_type": args.get("action_type", ""),
+                                "target": args.get("target", ""),
+                                "value": args.get("value", ""),
+                            }
+                        )
                         fut = control.register(action_id)
                         try:
-                            decision = await asyncio.wait_for(fut, timeout=_ACTION_TIMEOUT)
+                            decision = await asyncio.wait_for(
+                                fut, timeout=_ACTION_TIMEOUT
+                            )
                         except asyncio.TimeoutError:
                             decision = "timed_out"
 
@@ -429,11 +462,13 @@ async def run_chat(
                             action_id=action_id,
                             decision=decision,
                         )
-                        yield json.dumps({
-                            "type":      "action_decision",
-                            "action_id": action_id,
-                            "decision":  decision,
-                        })
+                        yield json.dumps(
+                            {
+                                "type": "action_decision",
+                                "action_id": action_id,
+                                "decision": decision,
+                            }
+                        )
 
                         if decision == "approved":
                             result = (
@@ -446,48 +481,95 @@ async def run_chat(
                                 f"Action denied by operator ({decision}). "
                                 f"No changes will be made to {args.get('target', 'target')}."
                             )
-                        audit.log("tool_result", session_id=session_id, tool=block.name, result=result)
-                        yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
+                        audit.log(
+                            "tool_result",
+                            session_id=session_id,
+                            tool=block.name,
+                            result=result,
+                        )
+                        yield json.dumps(
+                            {
+                                "type": "tool_result",
+                                "tool": block.name,
+                                "result": result,
+                            }
+                        )
 
                     # ── Normal MCP tool call ────────────────────────────────────
                     else:
                         result = await call_mcp_tool(block.name, args)
                         if result.startswith("Error"):
                             error_count += 1
-                        audit.log("tool_result", session_id=session_id, tool=block.name, result=result)
-                        yield json.dumps({"type": "tool_result", "tool": block.name, "result": result})
+                        audit.log(
+                            "tool_result",
+                            session_id=session_id,
+                            tool=block.name,
+                            result=result,
+                        )
+                        yield json.dumps(
+                            {
+                                "type": "tool_result",
+                                "tool": block.name,
+                                "result": result,
+                            }
+                        )
 
                     stored = (
-                        result if len(result) <= TOOL_RESULT_MAX_CHARS
+                        result
+                        if len(result) <= TOOL_RESULT_MAX_CHARS
                         else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]"
                     )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": stored,
-                    })
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": stored,
+                        }
+                    )
 
-                context_pct    = last_input_tokens / CONTEXT_WINDOW_TOKENS
+                context_pct = last_input_tokens / CONTEXT_WINDOW_TOKENS
                 context_prefix: list[dict] = []
                 if context_pct >= _CONTEXT_COMPACT_PCT and not _compact_triggered:
                     _compact_triggered = True
-                    yield json.dumps({"type": "context_warning", "pct": round(context_pct, 2), "level": "compact"})
-                    context_prefix = [{"type": "text", "text": (
-                        f"[System: context window at {context_pct:.0%} of limit. "
-                        "Summarize key findings from this session and stop making tool calls "
-                        "unless the user explicitly requests another query.]"
-                    )}]
+                    yield json.dumps(
+                        {
+                            "type": "context_warning",
+                            "pct": round(context_pct, 2),
+                            "level": "compact",
+                        }
+                    )
+                    context_prefix = [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"[System: context window at {context_pct:.0%} of limit. "
+                                "Summarize key findings from this session and stop making tool calls "
+                                "unless the user explicitly requests another query.]"
+                            ),
+                        }
+                    ]
                 elif context_pct >= _CONTEXT_WARN_PCT and not _warn_triggered:
                     _warn_triggered = True
-                    yield json.dumps({"type": "context_warning", "pct": round(context_pct, 2), "level": "warn"})
-                    context_prefix = [{"type": "text", "text": (
-                        f"[System: context window at {context_pct:.0%} of limit. "
-                        "Be concise in remaining responses and avoid unnecessary tool calls.]"
-                    )}]
+                    yield json.dumps(
+                        {
+                            "type": "context_warning",
+                            "pct": round(context_pct, 2),
+                            "level": "warn",
+                        }
+                    )
+                    context_prefix = [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"[System: context window at {context_pct:.0%} of limit. "
+                                "Be concise in remaining responses and avoid unnecessary tool calls.]"
+                            ),
+                        }
+                    ]
 
                 conv_messages = conv_messages + [
                     {"role": "assistant", "content": assistant_content},
-                    {"role": "user",      "content": context_prefix + tool_results},
+                    {"role": "user", "content": context_prefix + tool_results},
                 ]
                 continue
 
@@ -500,8 +582,12 @@ async def run_chat(
         yield json.dumps({"type": "error", "error": str(exc)})
 
     finally:
-        latency_ms       = int((time.monotonic() - start_ts) * 1000)
-        context_pressure = round(last_input_tokens / CONTEXT_WINDOW_TOKENS, 4) if last_input_tokens else None
+        latency_ms = int((time.monotonic() - start_ts) * 1000)
+        context_pressure = (
+            round(last_input_tokens / CONTEXT_WINDOW_TOKENS, 4)
+            if last_input_tokens
+            else None
+        )
         metrics.log_turn(
             session_id=session_id,
             model=model,
@@ -517,7 +603,9 @@ async def run_chat(
         # Write session summary for compliance audit trail
         if _final_response_text or _tool_calls_made:
             equipment = session_store.extract_equipment(_tool_calls_made)
-            status, confidence = session_store.extract_status_single(_final_response_text)
+            status, confidence = session_store.extract_status_single(
+                _final_response_text
+            )
             session_store.log_session_summary(
                 session_id=session_id,
                 user_question=user_message,
@@ -528,9 +616,11 @@ async def run_chat(
                 mode="single",
             )
 
-        yield json.dumps({
-            "type":             "done",
-            "input_tokens":     input_tokens,
-            "output_tokens":    output_tokens,
-            "context_pressure": context_pressure,
-        })
+        yield json.dumps(
+            {
+                "type": "done",
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "context_pressure": context_pressure,
+            }
+        )

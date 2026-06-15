@@ -31,7 +31,8 @@ def rw(lo: float, hi: float, step: float | None = None) -> RandomWalk:
     mid = (lo + hi) / 2
     return RandomWalk(
         mid + random.uniform(-(hi - lo) * 0.1, (hi - lo) * 0.1),
-        lo, hi,
+        lo,
+        hi,
         step if step is not None else (hi - lo) * 0.01,
     )
 

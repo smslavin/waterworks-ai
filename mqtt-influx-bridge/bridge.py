@@ -23,14 +23,14 @@ from influxdb_client import InfluxDBClient, Point, WriteOptions
 
 load_dotenv()
 
-MQTT_HOST       = os.environ.get("MQTT_BROKER_URL",   "localhost")
-MQTT_PORT       = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
-MQTT_TOPIC      = "Plant/WTP/#"
-INFLUXDB_URL    = os.environ.get("INFLUXDB_URL",    "http://localhost:8086")
-INFLUXDB_TOKEN  = os.environ.get("INFLUXDB_TOKEN",  "")
-INFLUXDB_ORG    = os.environ.get("INFLUXDB_ORG",    "waterworks")
+MQTT_HOST = os.environ.get("MQTT_BROKER_URL", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
+MQTT_TOPIC = "Plant/WTP/#"
+INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
+INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
+INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
-MEASUREMENT       = "wtp_process"
+MEASUREMENT = "wtp_process"
 FAULT_MEASUREMENT = "wtp_fault_events"
 
 _log_dir = os.path.join(os.path.dirname(__file__), "logs")
@@ -38,8 +38,11 @@ os.makedirs(_log_dir, exist_ok=True)
 _fh = logging.handlers.RotatingFileHandler(
     os.path.join(_log_dir, "bridge.log"), maxBytes=5 * 1024 * 1024, backupCount=3
 )
-_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s",
-                                   datefmt="%Y-%m-%d %H:%M:%S"))
+_fh.setFormatter(
+    logging.Formatter(
+        "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -48,7 +51,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-influx    = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
+influx = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
 write_api = influx.write_api(
     write_options=WriteOptions(batch_size=100, flush_interval=2_000)
 )
@@ -63,7 +66,12 @@ def parse_value(raw: str) -> float | None:
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        logger.info("MQTT connected  %s:%d — subscribing to %s", MQTT_HOST, MQTT_PORT, MQTT_TOPIC)
+        logger.info(
+            "MQTT connected  %s:%d — subscribing to %s",
+            MQTT_HOST,
+            MQTT_PORT,
+            MQTT_TOPIC,
+        )
         client.subscribe(MQTT_TOPIC)
     else:
         logger.error("MQTT connect failed  rc=%d", rc)
@@ -71,16 +79,12 @@ def on_connect(client, userdata, flags, rc, properties=None):
 
 def _handle_fault_event(payload_str: str) -> None:
     try:
-        data   = json.loads(payload_str)
+        data = json.loads(payload_str)
         target = data.get("target", "")
-        mode   = data.get("mode", "")
+        mode = data.get("mode", "")
         if not target or not mode:
             return
-        point = (
-            Point(FAULT_MEASUREMENT)
-            .tag("target", target)
-            .field("mode", mode)
-        )
+        point = Point(FAULT_MEASUREMENT).tag("target", target).field("mode", mode)
         write_api.write(bucket=INFLUXDB_BUCKET, record=point)
         logger.info("Fault event: %s → %s", target, mode)
     except (json.JSONDecodeError, KeyError) as exc:
@@ -104,10 +108,10 @@ def on_message(client, userdata, msg):
         return
     point = (
         Point(MEASUREMENT)
-        .tag("type",      type_)
-        .tag("instance",  instance)
+        .tag("type", type_)
+        .tag("instance", instance)
         .tag("attribute", attribute)
-        .field("value",   value)
+        .field("value", value)
     )
     write_api.write(bucket=INFLUXDB_BUCKET, record=point)
 
@@ -124,12 +128,16 @@ def main() -> None:
         client.disconnect()
         sys.exit(0)
 
-    signal.signal(signal.SIGINT,  _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
     logger.info("Connecting to MQTT broker at %s:%d", MQTT_HOST, MQTT_PORT)
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
-    logger.info("Bridge running — writing %s → InfluxDB bucket '%s'", MQTT_TOPIC, INFLUXDB_BUCKET)
+    logger.info(
+        "Bridge running — writing %s → InfluxDB bucket '%s'",
+        MQTT_TOPIC,
+        INFLUXDB_BUCKET,
+    )
     client.loop_forever()
 
 

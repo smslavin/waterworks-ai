@@ -37,21 +37,21 @@ from enum import Enum
 
 
 class FaultMode(str, Enum):
-    NORMAL              = "normal"
+    NORMAL = "normal"
     # Pump
-    SUCTION_STARVATION  = "suction_starvation"
-    RUN_STATUS_FAULT    = "run_status_fault"
-    PRESSURE_DRIFT      = "pressure_drift"
-    CAVITATION          = "cavitation"
+    SUCTION_STARVATION = "suction_starvation"
+    RUN_STATUS_FAULT = "run_status_fault"
+    PRESSURE_DRIFT = "pressure_drift"
+    CAVITATION = "cavitation"
     # Tank
-    LEVEL_SENSOR_FAULT  = "level_sensor_fault"
-    TURBIDITY_SPIKE     = "turbidity_spike"
+    LEVEL_SENSOR_FAULT = "level_sensor_fault"
+    TURBIDITY_SPIKE = "turbidity_spike"
     # Dosing
-    DOSING_BLOCKAGE     = "dosing_blockage"
-    TANK_EMPTY          = "tank_empty"
+    DOSING_BLOCKAGE = "dosing_blockage"
+    TANK_EMPTY = "tank_empty"
     # UV
-    LAMP_DEGRADATION    = "lamp_degradation"
-    LAMP_FAILURE        = "lamp_failure"
+    LAMP_DEGRADATION = "lamp_degradation"
+    LAMP_FAILURE = "lamp_failure"
 
 
 from topology import load as _load_topology
@@ -61,7 +61,11 @@ def _build_type_fault_modes(data: dict) -> dict[str, list[FaultMode]]:
     result = {}
     for eq_type, spec in data["equipment_types"].items():
         modes = [FaultMode.NORMAL]
-        for fault_id in (spec["faults"].keys() if isinstance(spec["faults"], dict) else spec["faults"]):
+        for fault_id in (
+            spec["faults"].keys()
+            if isinstance(spec["faults"], dict)
+            else spec["faults"]
+        ):
             try:
                 modes.append(FaultMode(fault_id))
             except ValueError:
@@ -89,13 +93,15 @@ class FaultState:
         """Advance internal state once per publish cycle, before apply() calls."""
         match self.mode:
             case FaultMode.SUCTION_STARVATION:
-                self._intensity = min(1.0, self._intensity + 0.04)   # ~25 ticks to full
+                self._intensity = min(1.0, self._intensity + 0.04)  # ~25 ticks to full
             case FaultMode.PRESSURE_DRIFT:
                 self._drift_offset += random.uniform(0.05, 0.15)
             case FaultMode.DOSING_BLOCKAGE:
-                self._intensity = min(1.0, self._intensity + 0.04)   # ~25 ticks to full
+                self._intensity = min(1.0, self._intensity + 0.04)  # ~25 ticks to full
             case FaultMode.TANK_EMPTY:
-                self._intensity = min(1.0, self._intensity + 0.015)  # ~65 ticks to empty
+                self._intensity = min(
+                    1.0, self._intensity + 0.015
+                )  # ~65 ticks to empty
             case FaultMode.LAMP_DEGRADATION:
                 self._intensity = min(1.0, self._intensity + 0.016)  # ~60 ticks to ~20%
 

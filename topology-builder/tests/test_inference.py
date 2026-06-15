@@ -2,20 +2,19 @@ import pytest
 from inference import load_template, infer_topology
 from tests.fixtures.legacy_wtp_topics import LEGACY_TOPICS, LEGACY_OPCUA_NODES
 
-
 CLEAN_TOPICS = {
-    "Plant/WTP/Pump/RawWater_01/Flow":          "312.0",
-    "Plant/WTP/Pump/RawWater_01/Pressure":      "4.2",
-    "Plant/WTP/Pump/RawWater_01/Power":         "42.0",
-    "Plant/WTP/Pump/RawWater_01/Running":       "true",
-    "Plant/WTP/Pump/RawWater_02/Flow":          "290.0",
-    "Plant/WTP/Pump/RawWater_02/Pressure":      "4.0",
-    "Plant/WTP/Pump/RawWater_02/Power":         "38.0",
-    "Plant/WTP/Pump/RawWater_02/Running":       "true",
-    "Plant/WTP/Clarifier/Clarifier_01/Level":     "62.0",
+    "Plant/WTP/Pump/RawWater_01/Flow": "312.0",
+    "Plant/WTP/Pump/RawWater_01/Pressure": "4.2",
+    "Plant/WTP/Pump/RawWater_01/Power": "42.0",
+    "Plant/WTP/Pump/RawWater_01/Running": "true",
+    "Plant/WTP/Pump/RawWater_02/Flow": "290.0",
+    "Plant/WTP/Pump/RawWater_02/Pressure": "4.0",
+    "Plant/WTP/Pump/RawWater_02/Power": "38.0",
+    "Plant/WTP/Pump/RawWater_02/Running": "true",
+    "Plant/WTP/Clarifier/Clarifier_01/Level": "62.0",
     "Plant/WTP/Clarifier/Clarifier_01/Turbidity": "2.1",
-    "Plant/WTP/UV/UV_01/Intensity":             "92.0",
-    "Plant/WTP/UV/UV_01/Running":               "true",
+    "Plant/WTP/UV/UV_01/Intensity": "92.0",
+    "Plant/WTP/UV/UV_01/Running": "true",
 }
 
 CLEAN_OPCUA = [
@@ -35,6 +34,7 @@ def _get(results, instance_id):
 
 
 # ── Clean WTP — MQTT only ────────────────────────────────────────────────────
+
 
 def test_clean_wtp_pumps_inferred_without_opcua(template):
     results = infer_topology(CLEAN_TOPICS, [], template)
@@ -66,6 +66,7 @@ def test_clean_wtp_process_areas(template):
 
 
 # ── Legacy WTP — MQTT only ───────────────────────────────────────────────────
+
 
 def test_legacy_standard_pump_inferred_without_opcua(template):
     results = infer_topology(LEGACY_TOPICS, [], template)
@@ -146,6 +147,7 @@ def test_legacy_instance_count_reasonable(template):
 
 # ── Legacy WTP — with OPC-UA ─────────────────────────────────────────────────
 
+
 def test_legacy_opcua_elevates_active_equipment(template):
     # With LEGACY_OPCUA_NODES, active equipment with full OPC-UA coverage → verified.
     results = infer_topology(LEGACY_TOPICS, LEGACY_OPCUA_NODES, template)
@@ -191,6 +193,7 @@ def test_legacy_pattern_cap_prevents_verified(template):
 
 
 # ── Confidence score ordering contract ──────────────────────────────────────
+
 
 def test_confidence_score_ordering(template):
     results = infer_topology(LEGACY_TOPICS, LEGACY_OPCUA_NODES, template)
