@@ -285,7 +285,7 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
 
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", CONTROL_PORT).start()
+    await web.TCPSite(runner, "0.0.0.0", CONTROL_PORT).start()  # nosec B104
     logger.info(
         "Control plane    http://0.0.0.0:%d  POST /fault  POST /setpoint  GET /status",
         CONTROL_PORT,
