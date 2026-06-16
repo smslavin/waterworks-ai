@@ -71,6 +71,11 @@ export const useUIStore = defineStore('ui', () => {
     activeArea.value = null
     activePanel.value = null
     activeFlyout.value = null
+    siteNavOpen.value = false
+  }
+
+  function toggleSiteNav() {
+    siteNavOpen.value = !siteNavOpen.value
   }
 
   function toggleFlyout(key: FlyoutKey) {
@@ -113,6 +118,7 @@ export const useUIStore = defineStore('ui', () => {
     openPlantPanel,
     openCrumbPanel,
     dismissPanels,
+    toggleSiteNav,
     toggleFlyout,
     closeFlyout,
     toggleMultiAgent,

@@ -10,6 +10,8 @@ import TopoEdges from '@/components/topo/TopoEdges.vue'
 import NodePanel from '@/components/panels/NodePanel.vue'
 import AreaPanel from '@/components/panels/AreaPanel.vue'
 import PlantPanel from '@/components/panels/PlantPanel.vue'
+import StatusBar from '@/components/statusbar/StatusBar.vue'
+import SiteNav from '@/components/statusbar/SiteNav.vue'
 
 const ui = useUIStore()
 usePanelDismiss()
@@ -34,8 +36,10 @@ usePanelDismiss()
           <AreaPanel />
           <PlantPanel />
         </div>
+        <SiteNav />
       </div>
     </div>
+    <StatusBar />
   </div>
 </template>
 

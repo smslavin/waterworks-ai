@@ -75,12 +75,53 @@ describe('useUIStore', () => {
       expect(ui.activePanel).toBe('plant')
     })
 
-    it('dismissPanels clears everything', () => {
+    it('dismissPanels clears node, area, and panel', () => {
       const ui = useUIStore()
       ui.setActiveNode('RawWater_01')
       ui.dismissPanels()
       expect(ui.activeNodeId).toBeNull()
       expect(ui.activePanel).toBeNull()
+    })
+
+    it('dismissPanels also closes flyout and siteNav', () => {
+      const ui = useUIStore()
+      ui.toggleFlyout('health')
+      ui.siteNavOpen = true
+      ui.dismissPanels()
+      expect(ui.activeFlyout).toBeNull()
+      expect(ui.siteNavOpen).toBe(false)
+    })
+  })
+
+  describe('crumb panels', () => {
+    it('openCrumbPanel sets activePanel to "plant" and crumbLevel', () => {
+      const ui = useUIStore()
+      ui.openCrumbPanel('enterprise')
+      expect(ui.activePanel).toBe('plant')
+      expect(ui.crumbLevel).toBe('enterprise')
+    })
+
+    it('openCrumbPanel clears activeNodeId and activeArea', () => {
+      const ui = useUIStore()
+      ui.setActiveNode('RawWater_01')
+      ui.openCrumbPanel('region')
+      expect(ui.activeNodeId).toBeNull()
+      expect(ui.activeArea).toBeNull()
+    })
+  })
+
+  describe('siteNav', () => {
+    it('toggleSiteNav opens the site nav', () => {
+      const ui = useUIStore()
+      ui.toggleSiteNav()
+      expect(ui.siteNavOpen).toBe(true)
+    })
+
+    it('toggleSiteNav closes it again', () => {
+      const ui = useUIStore()
+      ui.toggleSiteNav()
+      ui.toggleSiteNav()
+      expect(ui.siteNavOpen).toBe(false)
     })
   })
 
