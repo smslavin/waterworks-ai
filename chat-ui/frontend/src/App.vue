@@ -12,6 +12,8 @@ import AreaPanel from '@/components/panels/AreaPanel.vue'
 import PlantPanel from '@/components/panels/PlantPanel.vue'
 import StatusBar from '@/components/statusbar/StatusBar.vue'
 import SiteNav from '@/components/statusbar/SiteNav.vue'
+import ApprovalPanel from '@/components/approval/ApprovalPanel.vue'
+import ConfigShell from '@/components/config/ConfigShell.vue'
 
 const ui = useUIStore()
 usePanelDismiss()
@@ -36,10 +38,12 @@ usePanelDismiss()
           <AreaPanel />
           <PlantPanel />
         </div>
+        <ApprovalPanel />
         <SiteNav />
       </div>
     </div>
     <StatusBar />
+    <ConfigShell />
   </div>
 </template>
 
