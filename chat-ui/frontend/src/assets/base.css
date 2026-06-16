@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg:       #09090b;
+  --color-bg2:      #18181b;
+  --color-bg3:      #27272a;
+  --color-border:   #3f3f46;
+  --color-text1:    #fafafa;
+  --color-text2:    #a1a1aa;
+  --color-accent:   #3b82f6;
+  --color-ok:       #4ade80;
+  --color-warn:     #fbbf24;
+  --color-error:    #f87171;
+  --color-verified: #2dd4bf;
+  --color-inferred: #fbbf24;
+  --color-config:   #6366f1;
+
+  --font-mono: "Cascadia Code", "Fira Code", "Consolas", monospace;
+}
+
+/* CSS custom properties for use in animations and non-Tailwind contexts */
+:root {
+  --bg:       #09090b;
+  --bg2:      #18181b;
+  --bg3:      #27272a;
+  --border:   #3f3f46;
+  --text:     #fafafa;
+  --text2:    #a1a1aa;
+  --accent:   #3b82f6;
+  --ok:       #4ade80;
+  --warn:     #fbbf24;
+  --error:    #f87171;
+  --verified: #2dd4bf;
+  --inferred: #fbbf24;
+  --config:   #6366f1;
+  --font:     system-ui, -apple-system, sans-serif;
+  --mono:     "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --radius:   10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
