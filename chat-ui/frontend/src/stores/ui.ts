@@ -3,6 +3,7 @@ import { ref } from 'vue'
 
 export type FlyoutKey = 'notif' | 'health' | 'faults' | 'audit' | null
 export type PanelKey = 'node' | 'area' | 'plant' | null
+export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 
 export const useUIStore = defineStore('ui', () => {
   // Config mode: operational view ↔ topology builder
@@ -28,6 +29,9 @@ export const useUIStore = defineStore('ui', () => {
   // Post-approval decision: drives which response key the node panel uses
   const postApprovalDecision = ref<'approve' | 'deny' | null>(null)
 
+  // Crumb trail level for PlantPanel
+  const crumbLevel = ref<CrumbLevel>('plant')
+
   function enterConfigMode() {
     configMode.value = true
   }
@@ -51,6 +55,14 @@ export const useUIStore = defineStore('ui', () => {
   function openPlantPanel() {
     activeNodeId.value = null
     activeArea.value = null
+    crumbLevel.value = 'plant'
+    activePanel.value = 'plant'
+  }
+
+  function openCrumbPanel(level: CrumbLevel) {
+    activeNodeId.value = null
+    activeArea.value = null
+    crumbLevel.value = level
     activePanel.value = 'plant'
   }
 
@@ -92,11 +104,13 @@ export const useUIStore = defineStore('ui', () => {
     deepReasoning,
     reactiveOn,
     postApprovalDecision,
+    crumbLevel,
     enterConfigMode,
     exitConfigMode,
     setActiveNode,
     setActiveArea,
     openPlantPanel,
+    openCrumbPanel,
     dismissPanels,
     toggleFlyout,
     closeFlyout,

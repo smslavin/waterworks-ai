@@ -14,8 +14,8 @@ chat-ui/audit.*.jsonl
 chat-ui/metrics.db
 roadmap.md
 
-# Data directories (LadybugDB, DuckDB, specialist memory)
-data/
+# Data directories (LadybugDB, DuckDB, specialist memory) — root only
+/data/
 
 # Log files
 chat-ui/logs/
