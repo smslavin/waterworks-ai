@@ -70,6 +70,7 @@ export const useUIStore = defineStore('ui', () => {
     activeNodeId.value = null
     activeArea.value = null
     activePanel.value = null
+    activeFlyout.value = null
   }
 
   function toggleFlyout(key: FlyoutKey) {
