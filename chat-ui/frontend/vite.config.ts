@@ -22,11 +22,4 @@ export default defineConfig({
       '/api': 'http://localhost:8000',
     },
   },
-  test: {
-    environment: 'jsdom',
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'lcov'],
-    },
-  },
 })
