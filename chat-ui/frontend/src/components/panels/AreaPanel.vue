@@ -63,6 +63,10 @@ watch(() => ui.activeArea, async (area, oldArea) => {
       </div>
     </div>
     <div class="area-panel-body" v-html="renderedContent" />
+    <div class="area-panel-footer">
+      <input class="panel-input" placeholder="Ask a follow-up…" @click.stop />
+      <button class="panel-send">Ask</button>
+    </div>
   </div>
 </template>
 
@@ -145,5 +149,44 @@ watch(() => ui.activeArea, async (area, oldArea) => {
 
 .area-panel-body :deep(strong) {
   font-weight: 600;
+}
+
+.area-panel-footer {
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.panel-input {
+  flex: 1;
+  background: var(--color-bg3);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--color-text1);
+  outline: none;
+}
+
+.panel-input:focus {
+  border-color: var(--color-accent);
+}
+
+.panel-send {
+  padding: 6px 12px;
+  background: var(--color-accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.panel-send:hover {
+  opacity: 0.85;
 }
 </style>

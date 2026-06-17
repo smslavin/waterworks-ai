@@ -10,6 +10,7 @@ const emit = defineEmits<{ ack: [] }>()
     <span class="alarm-badge" :class="alarm.severity">{{ alarm.severity }}</span>
     <span class="alarm-node">{{ alarm.nodeId }}</span>
     <span class="alarm-message">{{ alarm.message }}</span>
+    <span class="alarm-timestamp">{{ alarm.timestamp }}</span>
     <button class="alarm-ack" @click.stop="emit('ack')">ACK</button>
   </div>
 </template>
@@ -18,15 +19,26 @@ const emit = defineEmits<{ ack: [] }>()
 .alarm-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 0 16px;
   height: 32px;
-  border-right: 1px solid var(--color-border);
-  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.alarm-row.critical { border-left: 2px solid var(--color-error); }
-.alarm-row.warning  { border-left: 2px solid var(--color-warn); }
+.alarm-row:last-child {
+  border-bottom: none;
+}
+
+.alarm-row.critical {
+  border-left: 3px solid var(--color-error);
+  background: rgba(248, 113, 113, 0.08);
+}
+.alarm-row.warning {
+  border-left: 3px solid var(--color-warn);
+  background: rgba(251, 191, 36, 0.05);
+}
 
 .alarm-badge {
   font-size: 9px;
@@ -54,6 +66,7 @@ const emit = defineEmits<{ ack: [] }>()
   font-size: 11px;
   color: var(--color-text1);
   flex-shrink: 0;
+  min-width: 100px;
 }
 
 .alarm-message {
@@ -63,6 +76,14 @@ const emit = defineEmits<{ ack: [] }>()
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+}
+
+.alarm-timestamp {
+  font-size: 10px;
+  color: var(--color-text2);
+  opacity: 0.6;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .alarm-ack {

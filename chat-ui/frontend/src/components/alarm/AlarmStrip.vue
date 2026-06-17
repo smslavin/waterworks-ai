@@ -4,14 +4,15 @@ import { useAlarmStore } from '@/stores/alarm'
 import AlarmRow from './AlarmRow.vue'
 
 const alarm = useAlarmStore()
-const hasAlarms = computed(() => alarm.alarms.length > 0)
+const criticalAlarms = computed(() => alarm.alarms.filter(a => a.severity === 'critical'))
+const hasAlarms = computed(() => criticalAlarms.value.length > 0)
 </script>
 
 <template>
   <div v-if="hasAlarms" class="alarm-strip">
     <TransitionGroup name="alarm" tag="div" class="alarm-list">
       <AlarmRow
-        v-for="a in alarm.alarms"
+        v-for="a in criticalAlarms"
         :key="a.id"
         :alarm="a"
         @ack="alarm.acknowledge(a.id)"
@@ -24,29 +25,28 @@ const hasAlarms = computed(() => alarm.alarms.length > 0)
 .alarm-strip {
   background: var(--color-bg);
   border-bottom: 1px solid var(--color-border);
-  overflow-x: auto;
   flex-shrink: 0;
 }
 
 .alarm-list {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
 }
 
 .alarm-enter-active,
 .alarm-leave-active {
-  transition: opacity 0.2s, max-width 0.25s;
+  transition: opacity 0.2s, max-height 0.25s;
   overflow: hidden;
 }
 
 .alarm-enter-from,
 .alarm-leave-to {
   opacity: 0;
-  max-width: 0;
+  max-height: 0;
 }
 
 .alarm-enter-to,
 .alarm-leave-from {
-  max-width: 400px;
+  max-height: 36px;
 }
 </style>

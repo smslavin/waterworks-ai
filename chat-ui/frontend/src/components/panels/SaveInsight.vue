@@ -102,7 +102,6 @@ function commitSave() {
 
 <style scoped>
 .save-section {
-  border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
 }

@@ -11,36 +11,36 @@ const SITES: Site[] = [
     name: 'Waterworks',
     isCurrent: true,
     areas: [
-      { label: 'I', status: 'crit' },
-      { label: 'T', status: 'warn' },
-      { label: 'D', status: 'crit' },
+      { label: 'Intake', status: 'crit' },
+      { label: 'Treatment', status: 'warn' },
+      { label: 'Distribution', status: 'crit' },
     ],
   },
   {
     name: 'Eastside',
     isCurrent: false,
     areas: [
-      { label: 'I', status: 'ok' },
-      { label: 'T', status: 'ok' },
-      { label: 'D', status: 'ok' },
+      { label: 'Intake', status: 'ok' },
+      { label: 'Treatment', status: 'ok' },
+      { label: 'Distribution', status: 'ok' },
     ],
   },
   {
     name: 'Northgate',
     isCurrent: false,
     areas: [
-      { label: 'I', status: 'ok' },
-      { label: 'T', status: 'warn' },
-      { label: 'D', status: 'ok' },
+      { label: 'Intake', status: 'ok' },
+      { label: 'Treatment', status: 'warn' },
+      { label: 'Distribution', status: 'ok' },
     ],
   },
   {
     name: 'Riverfront',
     isCurrent: false,
     areas: [
-      { label: 'I', status: 'ok' },
-      { label: 'T', status: 'ok' },
-      { label: 'D', status: 'ok' },
+      { label: 'Intake', status: 'ok' },
+      { label: 'Treatment', status: 'ok' },
+      { label: 'Distribution', status: 'ok' },
     ],
   },
 ]
@@ -55,9 +55,6 @@ const SITES: Site[] = [
     >
       <div class="site-nav-header">
         <span class="site-nav-title">Sites</span>
-        <div class="site-nav-area-labels">
-          <span>I</span><span>T</span><span>D</span>
-        </div>
         <button class="site-nav-close" @click="ui.siteNavOpen = false">✕</button>
       </div>
 
@@ -88,9 +85,9 @@ const SITES: Site[] = [
 <style scoped>
 .site-nav {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
-  width: 220px;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: 240px;
   background: var(--color-bg2);
   border: 1px solid var(--color-border);
   border-radius: 10px;
@@ -116,15 +113,6 @@ const SITES: Site[] = [
   flex: 1;
 }
 
-.site-nav-area-labels {
-  display: flex;
-  gap: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-text2);
-  letter-spacing: 0.06em;
-  margin-right: 4px;
-}
 
 .site-nav-close {
   background: transparent;

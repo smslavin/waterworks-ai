@@ -2,59 +2,50 @@
 import { useUIStore } from '@/stores/ui'
 
 const ui = useUIStore()
-
-function onClick() {
-  ui.toggleFlyout('notif')
-}
 </script>
 
 <template>
-  <button
-    class="reactive-pill"
-    :class="{ active: ui.reactiveOn, flyout: ui.activeFlyout === 'notif' }"
-    :title="ui.reactiveOn ? 'Reactive monitoring on — click for alerts' : 'Reactive monitoring off'"
-    @click.stop="onClick"
+  <div
+    v-if="ui.reactiveOn"
+    class="reactive-indicator"
+    title="Reactive monitoring active"
   >
-    <span class="pill-dot" />
-    <span class="pill-label">⚡ Reactive</span>
-  </button>
+    <span class="indicator-dot" />
+    <span class="indicator-label">Reactive</span>
+  </div>
 </template>
 
 <style scoped>
-.reactive-pill {
+.reactive-indicator {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text2);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.reactive-pill.active {
-  border-color: var(--color-warn);
-  color: var(--color-warn);
-  animation: pill-pulse 2s ease-in-out infinite;
-}
-
-.reactive-pill.flyout {
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 4px;
   background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
 }
 
-.pill-dot {
+.indicator-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--color-warn);
   flex-shrink: 0;
+  animation: reactive-blink 1.6s step-end infinite;
 }
 
-.pill-label {
+.indicator-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-warn);
   white-space: nowrap;
+}
+
+@keyframes reactive-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
 }
 </style>

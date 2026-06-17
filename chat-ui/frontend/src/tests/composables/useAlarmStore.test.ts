@@ -51,7 +51,7 @@ describe('useAlarmStore', () => {
   describe('addAlarm', () => {
     it('adds a new alarm', () => {
       const alarm = useAlarmStore()
-      alarm.addAlarm({ id: 'new1', nodeId: 'Clarifier_01', severity: 'warning', message: 'Test' })
+      alarm.addAlarm({ id: 'new1', nodeId: 'Clarifier_01', severity: 'warning', message: 'Test', timestamp: 'just now' })
       expect(alarm.alarms).toHaveLength(4)
     })
 

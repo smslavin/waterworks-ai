@@ -5,17 +5,15 @@ import { useTopologyStore } from '@/stores/topology'
 import { AREA_ORDER } from '@/stores/topology'
 import type { AlarmState } from '@/stores/topology'
 import type { CrumbLevel } from '@/stores/ui'
+import SiteNav from './SiteNav.vue'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
 
 interface AreaDot {
   area: string
-  abbr: string
   status: AlarmState
 }
-
-const ABBR: Record<string, string> = { Intake: 'I', Treatment: 'T', Distribution: 'D' }
 
 function worstAlarmState(states: AlarmState[]): AlarmState {
   if (states.includes('critical')) return 'critical'
@@ -27,7 +25,6 @@ function worstAlarmState(states: AlarmState[]): AlarmState {
 const areaDots = computed<AreaDot[]>(() =>
   AREA_ORDER.map(area => ({
     area,
-    abbr: ABBR[area] ?? area[0],
     status: worstAlarmState((topo.nodesByArea[area] ?? []).map(n => n.alarmState)),
   }))
 )
@@ -61,7 +58,7 @@ const crumbItems = computed<CrumbItem[]>(() => {
 
 <template>
   <div class="status-bar">
-    <!-- Area status dots -->
+    <!-- Left: Area status dots -->
     <div class="area-dots">
       <button
         v-for="dot in areaDots"
@@ -71,11 +68,27 @@ const crumbItems = computed<CrumbItem[]>(() => {
         @click.stop="ui.setActiveArea(dot.area)"
       >
         <span class="area-dot" :class="dot.status" />
-        <span class="area-abbr">{{ dot.abbr }}</span>
+        <span class="area-name">{{ dot.area }}</span>
       </button>
     </div>
 
-    <!-- Breadcrumb trail -->
+    <!-- Left: Reactive toggle -->
+    <button
+      class="reactive-toggle"
+      :class="{ active: ui.reactiveOn }"
+      :title="ui.reactiveOn ? 'Reactive monitoring on' : 'Reactive monitoring off'"
+      @click.stop="ui.toggleReactive()"
+    >
+      <span class="toggle-track">
+        <span class="toggle-thumb" />
+      </span>
+      <span class="toggle-label">Reactive</span>
+    </button>
+
+    <!-- Spacer pushes breadcrumb + globe to the right -->
+    <div class="status-spacer" />
+
+    <!-- Right: Breadcrumb trail -->
     <nav class="crumb-trail" aria-label="breadcrumb">
       <template v-for="(item, i) in crumbItems" :key="item.label">
         <span v-if="i > 0" class="crumb-sep" aria-hidden="true">›</span>
@@ -83,20 +96,8 @@ const crumbItems = computed<CrumbItem[]>(() => {
       </template>
     </nav>
 
-    <!-- Right controls -->
-    <div class="status-right">
-      <button
-        class="reactive-toggle"
-        :class="{ active: ui.reactiveOn }"
-        :title="ui.reactiveOn ? 'Reactive monitoring on' : 'Reactive monitoring off'"
-        @click.stop="ui.toggleReactive()"
-      >
-        <span class="toggle-track">
-          <span class="toggle-thumb" />
-        </span>
-        <span class="toggle-label">Reactive</span>
-      </button>
-
+    <!-- Right: Globe + SiteNav -->
+    <div class="globe-wrap">
       <button
         class="globe-btn"
         :class="{ active: ui.siteNavOpen }"
@@ -109,6 +110,7 @@ const crumbItems = computed<CrumbItem[]>(() => {
           <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
         </svg>
       </button>
+      <SiteNav />
     </div>
   </div>
 </template>
@@ -123,12 +125,17 @@ const crumbItems = computed<CrumbItem[]>(() => {
   background: var(--color-bg2);
   border-top: 1px solid var(--color-border);
   flex-shrink: 0;
+  position: relative;
+}
+
+.globe-wrap {
+  position: relative;
 }
 
 /* Area dots */
 .area-dots {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
@@ -160,20 +167,24 @@ const crumbItems = computed<CrumbItem[]>(() => {
 .area-dot.critical         { background: var(--color-error); }
 .area-dot.pending-approval { background: #a855f7; }
 
-.area-abbr {
+.area-name {
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-weight: 600;
   color: var(--color-text2);
+}
+
+.status-spacer {
+  flex: 1;
 }
 
 /* Crumb trail */
 .crumb-trail {
-  flex: 1;
   display: flex;
   align-items: center;
   gap: 4px;
   overflow: hidden;
+  max-width: 400px;
+  flex-shrink: 1;
 }
 
 .crumb-sep {
@@ -205,14 +216,6 @@ const crumbItems = computed<CrumbItem[]>(() => {
 .crumb-item:last-child {
   color: var(--color-text1);
   font-weight: 500;
-}
-
-/* Right controls */
-.status-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
 }
 
 .reactive-toggle {

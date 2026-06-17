@@ -32,7 +32,7 @@ const emit = defineEmits<{
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 28px;
+  gap: 44px;
 }
 
 .topo-column-label {

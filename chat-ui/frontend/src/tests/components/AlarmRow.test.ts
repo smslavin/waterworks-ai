@@ -10,6 +10,7 @@ function renderRow(alarm: Partial<Alarm> = {}) {
     nodeId: 'RawWater_02',
     severity: 'critical',
     message: 'Bearing temp 68°C — threshold exceeded',
+    timestamp: '3 min ago',
     ...alarm,
   }
   return render(AlarmRow, {

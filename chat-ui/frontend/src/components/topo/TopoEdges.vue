@@ -13,12 +13,15 @@ function drawEdges() {
   if (!svg || !canvas) return
 
   const cr = canvas.getBoundingClientRect()
+  if (cr.width === 0 || cr.height === 0) return
+
   svg.innerHTML = ''
 
   function centerOf(id: string) {
     const el = document.querySelector<HTMLElement>(`[data-id="${id}"] .topo-node-circle`)
     if (!el) return null
     const r = el.getBoundingClientRect()
+    if (r.width === 0) return null
     return { x: r.left - cr.left + r.width / 2, y: r.top - cr.top + r.height / 2 }
   }
 
@@ -32,17 +35,22 @@ function drawEdges() {
     line.setAttribute('y1', String(pa.y))
     line.setAttribute('x2', String(pb.x))
     line.setAttribute('y2', String(pb.y))
-    line.setAttribute('stroke', '#3f3f46')
+    line.setAttribute('stroke', '#52525b')
     line.setAttribute('stroke-width', '1.5')
-    line.setAttribute('stroke-dasharray', '4 5')
+    line.setAttribute('stroke-dasharray', '4 6')
+    line.setAttribute('stroke-linecap', 'round')
     svg.appendChild(line)
   }
+}
+
+function scheduleDraw() {
+  nextTick(() => requestAnimationFrame(drawEdges))
 }
 
 let ro: ResizeObserver | null = null
 
 onMounted(() => {
-  nextTick(drawEdges)
+  scheduleDraw()
   const canvas = document.getElementById('topo-canvas')
   if (canvas) {
     ro = new ResizeObserver(drawEdges)
@@ -52,12 +60,18 @@ onMounted(() => {
 
 onUnmounted(() => ro?.disconnect())
 
-watch(() => ui.activeNodeId, () => nextTick(drawEdges))
-watch(() => topo.nodes, () => nextTick(drawEdges), { deep: true })
+watch(() => ui.activeNodeId, scheduleDraw)
+watch(() => topo.nodes, scheduleDraw, { deep: true })
 </script>
 
 <template>
-  <svg ref="svgEl" class="topo-edges" aria-hidden="true" />
+  <svg
+    ref="svgEl"
+    class="topo-edges"
+    width="100%"
+    height="100%"
+    aria-hidden="true"
+  />
 </template>
 
 <style scoped>

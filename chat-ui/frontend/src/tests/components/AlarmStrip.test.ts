@@ -15,17 +15,16 @@ describe('AlarmStrip', () => {
   beforeEach(() => { setActivePinia(createPinia()) })
   afterEach(() => cleanup())
 
-  it('renders a row for each alarm', () => {
+  it('renders only critical alarm rows (warnings go to the header)', () => {
     const { container } = renderStrip()
-    expect(container.querySelectorAll('.alarm-row')).toHaveLength(3)
+    expect(container.querySelectorAll('.alarm-row')).toHaveLength(2)
   })
 
-  it('renders criticals before warnings', () => {
+  it('renders only critical rows', () => {
     const { container } = renderStrip()
     const rows = container.querySelectorAll('.alarm-row')
     expect(rows[0].classList).toContain('critical')
     expect(rows[1].classList).toContain('critical')
-    expect(rows[2].classList).toContain('warning')
   })
 
   it('removes a row when ACK is clicked', async () => {
@@ -34,16 +33,18 @@ describe('AlarmStrip', () => {
     const { container } = render(AlarmStrip, { global: { plugins: [pinia] } })
     const ackBtns = container.querySelectorAll('.alarm-ack')
     await fireEvent.click(ackBtns[0])
-    expect(container.querySelectorAll('.alarm-row')).toHaveLength(2)
+    expect(container.querySelectorAll('.alarm-row')).toHaveLength(1)
   })
 
-  it('is hidden when all alarms are acknowledged', async () => {
+  it('is hidden when all critical alarms are acknowledged', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const alarmStore = useAlarmStore()
     const { container } = render(AlarmStrip, { global: { plugins: [pinia] } })
-    const ids = alarmStore.alarms.map(a => a.id)
-    ids.forEach(id => alarmStore.acknowledge(id))
+    const criticalIds = alarmStore.alarms
+      .filter(a => a.severity === 'critical')
+      .map(a => a.id)
+    criticalIds.forEach(id => alarmStore.acknowledge(id))
     await nextTick()
     expect(container.querySelector('.alarm-strip')).toBeNull()
   })

@@ -11,7 +11,6 @@ import NodePanel from '@/components/panels/NodePanel.vue'
 import AreaPanel from '@/components/panels/AreaPanel.vue'
 import PlantPanel from '@/components/panels/PlantPanel.vue'
 import StatusBar from '@/components/statusbar/StatusBar.vue'
-import SiteNav from '@/components/statusbar/SiteNav.vue'
 import ApprovalPanel from '@/components/approval/ApprovalPanel.vue'
 import ConfigShell from '@/components/config/ConfigShell.vue'
 
@@ -39,7 +38,6 @@ usePanelDismiss()
           <PlantPanel />
         </div>
         <ApprovalPanel />
-        <SiteNav />
       </div>
     </div>
     <StatusBar />

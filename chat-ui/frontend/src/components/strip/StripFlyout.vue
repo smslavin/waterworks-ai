@@ -81,7 +81,7 @@ const HEALTH_SERVICES = [
 <style scoped>
 .strip-flyout {
   position: absolute;
-  left: 48px;
+  left: 0;
   top: 0;
   width: 260px;
   height: 100%;
