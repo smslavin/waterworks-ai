@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  ci:
-    name: Lint, security, test
+  python:
+    name: Python — lint, security, test
     runs-on: ubuntu-latest
 
     steps:
@@ -32,3 +32,45 @@ jobs:
 
       - name: pytest
         run: pytest tests/ topology-builder/tests/ -v
+
+  frontend:
+    name: Vue — type check, lint, unit, e2e
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chat-ui/frontend
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: chat-ui/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx vue-tsc --build
+
+      - name: Lint (oxlint)
+        run: npx oxlint .
+
+      - name: Lint (eslint)
+        run: npx eslint .
+
+      - name: Unit tests
+        run: npx vitest run --coverage
+
+      - name: Build
+        run: npm run build-only
+
+      - name: Install Playwright (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E
+        run: npx playwright test --project=chromium
+        env:
+          CI: true

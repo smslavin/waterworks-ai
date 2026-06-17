@@ -1,8 +1,42 @@
 import { test, expect } from '@playwright/test'
 
-// See here how to get started:
-// https://playwright.dev/docs/intro
-test('visits the app root url', async ({ page }) => {
+test('operational view loads', async ({ page }) => {
   await page.goto('/')
-  await expect(page.locator('h1')).toHaveText('You did it!')
+  await expect(page.locator('.app-header')).toBeVisible()
+  await expect(page.locator('.topo-columns')).toBeVisible()
+  await expect(page.locator('.status-bar')).toBeVisible()
+})
+
+test('topology nodes render', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.topo-node').first()).toBeVisible()
+})
+
+test('critical alarm strip shows on load', async ({ page }) => {
+  await page.goto('/')
+  // Fixture data has 2 critical alarms
+  await expect(page.locator('.alarm-row.critical')).toHaveCount(2)
+})
+
+test('clicking a node opens the node panel', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.topo-node').first().click()
+  await expect(page.locator('.float-panel')).toBeVisible()
+})
+
+test('clicking the canvas dismisses the node panel', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.topo-node').first().click()
+  await expect(page.locator('.float-panel')).toBeVisible()
+  await page.locator('.topo-canvas').click({ position: { x: 10, y: 10 } })
+  await expect(page.locator('.float-panel')).not.toBeVisible()
+})
+
+test('site nav opens and shows regions', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.globe-btn').click()
+  await expect(page.locator('.site-nav')).toBeVisible()
+  // Back button drills up to region list
+  await page.locator('.site-nav-back').click()
+  await expect(page.locator('.site-row')).toHaveCount(2) // Metro Region + Valley Region
 })
