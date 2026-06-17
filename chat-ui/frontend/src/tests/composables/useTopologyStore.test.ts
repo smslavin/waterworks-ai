@@ -30,7 +30,7 @@ describe('useTopologyStore', () => {
     it('groups Intake nodes correctly', () => {
       const topo = useTopologyStore()
       expect(topo.nodesByArea['Intake']).toHaveLength(2)
-      expect(topo.nodesByArea['Intake'].map(n => n.id)).toEqual(['RawWater_01', 'RawWater_02'])
+      expect(topo.nodesByArea['Intake']!.map(n => n.id)).toEqual(['RawWater_01', 'RawWater_02'])
     })
 
     it('groups Treatment nodes correctly', () => {
