@@ -29,7 +29,7 @@ test('clicking the canvas dismisses the node panel', async ({ page }) => {
   await page.locator('.topo-node').first().click()
   await expect(page.locator('.float-panel')).toBeVisible()
   await page.locator('.topo-canvas').click({ position: { x: 10, y: 10 } })
-  await expect(page.locator('.float-panel')).not.toBeVisible()
+  await expect(page.locator('.float-panel')).toBeHidden()
 })
 
 test('site nav opens and shows regions', async ({ page }) => {

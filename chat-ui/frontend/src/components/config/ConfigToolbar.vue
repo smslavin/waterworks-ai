@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 
 type DiscoverState = 'idle' | 'discovering' | 'done'
 
 const discoverState = ref<DiscoverState>('idle')
 const discoveredCount = ref(0)
 let discoverTimer: ReturnType<typeof setTimeout> | null = null
+
+onUnmounted(() => { if (discoverTimer !== null) clearTimeout(discoverTimer) })
 
 function startDiscover() {
   if (discoverState.value === 'discovering') return
