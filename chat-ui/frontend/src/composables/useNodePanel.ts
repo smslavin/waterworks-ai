@@ -50,8 +50,8 @@ export function calculatePanelPosition(
 }
 
 export function useNodePanel() {
-  const panelTop = ref(0)
-  const panelLeft = ref(0)
+  const panelTop = ref(-9999)
+  const panelLeft = ref(-9999)
   const arrowSide = ref<'left' | 'right'>('left')
 
   function positionPanel(nodeEl: HTMLElement) {
