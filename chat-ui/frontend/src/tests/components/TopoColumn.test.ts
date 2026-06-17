@@ -39,13 +39,13 @@ describe('TopoColumn', () => {
     const { container, emitted } = renderColumn('Intake', INTAKE_NODES)
     await fireEvent.click(container.querySelector('.topo-column-label')!)
     expect(emitted()['label-click']).toBeTruthy()
-    expect(emitted()['label-click'][0]).toEqual(['Intake'])
+    expect(emitted()['label-click']![0]).toEqual(['Intake'])
   })
 
   it('emits node-click with node id when a node is clicked', async () => {
     const { container, emitted } = renderColumn('Intake', INTAKE_NODES)
-    await fireEvent.click(container.querySelectorAll('.topo-node')[0])
+    await fireEvent.click(container.querySelectorAll('.topo-node')[0]!)
     expect(emitted()['node-click']).toBeTruthy()
-    expect(emitted()['node-click'][0]).toEqual(['RawWater_01'])
+    expect(emitted()['node-click']![0]).toEqual(['RawWater_01'])
   })
 })

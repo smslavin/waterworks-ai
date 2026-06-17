@@ -32,7 +32,7 @@ describe('StatusBar', () => {
       topo.setAlarmState('RawWater_01', 'critical')
       topo.setAlarmState('RawWater_02', 'critical')
       const dots = container.querySelectorAll('.area-dot')
-      expect(dots[0].classList).toContain('critical')
+      expect(dots[0]!.classList).toContain('critical')
     })
 
     it('Intake dot is warning when worst node state is warning', async () => {
@@ -41,13 +41,13 @@ describe('StatusBar', () => {
       topo.setAlarmState('RawWater_02', 'warning')
       await nextTick()
       const dots = container.querySelectorAll('.area-dot')
-      expect(dots[0].classList).toContain('warning')
+      expect(dots[0]!.classList).toContain('warning')
     })
 
     it('clicking area dot calls setActiveArea', async () => {
       const { container, ui } = renderBar()
       const btns = container.querySelectorAll('.area-dot-btn')
-      await fireEvent.click(btns[1])
+      await fireEvent.click(btns[1]!)
       expect(ui.activeArea).toBe('Treatment')
     })
   })

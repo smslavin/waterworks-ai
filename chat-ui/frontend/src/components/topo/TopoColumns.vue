@@ -13,7 +13,7 @@ const ui = useUIStore()
       v-for="area in topo.areas"
       :key="area"
       :area="area"
-      :nodes="topo.nodesByArea[area]"
+      :nodes="topo.nodesByArea[area] ?? []"
       @node-click="ui.setActiveNode"
       @label-click="ui.setActiveArea"
     />

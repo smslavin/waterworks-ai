@@ -65,7 +65,7 @@ describe('SaveInsight', () => {
     it('marks selected chip', async () => {
       const { container } = renderSave('UV_01', true)
       await fireEvent.click(container.querySelector('.save-bookmark-btn')!)
-      const chip = container.querySelectorAll('.classify-chip')[0]
+      const chip = container.querySelectorAll('.classify-chip')[0]!
       await fireEvent.click(chip)
       expect(chip.classList).toContain('selected')
     })
@@ -80,7 +80,7 @@ describe('SaveInsight', () => {
     it('confirm button becomes enabled after chip selection', async () => {
       const { container } = renderSave('UV_01', true)
       await fireEvent.click(container.querySelector('.save-bookmark-btn')!)
-      await fireEvent.click(container.querySelectorAll('.classify-chip')[0])
+      await fireEvent.click(container.querySelectorAll('.classify-chip')[0]!)
       const confirmBtn = container.querySelector<HTMLButtonElement>('.save-confirm-btn')
       expect(confirmBtn?.disabled).toBe(false)
     })
@@ -98,7 +98,7 @@ describe('SaveInsight', () => {
       })
 
       await fireEvent.click(container.querySelector('.save-bookmark-btn')!)
-      await fireEvent.click(container.querySelectorAll('.classify-chip')[0])
+      await fireEvent.click(container.querySelectorAll('.classify-chip')[0]!)
       await fireEvent.click(container.querySelector('.save-confirm-btn')!)
 
       expect(topo.nodeById('UV_01')?.saveCount).toBe(1)
@@ -116,11 +116,11 @@ describe('SaveInsight', () => {
       })
 
       await fireEvent.click(container.querySelector('.save-bookmark-btn')!)
-      await fireEvent.click(container.querySelectorAll('.classify-chip')[0])
+      await fireEvent.click(container.querySelectorAll('.classify-chip')[0]!)
       await fireEvent.click(container.querySelector('.save-confirm-btn')!)
 
       expect(container.querySelector('.save-badge')).toBeTruthy()
-      expect(within(container).getByText('1')).toBeTruthy()
+      expect(within(container as HTMLElement).getByText('1')).toBeTruthy()
     })
   })
 })

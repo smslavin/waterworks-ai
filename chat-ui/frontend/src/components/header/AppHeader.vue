@@ -10,7 +10,7 @@ const alarm = useAlarmStore()
 const warningAlarms = computed(() => alarm.alarms.filter(a => a.severity === 'warning'))
 
 function shortMsg(msg: string): string {
-  const before = msg.split(' — ')[0]
+  const before = msg.split(' — ').at(0) ?? msg
   return before.length > 22 ? before.slice(0, 22) + '…' : before
 }
 </script>

@@ -32,12 +32,12 @@ describe('TopoNode', () => {
   describe('rendering', () => {
     it('renders the node id', () => {
       const { container } = renderNode(makeNode())
-      expect(within(container).getByText('TestNode_01')).toBeTruthy()
+      expect(within(container as HTMLElement).getByText('TestNode_01')).toBeTruthy()
     })
 
     it('renders the equipment type', () => {
       const { container } = renderNode(makeNode())
-      expect(within(container).getByText('pump')).toBeTruthy()
+      expect(within(container as HTMLElement).getByText('pump')).toBeTruthy()
     })
   })
 
@@ -91,12 +91,12 @@ describe('TopoNode', () => {
 
     it('shows "● mem" for first save', () => {
       const { container } = renderNode(makeNode({ hasMemory: true, saveCount: 1 }))
-      expect(within(container).getByText('● mem')).toBeTruthy()
+      expect(within(container as HTMLElement).getByText('● mem')).toBeTruthy()
     })
 
     it('shows count for multiple saves', () => {
       const { container } = renderNode(makeNode({ hasMemory: true, saveCount: 3 }))
-      expect(within(container).getByText('● 3 mem')).toBeTruthy()
+      expect(within(container as HTMLElement).getByText('● 3 mem')).toBeTruthy()
     })
   })
 
@@ -105,7 +105,7 @@ describe('TopoNode', () => {
       const { container, emitted } = renderNode(makeNode({ id: 'RawWater_01' }))
       await fireEvent.click(container.querySelector('.topo-node')!)
       expect(emitted().click).toBeTruthy()
-      expect(emitted().click[0]).toEqual(['RawWater_01'])
+      expect(emitted().click![0]).toEqual(['RawWater_01'])
     })
   })
 

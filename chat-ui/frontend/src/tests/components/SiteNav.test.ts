@@ -39,7 +39,7 @@ describe('SiteNav', () => {
   it('marks Waterworks as current site', () => {
     const { container } = renderNav(true)
     const rows = container.querySelectorAll('.site-row')
-    expect(rows[0].classList).toContain('current')
+    expect(rows[0]!.classList).toContain('current')
   })
 
   it('close button sets siteNavOpen to false', async () => {
@@ -52,9 +52,9 @@ describe('SiteNav', () => {
     const { container } = renderNav(true)
     const waterworksRow = container.querySelector('.site-row.current')
     const dots = waterworksRow?.querySelectorAll('.site-area-dot')
-    expect(dots?.[0].classList).toContain('crit')
-    expect(dots?.[1].classList).toContain('warn')
-    expect(dots?.[2].classList).toContain('crit')
+    expect(dots?.[0]?.classList).toContain('crit')
+    expect(dots?.[1]?.classList).toContain('warn')
+    expect(dots?.[2]?.classList).toContain('crit')
   })
 
   it('appears after siteNavOpen becomes true', async () => {

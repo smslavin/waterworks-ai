@@ -4,7 +4,7 @@ import type { FlyoutKey } from '@/stores/ui'
 
 const ui = useUIStore()
 
-const ICONS: { key: FlyoutKey; label: string; path: string }[] = [
+const ICONS: { key: NonNullable<FlyoutKey>; label: string; path: string }[] = [
   {
     key: 'notif',
     label: 'Notifications',

@@ -14,7 +14,7 @@ export function useStreaming() {
     timers[key] = setInterval(() => {
       const n = Math.floor(Math.random() * 4) + 2
       for (let c = 0; c < n && i < chars.length; c++, i++) {
-        chat.appendToken(key, chars[i])
+        chat.appendToken(key, chars[i]!)
       }
       if (i >= chars.length) {
         stopStream(key)

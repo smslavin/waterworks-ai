@@ -23,8 +23,8 @@ describe('AlarmStrip', () => {
   it('renders only critical rows', () => {
     const { container } = renderStrip()
     const rows = container.querySelectorAll('.alarm-row')
-    expect(rows[0].classList).toContain('critical')
-    expect(rows[1].classList).toContain('critical')
+    expect(rows[0]!.classList).toContain('critical')
+    expect(rows[1]!.classList).toContain('critical')
   })
 
   it('removes a row when ACK is clicked', async () => {
@@ -32,7 +32,7 @@ describe('AlarmStrip', () => {
     setActivePinia(pinia)
     const { container } = render(AlarmStrip, { global: { plugins: [pinia] } })
     const ackBtns = container.querySelectorAll('.alarm-ack')
-    await fireEvent.click(ackBtns[0])
+    await fireEvent.click(ackBtns[0]!)
     expect(container.querySelectorAll('.alarm-row')).toHaveLength(1)
   })
 

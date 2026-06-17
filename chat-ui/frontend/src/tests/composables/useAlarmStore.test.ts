@@ -23,14 +23,14 @@ describe('useAlarmStore', () => {
   describe('acknowledge', () => {
     it('removes the alarm by id', () => {
       const alarm = useAlarmStore()
-      const id = alarm.alarms[0].id
+      const id = alarm.alarms[0]!.id
       alarm.acknowledge(id)
       expect(alarm.alarms.find(a => a.id === id)).toBeUndefined()
     })
 
     it('decrements the count', () => {
       const alarm = useAlarmStore()
-      alarm.acknowledge(alarm.alarms[0].id)
+      alarm.acknowledge(alarm.alarms[0]!.id)
       expect(alarm.alarms).toHaveLength(2)
     })
 
@@ -57,7 +57,7 @@ describe('useAlarmStore', () => {
 
     it('does not add a duplicate', () => {
       const alarm = useAlarmStore()
-      const existing = alarm.alarms[0]
+      const existing = alarm.alarms[0]!
       alarm.addAlarm({ ...existing })
       expect(alarm.alarms).toHaveLength(3)
     })
