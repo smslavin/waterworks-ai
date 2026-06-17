@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
 import { AREA_ORDER } from '@/stores/topology'
@@ -9,6 +10,7 @@ import SiteNav from './SiteNav.vue'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
+const { activeSite, activeRegion } = storeToRefs(ui)
 
 interface AreaDot {
   area: string
@@ -37,9 +39,9 @@ interface CrumbItem {
 
 const crumbItems = computed<CrumbItem[]>(() => {
   const items: CrumbItem[] = [
-    { label: 'Enterprise', key: 'enterprise', action: () => ui.openCrumbPanel('enterprise') },
-    { label: 'Metro Region', key: 'region',   action: () => ui.openCrumbPanel('region') },
-    { label: 'Waterworks',   key: 'plant',    action: () => ui.openCrumbPanel('plant') },
+    { label: 'Enterprise',        key: 'enterprise', action: () => ui.openCrumbPanel('enterprise') },
+    { label: activeRegion.value,  key: 'region',     action: () => ui.openCrumbPanel('region') },
+    { label: activeSite.value,    key: 'plant',      action: () => ui.openCrumbPanel('plant') },
   ]
 
   if (ui.activeNodeId) {
@@ -72,11 +74,12 @@ const crumbItems = computed<CrumbItem[]>(() => {
       </button>
     </div>
 
-    <!-- Left: Reactive toggle -->
+    <!-- Left: Reactive toggle (requires Multi-Agent mode) -->
     <button
       class="reactive-toggle"
-      :class="{ active: ui.reactiveOn }"
-      :title="ui.reactiveOn ? 'Reactive monitoring on' : 'Reactive monitoring off'"
+      :class="{ active: ui.reactiveOn, locked: !ui.multiAgent }"
+      :disabled="!ui.multiAgent"
+      :title="!ui.multiAgent ? 'Requires Multi-Agent mode' : ui.reactiveOn ? 'Reactive monitoring on' : 'Reactive monitoring off'"
       @click.stop="ui.toggleReactive()"
     >
       <span class="toggle-track">
@@ -226,6 +229,11 @@ const crumbItems = computed<CrumbItem[]>(() => {
   background: transparent;
   border: none;
   cursor: pointer;
+}
+
+.reactive-toggle.locked {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .toggle-track {

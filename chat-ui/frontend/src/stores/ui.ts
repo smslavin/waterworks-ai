@@ -17,6 +17,10 @@ export const useUIStore = defineStore('ui', () => {
   // Icon strip flyout
   const activeFlyout = ref<FlyoutKey>(null)
 
+  // Active site / region (nav hierarchy: enterprise > region > site)
+  const activeSite = ref('Waterworks')
+  const activeRegion = ref('Metro Region')
+
   // Overlays
   const siteNavOpen = ref(false)
   const approvalOpen = ref(false)
@@ -74,6 +78,15 @@ export const useUIStore = defineStore('ui', () => {
     siteNavOpen.value = false
   }
 
+  function setActiveSite(site: string, region: string) {
+    activeSite.value = site
+    activeRegion.value = region
+    activeNodeId.value = null
+    activeArea.value = null
+    activePanel.value = null
+    siteNavOpen.value = false
+  }
+
   function toggleSiteNav() {
     siteNavOpen.value = !siteNavOpen.value
   }
@@ -88,6 +101,7 @@ export const useUIStore = defineStore('ui', () => {
 
   function toggleMultiAgent() {
     multiAgent.value = !multiAgent.value
+    if (!multiAgent.value) reactiveOn.value = false
   }
 
   function toggleDeepReasoning() {
@@ -100,6 +114,8 @@ export const useUIStore = defineStore('ui', () => {
 
   return {
     configMode,
+    activeSite,
+    activeRegion,
     activeNodeId,
     activeArea,
     activePanel,
@@ -113,6 +129,7 @@ export const useUIStore = defineStore('ui', () => {
     crumbLevel,
     enterConfigMode,
     exitConfigMode,
+    setActiveSite,
     setActiveNode,
     setActiveArea,
     openPlantPanel,
