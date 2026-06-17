@@ -31,9 +31,17 @@ describe('SiteNav', () => {
     expect(container.querySelector('.site-nav')).toBeTruthy()
   })
 
-  it('renders all 4 sites', () => {
+  it('renders sites in the active region', () => {
     const { container } = renderNav(true)
-    expect(container.querySelectorAll('.site-row')).toHaveLength(4)
+    // Opens in site-list view for the active region (Metro Region: Waterworks, Eastside, Northgate)
+    expect(container.querySelectorAll('.site-row')).toHaveLength(3)
+  })
+
+  it('shows region list when back button is clicked', async () => {
+    const { container } = renderNav(true)
+    await fireEvent.click(container.querySelector('.site-nav-back')!)
+    // 2 regions: Metro Region + Valley Region
+    expect(container.querySelectorAll('.site-row')).toHaveLength(2)
   })
 
   it('marks Waterworks as current site', () => {
