@@ -117,13 +117,16 @@ watch(() => ui.activeNodeId, async (newId, oldId) => {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.18s;
+  visibility: hidden;
+  transition: opacity 0.18s, visibility 0s 0.18s;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .float-panel.visible {
   opacity: 1;
   pointer-events: all;
+  visibility: visible;
+  transition: opacity 0.18s, visibility 0s;
 }
 
 .float-panel.is-critical { border-color: var(--color-error); }
