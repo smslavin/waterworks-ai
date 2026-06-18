@@ -5,10 +5,21 @@ import { createPinia, setActivePinia } from 'pinia'
 import AlarmStrip from '@/components/alarm/AlarmStrip.vue'
 import { useAlarmStore } from '@/stores/alarm'
 
+function seedCriticals(alarm: ReturnType<typeof useAlarmStore>) {
+  alarm.addAlarm({ id: 'a1', nodeId: 'RawWater_02',    severity: 'critical', message: 'Bearing temp 68°C',        timestamp: '3 min ago' })
+  alarm.addAlarm({ id: 'a2', nodeId: 'HighService_01', severity: 'critical', message: 'Discharge pressure 79 PSI', timestamp: '1 min ago' })
+  alarm.addAlarm({ id: 'a3', nodeId: 'UV_01',          severity: 'warning',  message: 'Lamp intensity degradation', timestamp: '12 min ago' })
+}
+
 function renderStrip() {
-  return render(AlarmStrip, {
-    global: { plugins: [createPinia()] },
-  })
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const alarm = useAlarmStore()
+  seedCriticals(alarm)
+  return {
+    alarm,
+    ...render(AlarmStrip, { global: { plugins: [pinia] } }),
+  }
 }
 
 describe('AlarmStrip', () => {
@@ -28,23 +39,17 @@ describe('AlarmStrip', () => {
   })
 
   it('removes a row when ACK is clicked', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const { container } = render(AlarmStrip, { global: { plugins: [pinia] } })
+    const { container } = renderStrip()
     const ackBtns = container.querySelectorAll('.alarm-ack')
     await fireEvent.click(ackBtns[0]!)
     expect(container.querySelectorAll('.alarm-row')).toHaveLength(1)
   })
 
   it('is hidden when all critical alarms are acknowledged', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const alarmStore = useAlarmStore()
-    const { container } = render(AlarmStrip, { global: { plugins: [pinia] } })
-    const criticalIds = alarmStore.alarms
+    const { alarm, container } = renderStrip()
+    alarm.alarms
       .filter(a => a.severity === 'critical')
-      .map(a => a.id)
-    criticalIds.forEach(id => alarmStore.acknowledge(id))
+      .forEach(a => alarm.acknowledge(a.id))
     await nextTick()
     expect(container.querySelector('.alarm-strip')).toBeNull()
   })

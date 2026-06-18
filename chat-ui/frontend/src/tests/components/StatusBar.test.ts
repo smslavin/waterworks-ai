@@ -28,10 +28,11 @@ describe('StatusBar', () => {
       expect(container.querySelectorAll('.area-dot-btn')).toHaveLength(3)
     })
 
-    it('Intake dot is critical when a node in Intake is critical', () => {
+    it('Intake dot is critical when a node in Intake is critical', async () => {
       const { container, topo } = renderBar()
       topo.setAlarmState('RawWater_01', 'critical')
       topo.setAlarmState('RawWater_02', 'critical')
+      await nextTick()
       const dots = container.querySelectorAll('.area-dot')
       expect(dots[0]!.classList).toContain('critical')
     })
