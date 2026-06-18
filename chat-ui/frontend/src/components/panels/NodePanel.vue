@@ -96,14 +96,15 @@ watch(() => ui.activeNodeId, async (newId) => {
 
     <div class="panel-body" v-html="renderedContent" />
 
+    <SaveInsight
+      v-if="activeNode"
+      :node-id="activeNode.id"
+      :stream-done="streamDone"
+    />
+
     <div class="panel-footer">
       <input class="panel-input" placeholder="Ask a follow-up…" @click.stop />
       <button class="panel-send">Ask</button>
-      <SaveInsight
-        v-if="activeNode"
-        :node-id="activeNode.id"
-        :stream-done="streamDone"
-      />
     </div>
   </div>
 </template>

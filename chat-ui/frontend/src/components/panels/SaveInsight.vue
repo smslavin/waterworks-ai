@@ -110,7 +110,7 @@ function commitSave() {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 6px 12px;
   background: transparent;
   border: none;
   color: var(--color-text2);
@@ -118,6 +118,7 @@ function commitSave() {
   cursor: pointer;
   opacity: 0.4;
   transition: opacity 0.15s, color 0.15s;
+  align-self: flex-end;
 }
 
 .save-bookmark-btn.active,
@@ -146,11 +147,11 @@ function commitSave() {
 }
 
 .save-classify {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .save-classify-label {
