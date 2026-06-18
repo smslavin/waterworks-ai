@@ -65,7 +65,7 @@ watch(() => ui.activePanel, async (panel, prev) => {
   }
   await nextTick()
   positionPanel()
-  const msgContent = PROMPTS[crumbLevel.value ?? 'plant'] ?? PROMPTS.plant
+  const msgContent = PROMPTS[crumbLevel.value ?? 'plant'] ?? 'Provide a status summary of the Waterworks treatment plant.'
   const initial: Message = { role: 'user', content: msgContent }
   conversationLog.value = [initial]
   stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })
