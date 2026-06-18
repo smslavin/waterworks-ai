@@ -120,12 +120,12 @@ watch(() => ui.activeNodeId, async (newId) => {
         }"
         :disabled="!streamDone && !hasSaved"
         :title="hasSaved
-          ? `${activeNode.saveCount} saved insight${activeNode.saveCount > 1 ? 's' : ''}`
+          ? `${activeNode?.saveCount ?? 0} saved insight${(activeNode?.saveCount ?? 0) > 1 ? 's' : ''}`
           : 'Save insight'"
         @click.stop="classifyOpen = !classifyOpen"
       >
         <span>🔖</span>
-        <span v-if="hasSaved" class="save-badge">{{ activeNode.saveCount }}</span>
+        <span v-if="hasSaved" class="save-badge">{{ activeNode?.saveCount }}</span>
       </button>
     </div>
   </div>

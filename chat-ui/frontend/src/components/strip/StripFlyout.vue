@@ -5,6 +5,8 @@ import { useUIStore } from '@/stores/ui'
 const ui = useUIStore()
 const visible = computed(() => ui.activeFlyout !== null)
 
+// ── Health ────────────────────────────────────────────────────────────────────
+
 type HealthStatus = 'ok' | 'error' | 'loading'
 
 const HEALTH_SERVICES = [
@@ -33,6 +35,42 @@ watch(() => ui.activeFlyout, async (key) => {
     HEALTH_SERVICES.forEach(s => { healthData.value[s.key] = 'error' })
   }
 })
+
+// ── Faults ────────────────────────────────────────────────────────────────────
+
+const faultStatus = ref<Record<string, string>>({})   // instance → current mode
+const faultModes  = ref<Record<string, string[]>>({}) // instance → available modes
+const faultLoading = ref(false)
+
+watch(() => ui.activeFlyout, async (key) => {
+  if (key !== 'faults') return
+  faultLoading.value = true
+  try {
+    const [statusResp, modesResp] = await Promise.all([
+      fetch('/api/fault/status'),
+      fetch('/api/fault/modes'),
+    ])
+    if (statusResp.ok) faultStatus.value = await statusResp.json() as Record<string, string>
+    if (modesResp.ok)  faultModes.value  = await modesResp.json()  as Record<string, string[]>
+  } catch { /* simulator offline */ }
+  faultLoading.value = false
+})
+
+async function injectFault(target: string, mode: string) {
+  faultStatus.value[target] = mode  // optimistic
+  try {
+    await fetch('/api/fault', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, mode }),
+    })
+  } catch { /* ignore — status already updated optimistically */ }
+}
+
+const faultInstances = computed(() => Object.keys(faultStatus.value))
+const activeFaultCount = computed(() =>
+  Object.values(faultStatus.value).filter(m => m !== 'normal').length
+)
 </script>
 
 <template>
@@ -49,6 +87,10 @@ watch(() => ui.activeFlyout, async (key) => {
              ui.activeFlyout === 'faults' ? 'Fault Injection'  :
                                             'Audit Log' }}
         </span>
+        <span
+          v-if="ui.activeFlyout === 'faults' && activeFaultCount > 0"
+          class="fault-count-badge"
+        >{{ activeFaultCount }} active</span>
         <button class="flyout-close" @click.stop="ui.closeFlyout()">✕</button>
       </div>
 
@@ -78,12 +120,31 @@ watch(() => ui.activeFlyout, async (key) => {
       </div>
 
       <!-- Faults -->
-      <div v-else-if="ui.activeFlyout === 'faults'" class="flyout-body">
-        <p class="flyout-hint">
-          Inject faults via <code>POST /fault?target=&lt;node&gt;&amp;mode=&lt;fault&gt;</code>
-          on port 8090.
-        </p>
-        <p class="flyout-hint">Interactive injection panel wired in Phase 7.</p>
+      <div v-else-if="ui.activeFlyout === 'faults'" class="flyout-body fault-body">
+        <div v-if="faultLoading" class="flyout-empty">Loading…</div>
+        <template v-else-if="faultInstances.length > 0">
+          <div
+            v-for="instance in faultInstances"
+            :key="instance"
+            class="fault-row"
+            :class="{ 'fault-active': faultStatus[instance] !== 'normal' }"
+          >
+            <span class="fault-instance">{{ instance }}</span>
+            <select
+              class="fault-select"
+              :class="{ 'fault-select-active': faultStatus[instance] !== 'normal' }"
+              :value="faultStatus[instance]"
+              @change="injectFault(instance, ($event.target as HTMLSelectElement).value)"
+            >
+              <option
+                v-for="mode in (faultModes[instance] ?? ['normal'])"
+                :key="mode"
+                :value="mode"
+              >{{ mode }}</option>
+            </select>
+          </div>
+        </template>
+        <div v-else class="flyout-empty">Simulator offline</div>
       </div>
 
       <!-- Audit -->
@@ -120,6 +181,7 @@ watch(() => ui.activeFlyout, async (key) => {
   padding: 12px 14px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  gap: 8px;
 }
 
 .flyout-title {
@@ -128,6 +190,16 @@ watch(() => ui.activeFlyout, async (key) => {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--color-text1);
+  flex: 1;
+}
+
+.fault-count-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--color-warn);
+  color: #000;
+  border-radius: 999px;
+  padding: 1px 7px;
 }
 
 .flyout-close {
@@ -138,6 +210,7 @@ watch(() => ui.activeFlyout, async (key) => {
   cursor: pointer;
   padding: 2px 4px;
   transition: color 0.12s;
+  flex-shrink: 0;
 }
 
 .flyout-close:hover {
@@ -174,6 +247,7 @@ watch(() => ui.activeFlyout, async (key) => {
   font-size: 10px;
 }
 
+/* Health */
 .health-row {
   display: flex;
   align-items: center;
@@ -206,6 +280,67 @@ watch(() => ui.activeFlyout, async (key) => {
   font-family: var(--font-mono);
 }
 
+/* Faults */
+.fault-body {
+  padding: 10px 12px;
+  gap: 4px;
+}
+
+.fault-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+
+.fault-row:hover {
+  background: var(--color-bg3);
+}
+
+.fault-row.fault-active {
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.fault-instance {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text2);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fault-row.fault-active .fault-instance {
+  color: var(--color-warn);
+}
+
+.fault-select {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: var(--color-bg3);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text2);
+  padding: 2px 4px;
+  cursor: pointer;
+  max-width: 110px;
+  outline: none;
+}
+
+.fault-select:focus {
+  border-color: var(--color-accent);
+}
+
+.fault-select.fault-select-active {
+  border-color: var(--color-warn);
+  color: var(--color-warn);
+}
+
+/* Flyout transition */
 .flyout-enter-active,
 .flyout-leave-active {
   transition: opacity 0.15s, transform 0.15s;
