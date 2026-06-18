@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
 import { useChatStore } from '@/stores/chat'
@@ -33,6 +33,9 @@ const isStreaming = computed(() => chat.streaming[KEY] ?? false)
 const streamDone = computed(() => chat.streamDone[KEY] ?? false)
 const content = computed(() => chat.content[KEY] ?? '')
 const renderedContent = computed(() => renderText(content.value))
+const hasSaved = computed(() => (activeNode.value?.saveCount ?? 0) > 0)
+
+const classifyOpen = ref(false)
 const statusText = computed(() =>
   isStreaming.value
     ? 'Analyzing…'
@@ -42,6 +45,7 @@ const statusText = computed(() =>
 watch(() => ui.activeNodeId, async (newId) => {
   if (!newId) return
 
+  classifyOpen.value = false
   stopStream(KEY)
 
   await nextTick()
@@ -100,11 +104,29 @@ watch(() => ui.activeNodeId, async (newId) => {
       v-if="activeNode"
       :node-id="activeNode.id"
       :stream-done="streamDone"
+      v-model:open="classifyOpen"
     />
 
     <div class="panel-footer">
       <input class="panel-input" placeholder="Ask a follow-up…" @click.stop />
       <button class="panel-send">Ask</button>
+      <button
+        v-if="activeNode"
+        class="save-bookmark-btn"
+        :class="{
+          active: streamDone && !hasSaved,
+          classifying: classifyOpen,
+          saved: hasSaved,
+        }"
+        :disabled="!streamDone && !hasSaved"
+        :title="hasSaved
+          ? `${activeNode.saveCount} saved insight${activeNode.saveCount > 1 ? 's' : ''}`
+          : 'Save insight'"
+        @click.stop="classifyOpen = !classifyOpen"
+      >
+        <span>🔖</span>
+        <span v-if="hasSaved" class="save-badge">{{ activeNode.saveCount }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -344,5 +366,42 @@ watch(() => ui.activeNodeId, async (newId) => {
 
 .panel-send:hover {
   opacity: 0.85;
+}
+
+.save-bookmark-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.save-bookmark-btn.active,
+.save-bookmark-btn.saved {
+  opacity: 1;
+}
+
+.save-bookmark-btn.classifying {
+  opacity: 1;
+}
+
+.save-bookmark-btn:disabled {
+  cursor: default;
+}
+
+.save-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--color-verified);
+  color: #000;
+  border-radius: 999px;
+  padding: 1px 5px;
+  line-height: 1.4;
 }
 </style>

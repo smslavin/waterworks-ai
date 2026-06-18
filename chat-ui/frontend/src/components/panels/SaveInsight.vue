@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useTopologyStore } from '@/stores/topology'
 
 const props = defineProps<{
   nodeId: string
   streamDone: boolean
+  open: boolean
+}>()
+
+const emit = defineEmits<{
+  'update:open': [value: boolean]
 }>()
 
 const topo = useTopologyStore()
-const node = computed(() => topo.nodeById(props.nodeId))
-const hasSaved = computed(() => (node.value?.saveCount ?? 0) > 0)
 
-const classifyOpen = ref(false)
 const pendingClassification = ref<string | null>(null)
 const note = ref('')
 
@@ -24,15 +26,10 @@ const CLASSIFICATIONS = [
 ]
 
 watch(() => props.nodeId, () => {
-  classifyOpen.value = false
+  emit('update:open', false)
   pendingClassification.value = null
   note.value = ''
 })
-
-function toggleClassify() {
-  classifyOpen.value = !classifyOpen.value
-  if (!classifyOpen.value) pendingClassification.value = null
-}
 
 function selectClassification(cls: string) {
   pendingClassification.value = cls
@@ -43,109 +40,47 @@ function commitSave() {
   topo.saveInsight(props.nodeId)
   pendingClassification.value = null
   note.value = ''
-  classifyOpen.value = false
+  emit('update:open', false)
 }
 </script>
 
 <template>
-  <div class="save-section">
-    <Transition name="classify">
-      <div v-if="classifyOpen" class="save-classify">
-        <div class="save-classify-label">
-          Save as · <span class="save-classify-node">{{ nodeId }}</span>
-        </div>
-        <div class="classify-chips">
-          <button
-            v-for="cls in CLASSIFICATIONS"
-            :key="cls"
-            class="classify-chip"
-            :class="{ selected: pendingClassification === cls }"
-            @click="selectClassification(cls)"
-          >
-            {{ cls }}
-          </button>
-        </div>
-        <div class="save-confirm-row">
-          <input
-            v-model="note"
-            class="save-annotation"
-            placeholder="Add a note (optional)"
-          />
-          <button
-            class="save-confirm-btn"
-            :class="{ ready: pendingClassification !== null }"
-            :disabled="pendingClassification === null"
-            @click="commitSave"
-          >
-            Save
-          </button>
-        </div>
+  <Transition name="classify">
+    <div v-if="open" class="save-classify">
+      <div class="save-classify-label">
+        Save as · <span class="save-classify-node">{{ nodeId }}</span>
       </div>
-    </Transition>
-
-    <button
-      class="save-bookmark-btn"
-      :class="{
-        active: streamDone && !hasSaved,
-        classifying: classifyOpen,
-        saved: hasSaved,
-      }"
-      :disabled="!streamDone && !hasSaved"
-      :title="hasSaved ? `${node?.saveCount} saved insight${(node?.saveCount ?? 0) > 1 ? 's' : ''}` : 'Save insight'"
-      @click.stop="toggleClassify"
-    >
-      <span class="save-bookmark-icon">🔖</span>
-      <span v-if="hasSaved" class="save-badge">{{ node?.saveCount }}</span>
-    </button>
-  </div>
+      <div class="classify-chips">
+        <button
+          v-for="cls in CLASSIFICATIONS"
+          :key="cls"
+          class="classify-chip"
+          :class="{ selected: pendingClassification === cls }"
+          @click="selectClassification(cls)"
+        >
+          {{ cls }}
+        </button>
+      </div>
+      <div class="save-confirm-row">
+        <input
+          v-model="note"
+          class="save-annotation"
+          placeholder="Add a note (optional)"
+        />
+        <button
+          class="save-confirm-btn"
+          :class="{ ready: pendingClassification !== null }"
+          :disabled="pendingClassification === null"
+          @click="commitSave"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
-.save-section {
-  display: flex;
-  flex-direction: column;
-}
-
-.save-bookmark-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  color: var(--color-text2);
-  font-size: 12px;
-  cursor: pointer;
-  opacity: 0.4;
-  transition: opacity 0.15s, color 0.15s;
-  align-self: flex-end;
-}
-
-.save-bookmark-btn.active,
-.save-bookmark-btn.saved {
-  opacity: 1;
-  color: var(--color-verified);
-}
-
-.save-bookmark-btn.classifying {
-  opacity: 1;
-  color: var(--color-accent);
-}
-
-.save-bookmark-btn:disabled {
-  cursor: default;
-}
-
-.save-badge {
-  font-size: 10px;
-  font-weight: 700;
-  background: var(--color-verified);
-  color: #000;
-  border-radius: 999px;
-  padding: 1px 5px;
-  line-height: 1.4;
-}
-
 .save-classify {
   padding: 10px 14px;
   border-top: 1px solid var(--color-border);
@@ -247,6 +182,6 @@ function commitSave() {
 .classify-enter-from,
 .classify-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(4px);
 }
 </style>
