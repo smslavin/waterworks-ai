@@ -219,9 +219,89 @@ watch(() => ui.activeNodeId, async (newId) => {
   max-height: 240px;
 }
 
+.panel-body :deep(p) {
+  margin-bottom: 0.55em;
+}
+.panel-body :deep(p:last-child) {
+  margin-bottom: 0;
+}
 .panel-body :deep(strong) {
   color: var(--color-text1);
   font-weight: 600;
+}
+.panel-body :deep(em) {
+  font-style: italic;
+}
+.panel-body :deep(h1),
+.panel-body :deep(h2),
+.panel-body :deep(h3) {
+  font-weight: 600;
+  color: var(--color-text1);
+  line-height: 1.3;
+  margin: 0.6em 0 0.25em;
+}
+.panel-body :deep(h1) { font-size: 1.05em; }
+.panel-body :deep(h2) { font-size: 0.97em; }
+.panel-body :deep(h3) { font-size: 0.9em; letter-spacing: 0.01em; }
+.panel-body :deep(code) {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--color-bg3);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.panel-body :deep(pre) {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.panel-body :deep(pre code) {
+  background: none;
+  padding: 0;
+  font-size: 11px;
+}
+.panel-body :deep(ul),
+.panel-body :deep(ol) {
+  padding-left: 1.3em;
+  margin: 0.3em 0;
+}
+.panel-body :deep(li) {
+  margin-bottom: 0.2em;
+}
+.panel-body :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.panel-body :deep(th),
+.panel-body :deep(td) {
+  border: 1px solid var(--color-border);
+  padding: 4px 8px;
+  text-align: left;
+}
+.panel-body :deep(th) {
+  background: var(--color-bg3);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text2);
+}
+.panel-body :deep(blockquote) {
+  border-left: 3px solid var(--color-border);
+  margin: 6px 0;
+  padding: 4px 10px;
+  color: var(--color-text2);
+  font-size: 12px;
+}
+.panel-body :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 8px 0;
 }
 
 .panel-footer {
