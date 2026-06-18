@@ -12,10 +12,9 @@ test('topology nodes render', async ({ page }) => {
   await expect(page.locator('.topo-node').first()).toBeVisible()
 })
 
-test('critical alarm strip shows on load', async ({ page }) => {
+test('alarm strip is hidden when there are no active alarms', async ({ page }) => {
   await page.goto('/')
-  // Fixture data has 2 critical alarms
-  await expect(page.locator('.alarm-row.critical')).toHaveCount(2)
+  await expect(page.locator('.alarm-strip')).toBeHidden()
 })
 
 test('clicking a node opens the node panel', async ({ page }) => {
