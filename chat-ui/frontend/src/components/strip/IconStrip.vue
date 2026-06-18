@@ -25,10 +25,24 @@ const FLYOUT_ICONS: { key: NonNullable<FlyoutKey>; label: string; path: string }
 function openAuditLog() {
   window.open('/audit', '_blank', 'noopener')
 }
+
+function openMetrics() {
+  window.open('/metrics', '_blank', 'noopener')
+}
+
+function openGrafana() {
+  window.open('http://localhost:3000', '_blank', 'noopener')
+}
+
+async function clearAuditLog() {
+  if (!confirm('Clear the audit log? This cannot be undone.')) return
+  await fetch('/api/audit/clear', { method: 'POST' })
+}
 </script>
 
 <template>
   <div class="icon-strip">
+    <!-- Flyout toggles -->
     <button
       v-for="item in FLYOUT_ICONS"
       :key="item.key"
@@ -42,14 +56,39 @@ function openAuditLog() {
       </svg>
     </button>
 
-    <!-- Audit log — opens full-page viewer in a new window -->
-    <button
-      class="strip-btn"
-      title="Audit log"
-      @click.stop="openAuditLog"
-    >
+    <div class="strip-divider" />
+
+    <!-- Audit log — new window -->
+    <button class="strip-btn" title="Audit log" @click.stop="openAuditLog">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" />
+      </svg>
+    </button>
+
+    <!-- Metrics — new window -->
+    <button class="strip-btn" title="Metrics" @click.stop="openMetrics">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 20V10M12 20V4M6 20v-6" />
+      </svg>
+    </button>
+
+    <!-- Grafana dashboards — new window -->
+    <button class="strip-btn" title="Grafana dashboards" @click.stop="openGrafana">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+      </svg>
+    </button>
+
+    <div class="strip-divider" />
+
+    <!-- Clear audit log — confirmation dialog -->
+    <button class="strip-btn strip-btn-danger" title="Clear audit log" @click.stop="clearAuditLog">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
       </svg>
     </button>
   </div>
@@ -66,6 +105,13 @@ function openAuditLog() {
   background: var(--color-bg2);
   border-right: 1px solid var(--color-border);
   flex-shrink: 0;
+}
+
+.strip-divider {
+  width: 24px;
+  height: 1px;
+  background: var(--color-border);
+  margin: 4px 0;
 }
 
 .strip-btn {
@@ -91,5 +137,10 @@ function openAuditLog() {
   color: var(--color-accent);
   border-color: var(--color-accent);
   background: rgba(59, 130, 246, 0.08);
+}
+
+.strip-btn-danger:hover {
+  color: var(--color-error);
+  background: rgba(248, 113, 113, 0.08);
 }
 </style>

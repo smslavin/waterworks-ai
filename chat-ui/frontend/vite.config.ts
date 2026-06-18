@@ -21,6 +21,7 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8080',
       '/audit': 'http://localhost:8080',
+      '/metrics': 'http://localhost:8080',
     },
   },
 })
