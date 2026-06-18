@@ -4,8 +4,7 @@ import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
 import { useChatStore } from '@/stores/chat'
 import { useNodePanel } from '@/composables/useNodePanel'
-import { useStreaming } from '@/composables/useStreaming'
-import { NODE_RESPONSES } from '@/data/responses'
+import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 import SaveInsight from './SaveInsight.vue'
 
@@ -13,7 +12,7 @@ const ui = useUIStore()
 const topo = useTopologyStore()
 const chat = useChatStore()
 const { panelTop, panelLeft, arrowSide, positionPanel } = useNodePanel()
-const { stream, stopStream } = useStreaming()
+const { stream, stopStream } = useSSE()
 
 const KEY = 'node'
 
@@ -40,22 +39,27 @@ const statusText = computed(() =>
     : `${activeNode.value?.specialist ?? ''} · complete`
 )
 
-watch(() => ui.activeNodeId, async (newId, oldId) => {
+watch(() => ui.activeNodeId, async (newId) => {
   if (!newId) return
 
-  if (oldId !== newId) stopStream(KEY)
+  stopStream(KEY)
 
   await nextTick()
   const nodeEl = document.querySelector<HTMLElement>(`[data-id="${newId}"]`)
   if (nodeEl) positionPanel(nodeEl)
 
-  let responseKey = newId
+  const node = topo.nodeById(newId)
+  if (!node) return
+
+  let content = `Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`
+
   if (ui.postApprovalDecision) {
-    responseKey = `${newId}_${ui.postApprovalDecision}`
+    const decision = ui.postApprovalDecision
     ui.postApprovalDecision = null
+    content = `The operator ${decision}d the proposed action for ${node.id}. Please continue your assessment.`
   }
 
-  stream(KEY, NODE_RESPONSES[responseKey] ?? NODE_RESPONSES[newId] ?? 'No data available.')
+  stream(KEY, [{ role: 'user', content }], { mode: ui.multiAgent ? 'multi' : 'single' })
 })
 </script>
 
