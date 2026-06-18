@@ -6,11 +6,13 @@ import { useTopologyStore } from '@/stores/topology'
 import { AREA_ORDER } from '@/stores/topology'
 import type { AlarmState } from '@/stores/topology'
 import type { CrumbLevel } from '@/stores/ui'
+import { useReactive } from '@/composables/useReactive'
 import SiteNav from './SiteNav.vue'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
 const { activeSite, activeRegion } = storeToRefs(ui)
+const { toggle: toggleReactive } = useReactive()
 
 interface AreaDot {
   area: string
@@ -80,7 +82,7 @@ const crumbItems = computed<CrumbItem[]>(() => {
       :class="{ active: ui.reactiveOn, locked: !ui.multiAgent }"
       :disabled="!ui.multiAgent"
       :title="!ui.multiAgent ? 'Requires Multi-Agent mode' : ui.reactiveOn ? 'Reactive monitoring on' : 'Reactive monitoring off'"
-      @click.stop="ui.toggleReactive()"
+      @click.stop="toggleReactive()"
     >
       <span class="toggle-track">
         <span class="toggle-thumb" />

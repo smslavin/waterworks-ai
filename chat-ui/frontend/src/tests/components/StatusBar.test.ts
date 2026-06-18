@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { render, fireEvent, cleanup } from '@testing-library/vue'
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import StatusBar from '@/components/statusbar/StatusBar.vue'
 import { useUIStore } from '@/stores/ui'
@@ -100,23 +101,32 @@ describe('StatusBar', () => {
   })
 
   describe('reactive toggle', () => {
-    it('has active class when reactiveOn is true', () => {
-      const { container } = renderBar()
+    it('has active class when reactiveOn is true', async () => {
+      const { container, ui } = renderBar()
+      ui.multiAgent = true
+      ui.reactiveOn = true
+      await nextTick()
       expect(container.querySelector('.reactive-toggle')?.classList).toContain('active')
     })
 
-    it('does not have active class when reactiveOn is false', async () => {
-      const { container, ui } = renderBar()
-      ui.toggleReactive()
-      await nextTick()
+    it('does not have active class when reactiveOn is false', () => {
+      const { container } = renderBar()
+      // reactiveOn defaults to false
       expect(container.querySelector('.reactive-toggle')?.classList).not.toContain('active')
     })
 
-    it('clicking toggle calls toggleReactive', async () => {
+    it('clicking toggle enables reactive when multiAgent is on', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ enabled: true }),
+      }))
       const { container, ui } = renderBar()
-      expect(ui.reactiveOn).toBe(true)
+      ui.multiAgent = true
+      await nextTick()
       await fireEvent.click(container.querySelector('.reactive-toggle')!)
-      expect(ui.reactiveOn).toBe(false)
+      await flushPromises()
+      expect(ui.reactiveOn).toBe(true)
+      vi.unstubAllGlobals()
     })
   })
 

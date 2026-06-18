@@ -20,9 +20,9 @@ describe('useUIStore', () => {
       expect(ui.activePanel).toBeNull()
     })
 
-    it('starts with reactive mode on', () => {
+    it('starts with reactive mode off', () => {
       const ui = useUIStore()
-      expect(ui.reactiveOn).toBe(true)
+      expect(ui.reactiveOn).toBe(false)
     })
 
     it('starts in single-agent mode without deep reasoning', () => {
@@ -172,7 +172,7 @@ describe('useUIStore', () => {
     it('toggleReactive flips reactiveOn', () => {
       const ui = useUIStore()
       ui.toggleReactive()
-      expect(ui.reactiveOn).toBe(false)
+      expect(ui.reactiveOn).toBe(true)
     })
   })
 })

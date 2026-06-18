@@ -28,7 +28,7 @@ export const useUIStore = defineStore('ui', () => {
   // Agent / model settings
   const multiAgent = ref(false)
   const deepReasoning = ref(false)
-  const reactiveOn = ref(true)
+  const reactiveOn = ref(false)
 
   // Post-approval decision: drives which response key the node panel uses
   const postApprovalDecision = ref<'approve' | 'deny' | null>(null)
