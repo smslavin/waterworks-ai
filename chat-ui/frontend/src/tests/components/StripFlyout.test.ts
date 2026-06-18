@@ -125,7 +125,7 @@ describe('StripFlyout', () => {
     })
 
     it('re-fetches when health flyout is reopened', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
+      const mockFetch = vi.fn<typeof fetch>().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
           aggregator: 'ok', influxdb: 'ok', mqtt: 'ok', simulator: 'ok',
@@ -197,7 +197,7 @@ describe('StripFlyout', () => {
     })
 
     it('changing select calls fetch with correct body', async () => {
-      const mockFetch = vi.fn().mockImplementation((url: string) => {
+      const mockFetch = vi.fn<typeof fetch>().mockImplementation((url: string) => {
         if (url === '/api/fault/status') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_STATUS) })
         if (url === '/api/fault/modes')  return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODES) })
         return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
