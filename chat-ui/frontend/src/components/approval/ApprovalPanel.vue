@@ -9,14 +9,14 @@ const approvals = useApprovalStore()
 const visible = computed(() => ui.approvalOpen && approvals.hasPending)
 const approval = computed(() => approvals.current)
 
-function approve() {
+async function approve() {
   if (!approval.value) return
-  approvals.resolve(approval.value.id, 'approve')
+  await approvals.resolve(approval.value.id, 'approve')
 }
 
-function deny() {
+async function deny() {
   if (!approval.value) return
-  approvals.resolve(approval.value.id, 'deny')
+  await approvals.resolve(approval.value.id, 'deny')
 }
 </script>
 

@@ -1,5 +1,6 @@
 import { onUnmounted } from 'vue'
 import { useChatStore } from '@/stores/chat'
+import { useApprovalStore, type BackendActionProposal } from '@/stores/approval'
 
 export interface SSEMessage {
   role: 'user' | 'assistant'
@@ -12,6 +13,7 @@ export interface SSEOptions {
 
 export function useSSE() {
   const chat = useChatStore()
+  const approval = useApprovalStore()
   const controllers: Record<string, AbortController> = {}
 
   async function stream(key: string, messages: SSEMessage[], opts: SSEOptions = {}) {
@@ -61,6 +63,8 @@ export function useSSE() {
               chat.appendToken(key, `\n\n*Error: ${evt.error as string}*`)
               chat.finishStream(key)
               finished = true
+            } else if (evt.type === 'action_proposed') {
+              approval.pushFromBackend(evt as unknown as BackendActionProposal)
             }
           } catch { /* ignore malformed lines */ }
         }

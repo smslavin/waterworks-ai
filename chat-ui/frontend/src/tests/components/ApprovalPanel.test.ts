@@ -1,26 +1,38 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, fireEvent, cleanup } from '@testing-library/vue'
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import ApprovalPanel from '@/components/approval/ApprovalPanel.vue'
 import { useUIStore } from '@/stores/ui'
-import { useApprovalStore } from '@/stores/approval'
+import { useApprovalStore, type PendingApproval } from '@/stores/approval'
+
+const MOCK: PendingApproval = {
+  id: 'ap1',
+  nodeId: 'RawWater_01',
+  specialist: 'Intake',
+  action: 'Reduce pump speed by 15%',
+  impact: 'Intake flow will decrease ~15%. Monitor bearing temperature.',
+}
 
 function renderPanel(approvalOpen = true) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const ui = useUIStore()
+  const approvals = useApprovalStore()
+  if (approvalOpen) approvals.push(MOCK)
   ui.approvalOpen = approvalOpen
   return {
-    pinia,
-    ui,
-    approvals: useApprovalStore(),
+    pinia, ui, approvals,
     ...render(ApprovalPanel, { global: { plugins: [pinia] } }),
   }
 }
 
 describe('ApprovalPanel', () => {
-  beforeEach(() => { setActivePinia(createPinia()) })
-  afterEach(() => cleanup())
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
   it('is hidden when approvalOpen is false', () => {
     const { container } = renderPanel(false)
@@ -39,26 +51,26 @@ describe('ApprovalPanel', () => {
 
   it('renders the action text', () => {
     const { container } = renderPanel(true)
-    const action = container.querySelector('.approval-action')?.textContent
-    expect(action).toContain('Reduce pump speed by 15%')
+    expect(container.querySelector('.approval-action')?.textContent).toContain('Reduce pump speed by 15%')
   })
 
   it('renders the impact text', () => {
     const { container } = renderPanel(true)
-    const impact = container.querySelector('.approval-impact')?.textContent
-    expect(impact).toContain('Intake flow will decrease')
+    expect(container.querySelector('.approval-impact')?.textContent).toContain('Intake flow will decrease')
   })
 
   describe('approve', () => {
     it('resolves with "approve" decision', async () => {
       const { container, ui } = renderPanel(true)
       await fireEvent.click(container.querySelector('.approve-btn')!)
+      await flushPromises()
       expect(ui.postApprovalDecision).toBe('approve')
     })
 
     it('re-opens node panel for the resolved node', async () => {
       const { container, ui } = renderPanel(true)
       await fireEvent.click(container.querySelector('.approve-btn')!)
+      await flushPromises()
       expect(ui.activeNodeId).toBe('RawWater_01')
       expect(ui.activePanel).toBe('node')
     })
@@ -66,6 +78,7 @@ describe('ApprovalPanel', () => {
     it('removes the approval from the queue', async () => {
       const { container, approvals } = renderPanel(true)
       await fireEvent.click(container.querySelector('.approve-btn')!)
+      await flushPromises()
       expect(approvals.queue).toHaveLength(0)
     })
   })
@@ -74,12 +87,14 @@ describe('ApprovalPanel', () => {
     it('resolves with "deny" decision', async () => {
       const { container, ui } = renderPanel(true)
       await fireEvent.click(container.querySelector('.deny-btn')!)
+      await flushPromises()
       expect(ui.postApprovalDecision).toBe('deny')
     })
 
     it('re-opens node panel for the resolved node', async () => {
       const { container, ui } = renderPanel(true)
       await fireEvent.click(container.querySelector('.deny-btn')!)
+      await flushPromises()
       expect(ui.activeNodeId).toBe('RawWater_01')
     })
   })
