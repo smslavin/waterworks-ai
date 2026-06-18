@@ -1,20 +1,38 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useUIStore } from '@/stores/ui'
 
 const ui = useUIStore()
 const visible = computed(() => ui.activeFlyout !== null)
 
+type HealthStatus = 'ok' | 'error' | 'loading'
+
 const HEALTH_SERVICES = [
-  { name: 'mqtt-mcp',        port: 8001 },
-  { name: 'opcua-mcp',       port: 8002 },
-  { name: 'influxdb-mcp',    port: 8003 },
-  { name: 'audit-mcp',       port: 8004 },
-  { name: 'control-mcp',     port: 8005 },
-  { name: 'memory-mcp',      port: 8006 },
-  { name: 'topology-builder', port: 8007 },
-  { name: 'mcp-aggregator',  port: 8100 },
+  { key: 'aggregator',  name: 'mcp-aggregator', port: 8100 },
+  { key: 'influxdb',    name: 'influxdb',        port: 8086 },
+  { key: 'mqtt',        name: 'mosquitto',       port: 1883 },
+  { key: 'simulator',   name: 'simulator',       port: 8090 },
+  { key: 'audit_mcp',   name: 'audit-mcp',       port: 8004 },
+  { key: 'control_mcp', name: 'control-mcp',     port: 8005 },
+  { key: 'memory_mcp',  name: 'memory-mcp',      port: 8006 },
 ]
+
+const healthData = ref<Record<string, HealthStatus>>({})
+
+watch(() => ui.activeFlyout, async (key) => {
+  if (key !== 'health') return
+  HEALTH_SERVICES.forEach(s => { healthData.value[s.key] = 'loading' })
+  try {
+    const resp = await fetch('/api/health')
+    if (!resp.ok) throw new Error(`${resp.status}`)
+    const data = await resp.json() as Record<string, string>
+    HEALTH_SERVICES.forEach(s => {
+      healthData.value[s.key] = data[s.key] === 'ok' ? 'ok' : 'error'
+    })
+  } catch {
+    HEALTH_SERVICES.forEach(s => { healthData.value[s.key] = 'error' })
+  }
+})
 </script>
 
 <template>
@@ -47,14 +65,16 @@ const HEALTH_SERVICES = [
       <div v-else-if="ui.activeFlyout === 'health'" class="flyout-body">
         <div
           v-for="svc in HEALTH_SERVICES"
-          :key="svc.name"
+          :key="svc.key"
           class="health-row"
         >
-          <span class="health-dot ok" />
+          <span
+            class="health-dot"
+            :class="healthData[svc.key] === 'ok' ? 'ok' : healthData[svc.key] === 'error' ? 'err' : 'warn'"
+          />
           <span class="health-name">{{ svc.name }}</span>
           <span class="health-port">:{{ svc.port }}</span>
         </div>
-        <p class="flyout-hint">Live status wired in Phase 7.</p>
       </div>
 
       <!-- Faults -->
