@@ -148,7 +148,7 @@ describe('useUIStore', () => {
 
     it('closeFlyout clears the active flyout', () => {
       const ui = useUIStore()
-      ui.toggleFlyout('audit')
+      ui.toggleFlyout('notif')
       ui.closeFlyout()
       expect(ui.activeFlyout).toBeNull()
     })

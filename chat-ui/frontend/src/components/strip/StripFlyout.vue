@@ -82,10 +82,9 @@ const activeFaultCount = computed(() =>
     >
       <div class="flyout-header">
         <span class="flyout-title">
-          {{ ui.activeFlyout === 'notif'  ? 'Notifications'   :
-             ui.activeFlyout === 'health' ? 'Service Health'   :
-             ui.activeFlyout === 'faults' ? 'Fault Injection'  :
-                                            'Audit Log' }}
+          {{ ui.activeFlyout === 'notif'  ? 'Notifications'  :
+             ui.activeFlyout === 'health' ? 'Service Health'  :
+                                            'Fault Injection' }}
         </span>
         <span
           v-if="ui.activeFlyout === 'faults' && activeFaultCount > 0"
@@ -147,14 +146,6 @@ const activeFaultCount = computed(() =>
         <div v-else class="flyout-empty">Simulator offline</div>
       </div>
 
-      <!-- Audit -->
-      <div v-else-if="ui.activeFlyout === 'audit'" class="flyout-body">
-        <div class="flyout-empty">No sessions this run</div>
-        <p class="flyout-hint">
-          Audit entries appear here after AI interactions. Full log at
-          <code>chat-ui/audit.jsonl</code>.
-        </p>
-      </div>
     </div>
   </Transition>
 </template>

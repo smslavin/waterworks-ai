@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-export type FlyoutKey = 'notif' | 'health' | 'faults' | 'audit' | null
+export type FlyoutKey = 'notif' | 'health' | 'faults' | null
 export type PanelKey = 'node' | 'area' | 'plant' | null
 export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 

@@ -4,7 +4,7 @@ import type { FlyoutKey } from '@/stores/ui'
 
 const ui = useUIStore()
 
-const ICONS: { key: NonNullable<FlyoutKey>; label: string; path: string }[] = [
+const FLYOUT_ICONS: { key: NonNullable<FlyoutKey>; label: string; path: string }[] = [
   {
     key: 'notif',
     label: 'Notifications',
@@ -20,35 +20,36 @@ const ICONS: { key: NonNullable<FlyoutKey>; label: string; path: string }[] = [
     label: 'Fault injection',
     path: 'M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',
   },
-  {
-    key: 'audit',
-    label: 'Audit log',
-    path: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
-  },
 ]
+
+function openAuditLog() {
+  window.open('/audit', '_blank', 'noopener')
+}
 </script>
 
 <template>
   <div class="icon-strip">
     <button
-      v-for="item in ICONS"
+      v-for="item in FLYOUT_ICONS"
       :key="item.key"
       class="strip-btn"
       :class="{ active: ui.activeFlyout === item.key }"
       :title="item.label"
       @click.stop="ui.toggleFlyout(item.key)"
     >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.75"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
         <path :d="item.path" />
+      </svg>
+    </button>
+
+    <!-- Audit log — opens full-page viewer in a new window -->
+    <button
+      class="strip-btn"
+      title="Audit log"
+      @click.stop="openAuditLog"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" />
       </svg>
     </button>
   </div>
