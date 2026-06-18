@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAlarmStore } from '@/stores/alarm'
+import { useApprovalStore } from '@/stores/approval'
 import ApprovalPill from './ApprovalPill.vue'
 import ModeChip from './ModeChip.vue'
 import ReasoningChip from './ReasoningChip.vue'
 import ConfigButton from './ConfigButton.vue'
 
 const alarm = useAlarmStore()
+const approval = useApprovalStore()
 const warningAlarms = computed(() => alarm.alarms.filter(a => a.severity === 'warning'))
 
 function shortMsg(msg: string): string {
@@ -19,10 +21,7 @@ function shortMsg(msg: string): string {
   <header class="app-header">
     <div class="header-left">
       <span class="site-name">
-        <svg class="site-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
-          <path d="M12 6v6l4 2" />
-        </svg>
+        <img src="@/assets/icon-dark.png" class="site-icon" alt="" />
         Waterworks AI
       </span>
     </div>
@@ -36,7 +35,7 @@ function shortMsg(msg: string): string {
         <span class="warning-dot" />
         <span class="warning-text">{{ a.nodeId }} · {{ shortMsg(a.message) }}</span>
       </div>
-      <ApprovalPill />
+      <ApprovalPill v-if="approval.hasPending" />
       <div class="header-divider" />
       <ModeChip />
       <ReasoningChip />
@@ -74,8 +73,10 @@ function shortMsg(msg: string): string {
 }
 
 .site-icon {
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
-  color: var(--color-verified);
+  object-fit: contain;
 }
 
 .header-right {

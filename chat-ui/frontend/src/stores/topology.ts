@@ -23,16 +23,16 @@ export interface TopologyEdge {
 export const AREA_ORDER = ['Intake', 'Treatment', 'Distribution'] as const
 
 const INITIAL_NODES: TopologyNode[] = [
-  { id: 'RawWater_01',     area: 'Intake',       specialist: 'Intake',       equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'pending-approval', hasMemory: false, saveCount: 0 },
-  { id: 'RawWater_02',     area: 'Intake',       specialist: 'Intake',       equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'critical',         hasMemory: false, saveCount: 0 },
-  { id: 'Clarifier_01',   area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'clarifier',   confidenceLevel: 'verified', alarmState: 'normal',           hasMemory: false, saveCount: 0 },
-  { id: 'UV_01',           area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'uv_reactor',  confidenceLevel: 'verified', alarmState: 'warning',          hasMemory: false, saveCount: 0 },
-  { id: 'UV_02',           area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'uv_reactor',  confidenceLevel: 'verified', alarmState: 'normal',           hasMemory: false, saveCount: 0 },
-  { id: 'Chlorine_01',    area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'dosing_pump', confidenceLevel: 'inferred', alarmState: 'normal',           hasMemory: false, saveCount: 0 },
-  { id: 'Fluoride_01',    area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'dosing_pump', confidenceLevel: 'inferred', alarmState: 'normal',           hasMemory: false, saveCount: 0 },
-  { id: 'HighService_01', area: 'Distribution', specialist: 'Distribution', equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'critical',         hasMemory: false, saveCount: 0 },
-  { id: 'HighService_02', area: 'Distribution', specialist: 'Distribution', equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'normal',           hasMemory: false, saveCount: 0 },
-  { id: 'FinishedWater_01',area:'Distribution', specialist: 'Distribution', equipmentType: 'tank',        confidenceLevel: 'verified', alarmState: 'normal',           hasMemory: false, saveCount: 0 },
+  { id: 'RawWater_01',      area: 'Intake',       specialist: 'Intake',       equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'RawWater_02',      area: 'Intake',       specialist: 'Intake',       equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'Clarifier_01',    area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'clarifier',   confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'UV_01',            area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'uv_reactor',  confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'UV_02',            area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'uv_reactor',  confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'Chlorine_01',     area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'dosing_pump', confidenceLevel: 'inferred', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'Fluoride_01',     area: 'Treatment',    specialist: 'Treatment',    equipmentType: 'dosing_pump', confidenceLevel: 'inferred', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'HighService_01',  area: 'Distribution', specialist: 'Distribution', equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'HighService_02',  area: 'Distribution', specialist: 'Distribution', equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
+  { id: 'FinishedWater_01', area: 'Distribution', specialist: 'Distribution', equipmentType: 'tank',       confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
 ]
 
 const INITIAL_EDGES: TopologyEdge[] = [

@@ -36,10 +36,11 @@ export function renderText(raw: string): string {
       }
       if (b.startsWith('|')) {
         const rows = b.split('\n').filter(r => r.trim().startsWith('|'))
-        if (rows.length >= 2 && /^\|[-| :]+\|$/.test(rows[1].trim())) {
-          const hdrs = rows[0].split('|').slice(1, -1)
+        const [firstRow, sepRow, ...dataRows] = rows
+        if (firstRow !== undefined && sepRow !== undefined && /^\|[-| :]+\|$/.test(sepRow.trim())) {
+          const hdrs = firstRow.split('|').slice(1, -1)
             .map(c => `<th>${c.trim()}</th>`).join('')
-          const body = rows.slice(2).map(r => {
+          const body = dataRows.map(r => {
             const cells = r.split('|').slice(1, -1)
               .map(c => `<td>${c.trim()}</td>`).join('')
             return `<tr>${cells}</tr>`

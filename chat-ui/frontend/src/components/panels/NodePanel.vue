@@ -36,6 +36,11 @@ const renderedContent = computed(() => renderText(content.value))
 const hasSaved = computed(() => (activeNode.value?.saveCount ?? 0) > 0)
 
 const classifyOpen = ref(false)
+const followUpText = ref('')
+
+type Message = { role: 'user' | 'assistant'; content: string }
+const conversationLog = ref<Message[]>([])
+
 const statusText = computed(() =>
   isStreaming.value
     ? 'Analyzing…'
@@ -46,6 +51,7 @@ watch(() => ui.activeNodeId, async (newId) => {
   if (!newId) return
 
   classifyOpen.value = false
+  followUpText.value = ''
   stopStream(KEY)
 
   await nextTick()
@@ -55,16 +61,31 @@ watch(() => ui.activeNodeId, async (newId) => {
   const node = topo.nodeById(newId)
   if (!node) return
 
-  let content = `Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`
+  let msgContent = `Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`
 
   if (ui.postApprovalDecision) {
     const decision = ui.postApprovalDecision
     ui.postApprovalDecision = null
-    content = `The operator ${decision}d the proposed action for ${node.id}. Please continue your assessment.`
+    msgContent = `The operator ${decision}d the proposed action for ${node.id}. Please continue your assessment.`
   }
 
-  stream(KEY, [{ role: 'user', content }], { mode: ui.multiAgent ? 'multi' : 'single' })
+  const initial: Message = { role: 'user', content: msgContent }
+  conversationLog.value = [initial]
+  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })
 })
+
+function sendFollowUp() {
+  const text = followUpText.value.trim()
+  if (!text || isStreaming.value) return
+  followUpText.value = ''
+  const messages: Message[] = [
+    ...conversationLog.value,
+    { role: 'assistant', content: content.value },
+    { role: 'user', content: text },
+  ]
+  conversationLog.value = messages
+  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single' })
+}
 </script>
 
 <template>
@@ -108,8 +129,19 @@ watch(() => ui.activeNodeId, async (newId) => {
     />
 
     <div class="panel-footer">
-      <input class="panel-input" placeholder="Ask a follow-up…" @click.stop />
-      <button class="panel-send">Ask</button>
+      <input
+        v-model="followUpText"
+        class="panel-input"
+        placeholder="Ask a follow-up…"
+        :disabled="isStreaming"
+        @click.stop
+        @keydown.enter.prevent="sendFollowUp"
+      />
+      <button
+        class="panel-send"
+        :disabled="isStreaming || !followUpText.trim()"
+        @click.stop="sendFollowUp"
+      >Ask</button>
       <button
         v-if="activeNode"
         class="save-bookmark-btn"
@@ -364,8 +396,13 @@ watch(() => ui.activeNodeId, async (newId) => {
   transition: opacity 0.15s;
 }
 
-.panel-send:hover {
+.panel-send:hover:not(:disabled) {
   opacity: 0.85;
+}
+
+.panel-send:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .save-bookmark-btn {
