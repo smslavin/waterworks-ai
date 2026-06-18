@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useUIStore } from '@/stores/ui'
+import { useTopologyStore } from '@/stores/topology'
 import { usePanelDismiss } from '@/composables/usePanelDismiss'
 import AppHeader from '@/components/header/AppHeader.vue'
 import AlarmStrip from '@/components/alarm/AlarmStrip.vue'
@@ -15,7 +17,20 @@ import ApprovalPanel from '@/components/approval/ApprovalPanel.vue'
 import ConfigShell from '@/components/config/ConfigShell.vue'
 
 const ui = useUIStore()
+const topo = useTopologyStore()
 usePanelDismiss()
+
+onMounted(async () => {
+  try {
+    const resp = await fetch('/api/fault/status')
+    if (resp.ok) {
+      const status = await resp.json() as Record<string, string>
+      Object.entries(status).forEach(([nodeId, mode]) => {
+        topo.setAlarmState(nodeId, mode === 'normal' ? 'normal' : 'critical')
+      })
+    }
+  } catch { /* backend not running */ }
+})
 </script>
 
 <template>

@@ -2,15 +2,20 @@
 import { computed, watch, nextTick, ref } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useChatStore } from '@/stores/chat'
-import { useStreaming } from '@/composables/useStreaming'
-import { CRUMB_RESPONSES } from '@/data/responses'
+import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 
 export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 
+const PROMPTS: Record<string, string> = {
+  plant:      'Provide a high-level status summary of the Waterworks treatment plant. Use available tools to check all process areas (Intake, Treatment, Distribution) and report current status, any alarms, and recommended actions.',
+  region:     'Provide a status summary for the Metro Region. Focus on the Waterworks plant, which has live telemetry, and summarize its current operational status.',
+  enterprise: 'Provide an enterprise-level status overview. Use the Waterworks plant live data to report current operational health.',
+}
+
 const ui = useUIStore()
 const chat = useChatStore()
-const { stream, stopStream } = useStreaming()
+const { stream, stopStream } = useSSE()
 
 const KEY = 'plant'
 const panelTop = ref(0)
@@ -39,6 +44,10 @@ const content = computed(() => chat.content[KEY] ?? '')
 const renderedContent = computed(() => renderText(content.value))
 const statusText = computed(() => isStreaming.value ? 'Analyzing…' : `${titleText.value} · complete`)
 
+const followUpText = ref('')
+type Message = { role: 'user' | 'assistant'; content: string }
+const conversationLog = ref<Message[]>([])
+
 function positionPanel() {
   const canvas = document.getElementById('topo-canvas')
   if (!canvas) return
@@ -50,11 +59,30 @@ function positionPanel() {
 
 watch(() => ui.activePanel, async (panel, prev) => {
   if (panel !== 'plant') return
-  if (prev !== 'plant') stopStream(KEY)
+  if (prev !== 'plant') {
+    followUpText.value = ''
+    stopStream(KEY)
+  }
   await nextTick()
   positionPanel()
-  stream(KEY, CRUMB_RESPONSES[crumbLevel.value ?? 'plant'] ?? 'No data available.')
+  const msgContent = PROMPTS[crumbLevel.value ?? 'plant'] ?? PROMPTS.plant
+  const initial: Message = { role: 'user', content: msgContent }
+  conversationLog.value = [initial]
+  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })
 })
+
+function sendFollowUp() {
+  const text = followUpText.value.trim()
+  if (!text || isStreaming.value) return
+  followUpText.value = ''
+  const messages: Message[] = [
+    ...conversationLog.value,
+    { role: 'assistant', content: content.value },
+    { role: 'user', content: text },
+  ]
+  conversationLog.value = messages
+  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single' })
+}
 </script>
 
 <template>
@@ -75,8 +103,19 @@ watch(() => ui.activePanel, async (panel, prev) => {
     </div>
     <div class="plant-panel-body" v-html="renderedContent" />
     <div class="plant-panel-footer">
-      <input class="panel-input" placeholder="Ask a follow-up…" @click.stop />
-      <button class="panel-send">Ask</button>
+      <input
+        v-model="followUpText"
+        class="panel-input"
+        placeholder="Ask a follow-up…"
+        :disabled="isStreaming"
+        @click.stop
+        @keydown.enter.prevent="sendFollowUp"
+      />
+      <button
+        class="panel-send"
+        :disabled="isStreaming || !followUpText.trim()"
+        @click.stop="sendFollowUp"
+      >Ask</button>
     </div>
   </div>
 </template>
@@ -197,7 +236,12 @@ watch(() => ui.activePanel, async (panel, prev) => {
   transition: opacity 0.15s;
 }
 
-.panel-send:hover {
+.panel-send:hover:not(:disabled) {
   opacity: 0.85;
+}
+
+.panel-send:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 </style>

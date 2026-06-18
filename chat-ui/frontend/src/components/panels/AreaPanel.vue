@@ -2,13 +2,12 @@
 import { computed, watch, nextTick, ref } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useChatStore } from '@/stores/chat'
-import { useStreaming } from '@/composables/useStreaming'
-import { AREA_RESPONSES } from '@/data/responses'
+import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 
 const ui = useUIStore()
 const chat = useChatStore()
-const { stream, stopStream } = useStreaming()
+const { stream, stopStream } = useSSE()
 
 const KEY = 'area'
 const panelTop = ref(0)
@@ -20,6 +19,10 @@ const streamDone = computed(() => chat.streamDone[KEY] ?? false)
 const content = computed(() => chat.content[KEY] ?? '')
 const renderedContent = computed(() => renderText(content.value))
 const statusText = computed(() => isStreaming.value ? 'Analyzing…' : `${ui.activeArea} area · complete`)
+
+const followUpText = ref('')
+type Message = { role: 'user' | 'assistant'; content: string }
+const conversationLog = ref<Message[]>([])
 
 function positionPanel(area: string) {
   const canvas = document.getElementById('topo-canvas')
@@ -38,12 +41,31 @@ function positionPanel(area: string) {
 
 watch(() => ui.activeArea, async (area, oldArea) => {
   if (!area) return
-  if (oldArea !== area) stopStream(KEY)
+  if (oldArea !== area) {
+    followUpText.value = ''
+    stopStream(KEY)
+  }
 
   await nextTick()
   positionPanel(area)
-  stream(KEY, AREA_RESPONSES[area] ?? 'No data available.')
+  const msgContent = `Analyze the ${area} process area of the Waterworks plant. Use available tools to check all equipment in this area and provide a status summary including any alarms or anomalies.`
+  const initial: Message = { role: 'user', content: msgContent }
+  conversationLog.value = [initial]
+  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })
 })
+
+function sendFollowUp() {
+  const text = followUpText.value.trim()
+  if (!text || isStreaming.value) return
+  followUpText.value = ''
+  const messages: Message[] = [
+    ...conversationLog.value,
+    { role: 'assistant', content: content.value },
+    { role: 'user', content: text },
+  ]
+  conversationLog.value = messages
+  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single' })
+}
 </script>
 
 <template>
@@ -64,8 +86,19 @@ watch(() => ui.activeArea, async (area, oldArea) => {
     </div>
     <div class="area-panel-body" v-html="renderedContent" />
     <div class="area-panel-footer">
-      <input class="panel-input" placeholder="Ask a follow-up…" @click.stop />
-      <button class="panel-send">Ask</button>
+      <input
+        v-model="followUpText"
+        class="panel-input"
+        placeholder="Ask a follow-up…"
+        :disabled="isStreaming"
+        @click.stop
+        @keydown.enter.prevent="sendFollowUp"
+      />
+      <button
+        class="panel-send"
+        :disabled="isStreaming || !followUpText.trim()"
+        @click.stop="sendFollowUp"
+      >Ask</button>
     </div>
   </div>
 </template>
@@ -186,7 +219,12 @@ watch(() => ui.activeArea, async (area, oldArea) => {
   transition: opacity 0.15s;
 }
 
-.panel-send:hover {
+.panel-send:hover:not(:disabled) {
   opacity: 0.85;
+}
+
+.panel-send:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 </style>
