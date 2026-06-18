@@ -131,7 +131,7 @@ describe('StripFlyout', () => {
           aggregator: 'ok', influxdb: 'ok', mqtt: 'ok', simulator: 'ok',
           audit_mcp: 'ok', control_mcp: 'ok', memory_mcp: 'ok',
         }),
-      })
+      } as unknown as Response)
       vi.stubGlobal('fetch', mockFetch)
       const { ui } = renderFlyout()
       ui.toggleFlyout('health')
@@ -153,10 +153,11 @@ describe('StripFlyout', () => {
     }
 
     function mockFaultFetch() {
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
-        if (url === '/api/fault/status') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_STATUS) })
-        if (url === '/api/fault/modes')  return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODES) })
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+      vi.stubGlobal('fetch', vi.fn().mockImplementation((url: RequestInfo | URL) => {
+        const s = url.toString()
+        if (s === '/api/fault/status') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_STATUS) } as unknown as Response)
+        if (s === '/api/fault/modes')  return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODES) } as unknown as Response)
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as unknown as Response)
       }))
     }
 
@@ -197,10 +198,11 @@ describe('StripFlyout', () => {
     })
 
     it('changing select calls fetch with correct body', async () => {
-      const mockFetch = vi.fn<typeof fetch>().mockImplementation((url: string) => {
-        if (url === '/api/fault/status') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_STATUS) })
-        if (url === '/api/fault/modes')  return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODES) })
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+      const mockFetch = vi.fn<typeof fetch>().mockImplementation((url: RequestInfo | URL) => {
+        const s = url.toString()
+        if (s === '/api/fault/status') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_STATUS) } as unknown as Response)
+        if (s === '/api/fault/modes')  return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODES) } as unknown as Response)
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as unknown as Response)
       })
       vi.stubGlobal('fetch', mockFetch)
       const { ui, container } = renderFlyout()
