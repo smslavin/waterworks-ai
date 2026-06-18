@@ -12,6 +12,7 @@ export function renderText(raw: string): string {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^#{4,} (.+)$/gm, '<h4>$1</h4>')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/^# (.+)$/gm, '<h1>$1</h1>')
@@ -24,7 +25,7 @@ export function renderText(raw: string): string {
     .map(b => {
       b = b.trim()
       if (!b) return ''
-      if (/^<(h[1-3]|pre|ul|ol|hr|li)/.test(b)) return b
+      if (/^<(h[1-4]|pre|ul|ol|hr|li)/.test(b)) return b
       // Blockquote: `>` was escaped to `&gt;` above
       if (b.startsWith('&gt;')) {
         const inner = b

@@ -41,6 +41,7 @@ export function useSSE() {
       const decoder = new TextDecoder()
       let buf = ''
       let finished = false
+      let afterToolCall = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -55,7 +56,11 @@ export function useSSE() {
           try {
             const evt = JSON.parse(raw) as { type: string; [k: string]: unknown }
             if (evt.type === 'text') {
-              chat.appendToken(key, evt.text as string)
+              const prefix = afterToolCall ? '\n\n' : ''
+              afterToolCall = false
+              chat.appendToken(key, prefix + (evt.text as string))
+            } else if (evt.type === 'tool_call') {
+              afterToolCall = true
             } else if (evt.type === 'done') {
               chat.finishStream(key)
               finished = true

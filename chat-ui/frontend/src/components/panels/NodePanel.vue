@@ -234,7 +234,8 @@ watch(() => ui.activeNodeId, async (newId) => {
 }
 .panel-body :deep(h1),
 .panel-body :deep(h2),
-.panel-body :deep(h3) {
+.panel-body :deep(h3),
+.panel-body :deep(h4) {
   font-weight: 600;
   color: var(--color-text1);
   line-height: 1.3;
@@ -243,6 +244,7 @@ watch(() => ui.activeNodeId, async (newId) => {
 .panel-body :deep(h1) { font-size: 1.05em; }
 .panel-body :deep(h2) { font-size: 0.97em; }
 .panel-body :deep(h3) { font-size: 0.9em; letter-spacing: 0.01em; }
+.panel-body :deep(h4) { font-size: 0.87em; color: var(--color-text2); }
 .panel-body :deep(code) {
   font-family: var(--font-mono);
   font-size: 11px;
