@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 
@@ -26,13 +27,14 @@ def _dump(obj) -> str:
 
 
 from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+
 from fastmcp import FastMCP
 
 import analytical
 import graph
 import specialist_mem
-
-load_dotenv()
 
 PORT = int(os.environ.get("MEMORY_MCP_PORT", 8006))
 
