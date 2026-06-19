@@ -160,11 +160,14 @@ async def chat_endpoint(request: Request):
 
     if mode == "multi":
         api_key = os.environ.get("ANTHROPIC_API_KEY") or ANTHROPIC_API_KEY
+        scope = body.get("scope")  # optional node id — scopes to one specialist
 
         async def generate_multi():
             try:
                 async for chunk in multi_agent_loop.run_multi_agent(
-                    messages, model, api_key=api_key
+                    messages, model, api_key=api_key,
+                    scope_instance_id=scope,
+                    include_orchestrator=(scope is None),
                 ):
                     yield {"data": chunk}
             except Exception as exc:

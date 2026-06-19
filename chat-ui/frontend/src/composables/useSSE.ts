@@ -9,6 +9,7 @@ export interface SSEMessage {
 
 export interface SSEOptions {
   mode?: 'single' | 'multi'
+  scope?: string
 }
 
 export function useSSE() {
@@ -27,7 +28,7 @@ export function useSSE() {
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, mode: opts.mode ?? 'single' }),
+        body: JSON.stringify({ messages, mode: opts.mode ?? 'single', ...(opts.scope ? { scope: opts.scope } : {}) }),
         signal: controller.signal,
       })
 

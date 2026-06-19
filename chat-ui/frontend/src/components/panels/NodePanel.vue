@@ -65,7 +65,7 @@ watch(() => ui.activeNodeId, async (newId) => {
   const msgContent = `Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`
   const initial: Message = { role: 'user', content: msgContent }
   conversationLog.value = [initial]
-  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })
+  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single', scope: ui.multiAgent ? node.id : undefined })
 })
 
 function sendFollowUp() {
@@ -78,7 +78,8 @@ function sendFollowUp() {
     { role: 'user', content: text },
   ]
   conversationLog.value = messages
-  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single' })
+  const nodeId = activeNode.value?.id
+  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single', scope: ui.multiAgent && nodeId ? nodeId : undefined })
 }
 </script>
 
