@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
+import { useAlarmStore } from '@/stores/alarm'
 import { usePanelDismiss } from '@/composables/usePanelDismiss'
 import AppHeader from '@/components/header/AppHeader.vue'
 import AlarmStrip from '@/components/alarm/AlarmStrip.vue'
@@ -18,6 +19,7 @@ import ConfigShell from '@/components/config/ConfigShell.vue'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
+const alarm = useAlarmStore()
 usePanelDismiss()
 
 onMounted(async () => {
@@ -27,6 +29,15 @@ onMounted(async () => {
       const status = await resp.json() as Record<string, string>
       Object.entries(status).forEach(([nodeId, mode]) => {
         topo.setAlarmState(nodeId, mode === 'normal' ? 'normal' : 'critical')
+        if (mode !== 'normal') {
+          alarm.addAlarm({
+            id: nodeId,
+            nodeId,
+            severity: 'critical',
+            message: mode.replace(/_/g, ' '),
+            timestamp: new Date().toISOString(),
+          })
+        }
       })
     }
   } catch { /* backend not running */ }

@@ -2,9 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
+import { useAlarmStore } from '@/stores/alarm'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
+const alarm = useAlarmStore()
 const visible = computed(() => ui.activeFlyout !== null)
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -61,6 +63,17 @@ watch(() => ui.activeFlyout, async (key) => {
 async function injectFault(target: string, mode: string) {
   faultStatus.value[target] = mode  // optimistic
   topo.setAlarmState(target, mode === 'normal' ? 'normal' : 'critical')
+  if (mode === 'normal') {
+    alarm.acknowledge(target)
+  } else {
+    alarm.addAlarm({
+      id: target,
+      nodeId: target,
+      severity: 'critical',
+      message: mode.replace(/_/g, ' '),
+      timestamp: new Date().toISOString(),
+    })
+  }
   try {
     await fetch('/api/fault', {
       method: 'POST',
