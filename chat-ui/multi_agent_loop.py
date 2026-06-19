@@ -144,6 +144,7 @@ async def _run_specialist(
     full_text = ""
     input_tokens = output_tokens = 0
     tool_call_count = error_count = 0
+    after_tool_call = False  # track turns so paragraph breaks are inserted
 
     await queue.put({"type": "specialist_start", "specialist": name})
 
@@ -165,8 +166,14 @@ async def _run_specialist(
                 kwargs["tools"] = api_tools
 
             async with client.messages.stream(**kwargs) as stream:
+                first_chunk = True
                 async for text in stream.text_stream:
+                    if first_chunk and after_tool_call and text.strip():
+                        full_text += "\n\n"
+                        after_tool_call = False
                     full_text += text
+                    if first_chunk and text.strip():
+                        first_chunk = False
 
                 final = await stream.get_final_message()
 
@@ -275,6 +282,7 @@ async def _run_specialist(
                     {"role": "assistant", "content": assistant_content},
                     {"role": "user", "content": tool_results},
                 ]
+                after_tool_call = True
                 continue
 
             break
@@ -432,6 +440,10 @@ async def run_multi_agent(
             if findings.get(s["name"], {}).get("text")
         )
         if text:
+            # Deduplicate FINDINGS blocks — keep only the last one
+            findings_positions = [m.start() for m in re.finditer(r'\nFINDINGS:', text)]
+            if len(findings_positions) > 1:
+                text = text[:findings_positions[0]] + text[findings_positions[-1]:]
             yield json.dumps({"type": "text", "text": text})
         yield json.dumps(
             {

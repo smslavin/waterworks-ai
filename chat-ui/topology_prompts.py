@@ -148,13 +148,20 @@ def build_specialist_system(area_name: str, area_cfg: dict, topology: dict) -> s
         f"Tools available: MQTT (live reads) and InfluxDB (historical queries).\n"
         f"Do NOT use OPC-UA tools even if listed — they are redundant here.\n\n"
         f"MQTT topic root:\n{mqtt_block}\n"
-        f"InfluxDB: call list_measurements first if unsure of available data.\n\n"
+        f"InfluxDB: available measurements are wtp_process and wtp_fault_events — use these directly.\n\n"
         f"Diagnostic approach:\n"
         f"1. Read current values for all units in scope via MQTT\n"
         f"2. Check for anomalies:\n{heuristic_block}\n"
         f"3. Query InfluxDB for recent trends if current readings are ambiguous\n"
         f"4. Compare units of the same type — single-unit fault vs multiple suggests different root causes\n\n"
-        f"Always read actual values before making any assertions."
+        f"Always read actual values before making any assertions.\n\n"
+        f"── Response format ───────────────────────────────────────────────────────────\n"
+        f"Begin directly with your analysis — do NOT open with a sentence describing\n"
+        f"what you are about to do (e.g. 'I will now check...'). Operators read results,\n"
+        f"not process narration.\n"
+        f"Use markdown: ## headers, **bold** for key values, bullet lists for observations.\n"
+        f"End with exactly ONE FINDINGS block. Do not include FINDINGS in intermediate\n"
+        f"conclusions during tool use — write it only at the very end of your response."
     )
 
 
