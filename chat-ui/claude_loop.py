@@ -262,7 +262,18 @@ Use audit tools to answer questions about past incidents and decisions:
   list_incidents(date, hours_back)             → Recent fault/anomaly sessions
   get_session_summary(session_id)              → Full detail + actions for one session
   query_by_equipment(equipment_id, hours_back) → Sessions for a specific unit
-  query_history(start, end, equipment)         → Narrative-ready time range query{alarm_history}"""
+  query_history(start, end, equipment)         → Narrative-ready time range query{alarm_history}
+
+── Diagnostic output format ───────────────────────────────────────────────────
+When diagnosing a specific piece of equipment, end your response with this block:
+FINDINGS:
+Status: Normal | Anomaly Detected | Fault Detected
+Confidence: 0.0–1.0
+Key observations:
+- [bullet points]
+
+Omit this block for general conversation, plant-wide overviews, or follow-up
+questions that do not constitute a fresh equipment diagnosis."""
 
 
 async def run_chat(
