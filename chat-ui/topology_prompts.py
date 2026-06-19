@@ -25,11 +25,28 @@ Do NOT issue one query per unit or per attribute — that is wasteful and slow.
 Filter by type or measurement to get a wide view, then narrow only if needed.
 Aim for 2–3 queries total: one for process trends, one for fault events.
 
-── Flux syntax rules (violations cause query errors) ─────────────────────────
-- group() takes `columns:` not `by:` — correct: |> group(columns: ["instance"])
-- Use `or` not `||` in filter functions — correct: r.type == "Pump" or r.type == "Tank"
-- range() takes a single start: — do NOT write range(start: -24h, start: -1h)
-- mean() requires a prior group() and will error on tagged data without it; prefer last() for current-state queries
+── Flux syntax rules — violations cause 400 errors ──────────────────────────
+These are the most common mistakes. Use the VALID form exactly as shown.
+
+  group():
+    INVALID: |> group(by: ["instance"])        ← "by:" does not exist in Flux
+    VALID:   |> group(columns: ["instance"])
+
+  sort():
+    INVALID: |> sort(by: ["_time"])            ← "by:" does not exist in Flux
+    VALID:   |> sort(columns: ["_time"], desc: true)
+
+  filter():
+    INVALID: r.type == "Pump" || r.type == "Tank"   ← || not valid in Flux
+    VALID:   r.type == "Pump" or r.type == "Tank"
+
+  range():
+    INVALID: range(start: -24h, stop: -1h)     ← use |> range(start:) then filter by time if needed
+    VALID:   range(start: -24h)
+
+  aggregates (mean, sum, etc.):
+    Require group() first on tagged data or will error. Prefer last() for
+    current-state queries where you just want the most recent value.
 
 Always cite specific time ranges and values. State clearly if no historical
 anomaly is found.
