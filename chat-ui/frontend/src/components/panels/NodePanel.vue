@@ -62,14 +62,7 @@ watch(() => ui.activeNodeId, async (newId) => {
   const node = topo.nodeById(newId)
   if (!node) return
 
-  let msgContent = `Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`
-
-  if (ui.postApprovalDecision) {
-    const decision = ui.postApprovalDecision
-    ui.postApprovalDecision = null
-    msgContent = `The operator ${decision}d the proposed action for ${node.id}. Please continue your assessment.`
-  }
-
+  const msgContent = `Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`
   const initial: Message = { role: 'user', content: msgContent }
   conversationLog.value = [initial]
   stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })

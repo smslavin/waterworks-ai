@@ -64,15 +64,9 @@ export const useApprovalStore = defineStore('approval', () => {
     queue.value = queue.value.filter(a => a.id !== id)
     const ui = useUIStore()
     ui.approvalOpen = queue.value.length > 0
-
-    if (ui.activeNodeId !== item.nodeId) {
-      // Different node open (or no panel) — switch to the approval node with context
-      ui.postApprovalDecision = decision
-      ui.setActiveNode(item.nodeId)
-    } else {
-      // Correct node panel already open — SSE continuation will deliver the AI response naturally
-      ui.postApprovalDecision = null
-    }
+    // Don't touch activeNodeId — leave the operator's current view undisturbed.
+    // The backend processes the decision; SSE continuation flows into the open panel if it's
+    // the same node, or is silently consumed if the operator has moved elsewhere.
   }
 
   return { queue, current, hasPending, push, pushFromBackend, resolve }

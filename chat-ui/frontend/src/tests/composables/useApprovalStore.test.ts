@@ -56,23 +56,6 @@ describe('useApprovalStore', () => {
       expect(approvals.queue).toHaveLength(0)
     })
 
-    it('sets postApprovalDecision to "approve" in UIStore', async () => {
-      const approvals = useApprovalStore()
-      const ui = useUIStore()
-      approvals.push(MOCK)
-      await approvals.resolve(MOCK.id, 'approve')
-      expect(ui.postApprovalDecision).toBe('approve')
-    })
-
-    it('re-opens the node panel for the resolved node', async () => {
-      const approvals = useApprovalStore()
-      const ui = useUIStore()
-      approvals.push(MOCK)
-      await approvals.resolve(MOCK.id, 'approve')
-      expect(ui.activeNodeId).toBe(MOCK.nodeId)
-      expect(ui.activePanel).toBe('node')
-    })
-
     it('closes approvalOpen when queue is empty', async () => {
       const approvals = useApprovalStore()
       const ui = useUIStore()
@@ -80,6 +63,15 @@ describe('useApprovalStore', () => {
       ui.approvalOpen = true
       await approvals.resolve(MOCK.id, 'approve')
       expect(ui.approvalOpen).toBe(false)
+    })
+
+    it('does not change the active node panel', async () => {
+      const approvals = useApprovalStore()
+      const ui = useUIStore()
+      ui.setActiveNode('HighService_02')
+      approvals.push(MOCK)
+      await approvals.resolve(MOCK.id, 'approve')
+      expect(ui.activeNodeId).toBe('HighService_02')
     })
 
     it('posts approved decision to /api/action/respond', async () => {
@@ -94,21 +86,20 @@ describe('useApprovalStore', () => {
   })
 
   describe('resolve — deny', () => {
-    it('removes item and sets decision to "deny"', async () => {
+    it('removes item from the queue', async () => {
       const approvals = useApprovalStore()
-      const ui = useUIStore()
       approvals.push(MOCK)
       await approvals.resolve(MOCK.id, 'deny')
       expect(approvals.queue).toHaveLength(0)
-      expect(ui.postApprovalDecision).toBe('deny')
     })
 
-    it('re-opens the node panel', async () => {
+    it('does not change the active node panel', async () => {
       const approvals = useApprovalStore()
       const ui = useUIStore()
+      ui.setActiveNode('HighService_02')
       approvals.push(MOCK)
       await approvals.resolve(MOCK.id, 'deny')
-      expect(ui.activeNodeId).toBe(MOCK.nodeId)
+      expect(ui.activeNodeId).toBe('HighService_02')
     })
 
     it('posts denied decision to /api/action/respond', async () => {

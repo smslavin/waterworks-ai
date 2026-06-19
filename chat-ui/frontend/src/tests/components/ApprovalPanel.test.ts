@@ -60,42 +60,55 @@ describe('ApprovalPanel', () => {
   })
 
   describe('approve', () => {
-    it('resolves with "approve" decision', async () => {
-      const { container, ui } = renderPanel(true)
-      await fireEvent.click(container.querySelector('.approve-btn')!)
-      await flushPromises()
-      expect(ui.postApprovalDecision).toBe('approve')
-    })
-
-    it('re-opens node panel for the resolved node', async () => {
-      const { container, ui } = renderPanel(true)
-      await fireEvent.click(container.querySelector('.approve-btn')!)
-      await flushPromises()
-      expect(ui.activeNodeId).toBe('RawWater_01')
-      expect(ui.activePanel).toBe('node')
-    })
-
     it('removes the approval from the queue', async () => {
       const { container, approvals } = renderPanel(true)
       await fireEvent.click(container.querySelector('.approve-btn')!)
       await flushPromises()
       expect(approvals.queue).toHaveLength(0)
     })
+
+    it('closes the approval panel', async () => {
+      const { container, ui } = renderPanel(true)
+      await fireEvent.click(container.querySelector('.approve-btn')!)
+      await flushPromises()
+      expect(ui.approvalOpen).toBe(false)
+    })
+
+    it('does not change the active node panel', async () => {
+      const pinia = createPinia()
+      setActivePinia(pinia)
+      const ui = useUIStore()
+      const approvals = useApprovalStore()
+      ui.setActiveNode('HighService_02')
+      approvals.push(MOCK)
+      ui.approvalOpen = true
+      const { container } = render(ApprovalPanel, { global: { plugins: [pinia] } })
+      await fireEvent.click(container.querySelector('.approve-btn')!)
+      await flushPromises()
+      expect(ui.activeNodeId).toBe('HighService_02')
+    })
   })
 
   describe('deny', () => {
-    it('resolves with "deny" decision', async () => {
-      const { container, ui } = renderPanel(true)
+    it('removes the approval from the queue', async () => {
+      const { container, approvals } = renderPanel(true)
       await fireEvent.click(container.querySelector('.deny-btn')!)
       await flushPromises()
-      expect(ui.postApprovalDecision).toBe('deny')
+      expect(approvals.queue).toHaveLength(0)
     })
 
-    it('re-opens node panel for the resolved node', async () => {
-      const { container, ui } = renderPanel(true)
+    it('does not change the active node panel', async () => {
+      const pinia = createPinia()
+      setActivePinia(pinia)
+      const ui = useUIStore()
+      const approvals = useApprovalStore()
+      ui.setActiveNode('HighService_02')
+      approvals.push(MOCK)
+      ui.approvalOpen = true
+      const { container } = render(ApprovalPanel, { global: { plugins: [pinia] } })
       await fireEvent.click(container.querySelector('.deny-btn')!)
       await flushPromises()
-      expect(ui.activeNodeId).toBe('RawWater_01')
+      expect(ui.activeNodeId).toBe('HighService_02')
     })
   })
 

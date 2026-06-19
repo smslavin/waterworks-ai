@@ -30,9 +30,6 @@ export const useUIStore = defineStore('ui', () => {
   const deepReasoning = ref(false)
   const reactiveOn = ref(false)
 
-  // Post-approval decision: drives which response key the node panel uses
-  const postApprovalDecision = ref<'approve' | 'deny' | null>(null)
-
   // Crumb trail level for PlantPanel
   const crumbLevel = ref<CrumbLevel>('plant')
 
@@ -125,7 +122,6 @@ export const useUIStore = defineStore('ui', () => {
     multiAgent,
     deepReasoning,
     reactiveOn,
-    postApprovalDecision,
     crumbLevel,
     enterConfigMode,
     exitConfigMode,
