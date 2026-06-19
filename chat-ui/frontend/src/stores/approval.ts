@@ -63,9 +63,16 @@ export const useApprovalStore = defineStore('approval', () => {
 
     queue.value = queue.value.filter(a => a.id !== id)
     const ui = useUIStore()
-    ui.postApprovalDecision = decision
     ui.approvalOpen = queue.value.length > 0
-    ui.setActiveNode(item.nodeId)
+
+    if (ui.activeNodeId !== item.nodeId) {
+      // Different node open (or no panel) — switch to the approval node with context
+      ui.postApprovalDecision = decision
+      ui.setActiveNode(item.nodeId)
+    } else {
+      // Correct node panel already open — SSE continuation will deliver the AI response naturally
+      ui.postApprovalDecision = null
+    }
   }
 
   return { queue, current, hasPending, push, pushFromBackend, resolve }

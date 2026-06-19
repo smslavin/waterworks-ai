@@ -7,7 +7,6 @@ import { useNodePanel } from '@/composables/useNodePanel'
 import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 import SaveInsight from './SaveInsight.vue'
-import SpecialistBadges from './SpecialistBadges.vue'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
@@ -121,7 +120,6 @@ function sendFollowUp() {
       </div>
     </div>
 
-    <SpecialistBadges :stream-key="KEY" />
     <div class="panel-body" v-html="renderedContent" />
 
     <SaveInsight
@@ -274,7 +272,7 @@ function sendFollowUp() {
   line-height: 1.6;
   color: var(--color-text1);
   min-height: 100px;
-  max-height: 240px;
+  max-height: 360px;
 }
 
 .panel-body :deep(p) {
