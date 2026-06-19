@@ -1,0 +1,50 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.25.1
+# ignores vulnerabilities until expiry date; change duration by modifying expiry date
+ignore:
+  SNYK-PYTHON-CERTIFI-7430173:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:36:52.882Z
+  SNYK-PYTHON-IDNA-16769942:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:36:53.865Z
+  SNYK-PYTHON-IDNA-6597975:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:36:54.786Z
+  SNYK-PYTHON-PYTHONMULTIPART-17344732:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:36:55.874Z
+  SNYK-PYTHON-PYTHONMULTIPART-17345733:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:36:56.927Z
+  SNYK-PYTHON-PYTHONMULTIPART-17345735:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:36:57.978Z
+  SNYK-PYTHON-PYTHONMULTIPART-17345663:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:36:59.131Z
+  SNYK-PYTHON-STARLETTE-17342515:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:37:00.096Z
+  SNYK-PYTHON-STARLETTE-17342519:
+    - '*':
+        reason: 'transitive via mcp SDK, awaiting upstream fix'
+        expires: 2026-09-18T00:00:00.000Z
+        created: 2026-06-19T00:37:01.032Z
+patch: {}
