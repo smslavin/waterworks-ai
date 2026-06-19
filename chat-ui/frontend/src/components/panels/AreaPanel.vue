@@ -23,7 +23,7 @@ const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
 const statusText = computed(() => {
   if (isStreaming.value) return 'Analyzing…'
   const base = `${ui.activeArea} area · complete`
-  return tokenCount.value ? `${base} · ${(tokenCount.value / 1000).toFixed(1)}k tok` : base
+  return tokenCount.value ? `${base} · ctx ${Math.round(tokenCount.value / 2000)}%` : base
 })
 
 const followUpText = ref('')

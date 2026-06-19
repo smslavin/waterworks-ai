@@ -21,46 +21,29 @@ function chipClass(info: SpecialistInfo): string {
 
 <template>
   <div v-if="hasSpecs" class="specialist-badges">
-    <span class="diag-label">MULTI-AGENT DIAGNOSTIC</span>
-    <div class="chips">
-      <span
-        v-for="(info, name) in specs"
-        :key="name"
-        class="chip"
-        :class="chipClass(info)"
-      >
-        {{ name }}
-        <span v-if="info.done && info.confidence !== null" class="chip-conf">
-          {{ Math.round((info.confidence ?? 0) * 100) }}%
-        </span>
-        <span v-else class="chip-dot" />
+    <span
+      v-for="(info, name) in specs"
+      :key="name"
+      class="chip"
+      :class="chipClass(info)"
+    >
+      {{ name }}
+      <span v-if="info.done && info.confidence !== null" class="chip-conf">
+        {{ Math.round((info.confidence ?? 0) * 100) }}%
       </span>
-    </div>
+      <span v-else class="chip-dot" />
+    </span>
   </div>
 </template>
 
 <style scoped>
 .specialist-badges {
-  padding: 8px 16px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.diag-label {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--color-text2);
-  text-transform: uppercase;
-}
-
-.chips {
-  display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .chip {
