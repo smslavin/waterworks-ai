@@ -37,9 +37,47 @@ const hasSaved = computed(() => (activeNode.value?.saveCount ?? 0) > 0)
 
 const classifyOpen = ref(false)
 const followUpText = ref('')
+const analysisExpanded = ref(false)
 
 type Message = { role: 'user' | 'assistant'; content: string }
 const conversationLog = ref<Message[]>([])
+
+interface Verdict {
+  status: string
+  confidence: number
+  observations: string[]
+}
+
+const FINDINGS_RE = /FINDINGS:\s*\nStatus:\s*([^\n]+)\nConfidence:\s*([0-9.]+)\nKey observations:\n([\s\S]+?)(?:\n\n|$)/i
+
+const verdict = computed((): Verdict | null => {
+  if (!streamDone.value) return null
+  const m = content.value.match(FINDINGS_RE)
+  if (!m) return null
+  const [, rawStatus, rawConf, rawObs] = m
+  if (!rawStatus || !rawConf || !rawObs) return null
+  const observations = rawObs
+    .split('\n')
+    .filter(l => l.trimStart().startsWith('-'))
+    .map(l => l.replace(/^\s*-\s*/, '').trim())
+    .filter(Boolean)
+  return { status: rawStatus.trim(), confidence: parseFloat(rawConf), observations }
+})
+
+const analysisText = computed(() => {
+  if (!verdict.value) return content.value
+  const idx = content.value.lastIndexOf('\nFINDINGS:')
+  return idx > 0 ? content.value.slice(0, idx).trim() : content.value
+})
+
+const verdictClass = computed(() => {
+  switch (verdict.value?.status) {
+    case 'Normal':           return 'verdict-normal'
+    case 'Anomaly Detected': return 'verdict-anomaly'
+    case 'Fault Detected':   return 'verdict-fault'
+    default:                 return 'verdict-unknown'
+  }
+})
 
 const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
 const statusText = computed(() => {
@@ -53,6 +91,7 @@ watch(() => ui.activeNodeId, async (newId) => {
 
   classifyOpen.value = false
   followUpText.value = ''
+  analysisExpanded.value = false
   stopStream(KEY)
 
   await nextTick()
@@ -114,7 +153,25 @@ function sendFollowUp() {
       </div>
     </div>
 
-    <div class="panel-body" v-html="renderedContent" />
+    <!-- Verdict card: shown when stream done and FINDINGS parsed -->
+    <template v-if="verdict">
+      <div class="verdict-card" :class="verdictClass">
+        <div class="verdict-header">
+          <span class="verdict-status">{{ verdict.status }}</span>
+          <span class="verdict-conf">{{ Math.round(verdict.confidence * 100) }}%</span>
+        </div>
+        <ul class="verdict-obs">
+          <li v-for="obs in verdict.observations" :key="obs">{{ obs }}</li>
+        </ul>
+        <button class="verdict-expand-btn" @click.stop="analysisExpanded = !analysisExpanded">
+          {{ analysisExpanded ? 'Hide analysis ↑' : 'Full analysis ↓' }}
+        </button>
+      </div>
+      <div v-if="analysisExpanded" class="panel-body" v-html="renderText(analysisText)" />
+    </template>
+
+    <!-- Fallback: streaming or no FINDINGS parsed -->
+    <div v-else class="panel-body" v-html="renderedContent" />
 
     <SaveInsight
       v-if="activeNode"
@@ -354,6 +411,85 @@ function sendFollowUp() {
   border: none;
   border-top: 1px solid var(--color-border);
   margin: 8px 0;
+}
+
+.verdict-card {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  border-left: 3px solid transparent;
+}
+
+.verdict-normal  { border-left-color: var(--color-ok); }
+.verdict-anomaly { border-left-color: var(--color-warn); }
+.verdict-fault   { border-left-color: var(--color-error); }
+.verdict-unknown { border-left-color: var(--color-border); }
+
+.verdict-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.verdict-status {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.verdict-normal  .verdict-status { color: var(--color-ok); }
+.verdict-anomaly .verdict-status { color: var(--color-warn); }
+.verdict-fault   .verdict-status { color: var(--color-error); }
+.verdict-unknown .verdict-status { color: var(--color-text2); }
+
+.verdict-conf {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text2);
+}
+
+.verdict-obs {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.verdict-obs li {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text1);
+  padding-left: 12px;
+  position: relative;
+}
+
+.verdict-obs li::before {
+  content: '·';
+  position: absolute;
+  left: 0;
+  color: var(--color-text2);
+}
+
+.verdict-expand-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.12s;
+}
+
+.verdict-expand-btn:hover {
+  opacity: 0.75;
 }
 
 .panel-footer {
