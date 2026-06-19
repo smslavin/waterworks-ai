@@ -167,8 +167,14 @@ async function confirmClear() {
   background: rgba(59, 130, 246, 0.08);
 }
 
+.strip-btn-danger {
+  color: var(--color-error);
+  opacity: 0.6;
+}
+
 .strip-btn-danger:hover {
   color: var(--color-error);
+  opacity: 1;
   background: rgba(248, 113, 113, 0.08);
 }
 

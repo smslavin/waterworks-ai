@@ -441,9 +441,9 @@ async def run_multi_agent(
         )
         if text:
             # Deduplicate FINDINGS blocks — keep only the last one
-            findings_positions = [m.start() for m in re.finditer(r'\nFINDINGS:', text)]
+            findings_positions = [m.start() for m in re.finditer(r"\nFINDINGS:", text)]
             if len(findings_positions) > 1:
-                text = text[:findings_positions[0]] + text[findings_positions[-1]:]
+                text = text[: findings_positions[0]] + text[findings_positions[-1] :]
             yield json.dumps({"type": "text", "text": text})
         yield json.dumps(
             {

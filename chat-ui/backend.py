@@ -165,7 +165,9 @@ async def chat_endpoint(request: Request):
         async def generate_multi():
             try:
                 async for chunk in multi_agent_loop.run_multi_agent(
-                    messages, model, api_key=api_key,
+                    messages,
+                    model,
+                    api_key=api_key,
                     scope_instance_id=scope,
                     include_orchestrator=(scope is None),
                 ):

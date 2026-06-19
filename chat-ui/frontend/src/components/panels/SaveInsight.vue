@@ -14,7 +14,7 @@ const emit = defineEmits<{
 
 const topo = useTopologyStore()
 
-const pendingClassification = ref<string | null>(null)
+const pendingClassification = ref('')
 const note = ref('')
 
 const CLASSIFICATIONS = [
@@ -27,18 +27,14 @@ const CLASSIFICATIONS = [
 
 watch(() => props.nodeId, () => {
   emit('update:open', false)
-  pendingClassification.value = null
+  pendingClassification.value = ''
   note.value = ''
 })
-
-function selectClassification(cls: string) {
-  pendingClassification.value = cls
-}
 
 function commitSave() {
   if (!pendingClassification.value) return
   topo.saveInsight(props.nodeId)
-  pendingClassification.value = null
+  pendingClassification.value = ''
   note.value = ''
   emit('update:open', false)
 }
@@ -50,27 +46,20 @@ function commitSave() {
       <div class="save-classify-label">
         Save as · <span class="save-classify-node">{{ nodeId }}</span>
       </div>
-      <div class="classify-chips">
-        <button
-          v-for="cls in CLASSIFICATIONS"
-          :key="cls"
-          class="classify-chip"
-          :class="{ selected: pendingClassification === cls }"
-          @click="selectClassification(cls)"
-        >
-          {{ cls }}
-        </button>
-      </div>
       <div class="save-confirm-row">
+        <select v-model="pendingClassification" class="save-select">
+          <option value="" disabled>Category...</option>
+          <option v-for="cls in CLASSIFICATIONS" :key="cls" :value="cls">{{ cls }}</option>
+        </select>
         <input
           v-model="note"
           class="save-annotation"
-          placeholder="Add a note (optional)"
+          placeholder="Note (optional)"
         />
         <button
           class="save-confirm-btn"
-          :class="{ ready: pendingClassification !== null }"
-          :disabled="pendingClassification === null"
+          :class="{ ready: pendingClassification !== '' }"
+          :disabled="pendingClassification === ''"
           @click="commitSave"
         >
           Save
@@ -102,37 +91,33 @@ function commitSave() {
   font-family: var(--font-mono);
 }
 
-.classify-chips {
+.save-confirm-row {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
 }
 
-.classify-chip {
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 999px;
+.save-select {
+  width: 130px;
+  flex-shrink: 0;
+  appearance: none;
+  background: var(--color-bg3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a1a1aa' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center;
   border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text2);
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-
-.classify-chip:hover {
-  border-color: var(--color-accent);
+  border-radius: 6px;
+  padding: 5px 24px 5px 10px;
+  font-size: 12px;
   color: var(--color-text1);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
 }
 
-.classify-chip.selected {
-  border-color: var(--color-verified);
-  color: var(--color-verified);
-  background: rgba(45, 212, 191, 0.1);
+.save-select:focus {
+  border-color: var(--color-accent);
 }
 
-.save-confirm-row {
-  display: flex;
-  gap: 8px;
+.save-select option {
+  background: var(--color-bg2);
+  color: var(--color-text1);
 }
 
 .save-annotation {

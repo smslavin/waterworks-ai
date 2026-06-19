@@ -86,6 +86,14 @@ const statusText = computed(() => {
   return tokenCount.value ? `${base} · ctx ${Math.round(tokenCount.value / 2000)}%` : base
 })
 
+async function reposition() {
+  await nextTick()
+  const nodeEl = document.querySelector<HTMLElement>(`[data-id="${ui.activeNodeId}"]`)
+  if (nodeEl) positionPanel(nodeEl)
+}
+
+watch(analysisExpanded, reposition)
+
 watch(() => ui.activeNodeId, async (newId) => {
   if (!newId) return
 
@@ -153,8 +161,16 @@ function sendFollowUp() {
       </div>
     </div>
 
+    <!-- Analyzing skeleton while streaming -->
+    <div v-if="isStreaming" class="panel-analyzing">
+      <div class="skeleton-line" style="width: 82%" />
+      <div class="skeleton-line" style="width: 67%" />
+      <div class="skeleton-line" style="width: 91%" />
+      <div class="skeleton-line" style="width: 55%" />
+    </div>
+
     <!-- Verdict card: shown when stream done and FINDINGS parsed -->
-    <template v-if="verdict">
+    <template v-else-if="verdict">
       <div class="verdict-card" :class="verdictClass">
         <div class="verdict-header">
           <span class="verdict-status">{{ verdict.status }}</span>
@@ -170,7 +186,7 @@ function sendFollowUp() {
       <div v-if="analysisExpanded" class="panel-body" v-html="renderText(analysisText)" />
     </template>
 
-    <!-- Fallback: streaming or no FINDINGS parsed -->
+    <!-- Full text for general conversation / no FINDINGS -->
     <div v-else class="panel-body" v-html="renderedContent" />
 
     <SaveInsight
@@ -219,6 +235,7 @@ function sendFollowUp() {
 .float-panel {
   position: absolute;
   width: 340px;
+  max-height: calc(100vh - 80px);
   background: var(--color-bg2);
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -270,6 +287,7 @@ function sendFollowUp() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .panel-badge {
@@ -317,13 +335,12 @@ function sendFollowUp() {
 
 .panel-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 14px 16px;
   font-size: 13px;
   line-height: 1.6;
   color: var(--color-text1);
-  min-height: 100px;
-  max-height: 360px;
 }
 
 .panel-body :deep(p) {
@@ -413,6 +430,30 @@ function sendFollowUp() {
   margin: 8px 0;
 }
 
+.panel-analyzing {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.skeleton-line {
+  height: 10px;
+  border-radius: 4px;
+  background: var(--color-bg3);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-line:nth-child(2) { animation-delay: 0.15s; }
+.skeleton-line:nth-child(3) { animation-delay: 0.3s; }
+.skeleton-line:nth-child(4) { animation-delay: 0.45s; }
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 0.7; }
+}
+
 .verdict-card {
   padding: 12px 16px;
   border-bottom: 1px solid var(--color-border);
@@ -498,6 +539,7 @@ function sendFollowUp() {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .panel-input {
