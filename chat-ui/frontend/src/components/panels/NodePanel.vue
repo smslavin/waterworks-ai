@@ -7,6 +7,7 @@ import { useNodePanel } from '@/composables/useNodePanel'
 import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 import SaveInsight from './SaveInsight.vue'
+import SpecialistBadges from './SpecialistBadges.vue'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
@@ -41,11 +42,12 @@ const followUpText = ref('')
 type Message = { role: 'user' | 'assistant'; content: string }
 const conversationLog = ref<Message[]>([])
 
-const statusText = computed(() =>
-  isStreaming.value
-    ? 'Analyzing…'
-    : `${activeNode.value?.specialist ?? ''} · complete`
-)
+const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
+const statusText = computed(() => {
+  if (isStreaming.value) return 'Analyzing…'
+  const base = `${activeNode.value?.specialist ?? ''} · complete`
+  return tokenCount.value ? `${base} · ${(tokenCount.value / 1000).toFixed(1)}k tok` : base
+})
 
 watch(() => ui.activeNodeId, async (newId) => {
   if (!newId) return
@@ -119,6 +121,7 @@ function sendFollowUp() {
       </div>
     </div>
 
+    <SpecialistBadges :stream-key="KEY" />
     <div class="panel-body" v-html="renderedContent" />
 
     <SaveInsight

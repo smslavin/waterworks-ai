@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/ui'
 import { useChatStore } from '@/stores/chat'
 import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
+import SpecialistBadges from './SpecialistBadges.vue'
 
 export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 
@@ -42,7 +43,12 @@ const isStreaming = computed(() => chat.streaming[KEY] ?? false)
 const streamDone = computed(() => chat.streamDone[KEY] ?? false)
 const content = computed(() => chat.content[KEY] ?? '')
 const renderedContent = computed(() => renderText(content.value))
-const statusText = computed(() => isStreaming.value ? 'Analyzing…' : `${titleText.value} · complete`)
+const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
+const statusText = computed(() => {
+  if (isStreaming.value) return 'Analyzing…'
+  const base = `${titleText.value} · complete`
+  return tokenCount.value ? `${base} · ${(tokenCount.value / 1000).toFixed(1)}k tok` : base
+})
 
 const followUpText = ref('')
 type Message = { role: 'user' | 'assistant'; content: string }
@@ -101,6 +107,7 @@ function sendFollowUp() {
         <span>{{ statusText }}</span>
       </div>
     </div>
+    <SpecialistBadges :stream-key="KEY" />
     <div class="plant-panel-body" v-html="renderedContent" />
     <div class="plant-panel-footer">
       <input

@@ -61,7 +61,14 @@ export function useSSE() {
               chat.appendToken(key, prefix + (evt.text as string))
             } else if (evt.type === 'tool_call') {
               afterToolCall = true
+            } else if (evt.type === 'specialist_start') {
+              chat.updateSpecialist(key, evt.specialist as string, { status: 'running', confidence: null, done: false })
+            } else if (evt.type === 'specialist_done') {
+              chat.updateSpecialist(key, evt.specialist as string, { status: evt.status as string, confidence: evt.confidence as number, done: true })
             } else if (evt.type === 'done') {
+              if (evt.input_tokens !== undefined) {
+                chat.setInputTokens(key, evt.input_tokens as number)
+              }
               chat.finishStream(key)
               finished = true
             } else if (evt.type === 'error') {
