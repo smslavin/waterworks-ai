@@ -33,7 +33,7 @@ watch(() => props.nodeId, () => {
 
 function commitSave() {
   if (!pendingClassification.value) return
-  topo.saveInsight(props.nodeId)
+  topo.saveInsight(props.nodeId, note.value || undefined)
   pendingClassification.value = ''
   note.value = ''
   emit('update:open', false)

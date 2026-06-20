@@ -13,6 +13,7 @@ export interface TopologyNode {
   alarmState: AlarmState
   hasMemory: boolean
   saveCount: number
+  note?: string
 }
 
 export interface TopologyEdge {
@@ -74,11 +75,12 @@ export const useTopologyStore = defineStore('topology', () => {
     if (node) node.alarmState = state
   }
 
-  function saveInsight(id: string) {
+  function saveInsight(id: string, note?: string) {
     const node = nodes.value.find(n => n.id === id)
     if (!node) return
     node.hasMemory = true
     node.saveCount++
+    if (note) node.note = note
   }
 
   return { nodes, edges, nodesByArea, areas, nodeById, setAlarmState, saveInsight }
