@@ -35,7 +35,7 @@ export function useSSE() {
           mode: opts.mode ?? 'single',
           ...(opts.scope ? { scope: opts.scope } : {}),
           ...(ui.selectedModel ? { model: ui.selectedModel } : {}),
-          ...(ui.deepReasoning ? { thinking: true } : {}),
+          ...((ui.deepReasoning && (opts.mode ?? 'single') === 'single') ? { thinking: true } : {}),
         }),
         signal: controller.signal,
       })

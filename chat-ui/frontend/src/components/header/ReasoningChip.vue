@@ -1,14 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUIStore } from '@/stores/ui'
 
 const ui = useUIStore()
+const disabled = computed(() => ui.multiAgent || ui.reactiveOn)
 </script>
 
 <template>
   <button
     class="reasoning-chip"
-    :class="{ active: ui.deepReasoning }"
-    title="Toggle extended reasoning"
+    :class="{ active: ui.deepReasoning && !disabled, muted: disabled }"
+    :title="disabled ? 'Deep Reasoning is only available in single agent mode' : 'Toggle extended reasoning'"
+    :disabled="disabled"
     @click.stop="ui.toggleDeepReasoning()"
   >
     Deep Reasoning
@@ -25,7 +28,7 @@ const ui = useUIStore()
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  transition: border-color 0.15s, color 0.15s, background 0.15s, opacity 0.15s;
   white-space: nowrap;
 }
 
@@ -33,5 +36,10 @@ const ui = useUIStore()
   border-color: var(--color-verified);
   color: var(--color-verified);
   background: rgba(45, 212, 191, 0.08);
+}
+
+.reasoning-chip.muted {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 </style>
