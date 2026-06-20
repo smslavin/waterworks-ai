@@ -27,7 +27,7 @@ onMounted(async () => {
     cloudModels.value = data.cloud ?? []
     localModels.value = data.local ?? []
     if (!ui.selectedModel && cloudModels.value.length) {
-      ui.selectedModel = cloudModels.value[0]
+      ui.selectedModel = cloudModels.value[0]!
     }
   } catch { /* backend offline */ }
   modelsLoaded.value = true
