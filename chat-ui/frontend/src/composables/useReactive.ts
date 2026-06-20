@@ -94,15 +94,19 @@ export function useReactive() {
     // Ignore keepalives, advisories, and updates (initial warning already shown)
     if (type === 'ping' || type === 'reactive_advisory' || type === 'reactive_warning_update') return
 
-    const instanceId = evt.instance_id as string
-    const attribute  = evt.attribute  as string
+    const instanceId = String(evt.instance_id ?? '')
+    const attribute  = String(evt.attribute  ?? 'unknown')
+    if (!instanceId) return
     const severity: 'critical' | 'warning' = type === 'reactive_critical' ? 'critical' : 'warning'
+    const value = evt.value != null ? Number(evt.value).toFixed(2) : '?'
+    const nr = evt.normal_range
+    const normalRange = Array.isArray(nr) ? (nr as number[]).join('–') : String(nr ?? '?')
 
     alarm.addAlarm({
       id: `${instanceId}_${attribute}`,
       nodeId: instanceId,
       severity,
-      message: `${attribute}: ${String(evt.value)} (normal: ${String(evt.normal_range)})`,
+      message: `${attribute}: ${value} (normal: ${normalRange})`,
       timestamp: 'just now',
     })
 

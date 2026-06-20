@@ -110,12 +110,20 @@ const activeFaultCount = computed(() =>
       </div>
 
       <!-- Notifications -->
-      <div v-if="ui.activeFlyout === 'notif'" class="flyout-body">
-        <div class="flyout-empty">No reactive alerts</div>
-        <p class="flyout-hint">
-          Reactive monitoring is watching MQTT streams. Alerts will appear here when
-          deadband thresholds are exceeded.
-        </p>
+      <div v-if="ui.activeFlyout === 'notif'" class="flyout-body notif-body">
+        <div v-if="alarm.alarms.length === 0" class="flyout-empty">No active alerts</div>
+        <div
+          v-for="a in [...alarm.alarms].reverse()"
+          :key="a.id"
+          class="notif-row"
+          :class="a.severity"
+          @click.stop="ui.setActiveNode(a.nodeId); ui.closeFlyout()"
+        >
+          <span class="notif-severity" :class="a.severity">{{ a.severity }}</span>
+          <span class="notif-node">{{ a.nodeId }}</span>
+          <span class="notif-message">{{ a.message }}</span>
+          <button class="notif-ack" @click.stop="alarm.acknowledge(a.id)">ACK</button>
+        </div>
       </div>
 
       <!-- Health -->
@@ -246,12 +254,92 @@ const activeFaultCount = computed(() =>
   margin: 0;
 }
 
-.flyout-hint code {
-  font-family: var(--font-mono);
+/* Notifications */
+.notif-body {
+  padding: 8px 10px;
+  gap: 3px;
+}
+
+.notif-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-left: 2px solid transparent;
+}
+
+.notif-row.critical {
+  border-left-color: var(--color-error);
+  background: rgba(248, 113, 113, 0.05);
+}
+
+.notif-row.warning {
+  border-left-color: var(--color-warn);
+  background: rgba(251, 191, 36, 0.04);
+}
+
+.notif-row:hover {
   background: var(--color-bg3);
-  padding: 1px 4px;
+}
+
+.notif-severity {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
   border-radius: 3px;
-  font-size: 10px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.notif-severity.critical {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--color-error);
+}
+
+.notif-severity.warning {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--color-warn);
+}
+
+.notif-node {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text1);
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.notif-message {
+  font-size: 11px;
+  color: var(--color-text2);
+  flex: 1;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.notif-ack {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.12s, color 0.12s;
+  margin-top: 1px;
+}
+
+.notif-ack:hover {
+  border-color: var(--color-ok);
+  color: var(--color-ok);
 }
 
 /* Health */

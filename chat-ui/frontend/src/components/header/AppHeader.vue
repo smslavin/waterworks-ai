@@ -2,11 +2,13 @@
 import { computed } from 'vue'
 import { useAlarmStore } from '@/stores/alarm'
 import { useApprovalStore } from '@/stores/approval'
+import { useUIStore } from '@/stores/ui'
 import ApprovalPill from './ApprovalPill.vue'
 import ModeChip from './ModeChip.vue'
 import ReasoningChip from './ReasoningChip.vue'
 import ConfigButton from './ConfigButton.vue'
 
+const ui = useUIStore()
 const alarm = useAlarmStore()
 const approval = useApprovalStore()
 const warningAlarms = computed(() => alarm.alarms.filter(a => a.severity === 'warning'))
@@ -31,6 +33,8 @@ function shortMsg(msg: string): string {
         :key="a.id"
         class="warning-pill"
         :title="a.message"
+        role="button"
+        @click="ui.setActiveNode(a.nodeId)"
       >
         <span class="warning-dot" />
         <span class="warning-text">{{ a.nodeId }} · {{ shortMsg(a.message) }}</span>
@@ -93,6 +97,13 @@ function shortMsg(msg: string): string {
   border-radius: 999px;
   border: 1px solid rgba(251, 191, 36, 0.4);
   background: rgba(251, 191, 36, 0.08);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.warning-pill:hover {
+  background: rgba(251, 191, 36, 0.16);
+  border-color: rgba(251, 191, 36, 0.7);
 }
 
 .warning-dot {

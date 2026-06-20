@@ -1,12 +1,14 @@
 <script setup lang="ts">
+import { useUIStore } from '@/stores/ui'
 import type { Alarm } from '@/stores/alarm'
 
-defineProps<{ alarm: Alarm }>()
+const props = defineProps<{ alarm: Alarm }>()
 const emit = defineEmits<{ ack: [] }>()
+const ui = useUIStore()
 </script>
 
 <template>
-  <div class="alarm-row" :class="alarm.severity">
+  <div class="alarm-row" :class="alarm.severity" @click.stop="ui.setActiveNode(props.alarm.nodeId)">
     <span class="alarm-badge" :class="alarm.severity">{{ alarm.severity }}</span>
     <span class="alarm-node">{{ alarm.nodeId }}</span>
     <span class="alarm-message">{{ alarm.message }}</span>
@@ -25,6 +27,12 @@ const emit = defineEmits<{ ack: [] }>()
   border-bottom: 1px solid var(--color-border);
   width: 100%;
   box-sizing: border-box;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.alarm-row:hover {
+  filter: brightness(1.25);
 }
 
 .alarm-row:last-child {
