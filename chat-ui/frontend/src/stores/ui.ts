@@ -29,6 +29,7 @@ export const useUIStore = defineStore('ui', () => {
   const multiAgent = ref(false)
   const deepReasoning = ref(false)
   const reactiveOn = ref(false)
+  const selectedModel = ref('')
 
   // Crumb trail level for PlantPanel
   const crumbLevel = ref<CrumbLevel>('plant')
@@ -122,6 +123,7 @@ export const useUIStore = defineStore('ui', () => {
     multiAgent,
     deepReasoning,
     reactiveOn,
+    selectedModel,
     crumbLevel,
     enterConfigMode,
     exitConfigMode,

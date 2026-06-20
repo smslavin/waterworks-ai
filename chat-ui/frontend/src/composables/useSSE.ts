@@ -1,5 +1,6 @@
 import { onUnmounted } from 'vue'
 import { useChatStore } from '@/stores/chat'
+import { useUIStore } from '@/stores/ui'
 import { useApprovalStore, type BackendActionProposal } from '@/stores/approval'
 
 export interface SSEMessage {
@@ -14,6 +15,7 @@ export interface SSEOptions {
 
 export function useSSE() {
   const chat = useChatStore()
+  const ui = useUIStore()
   const approval = useApprovalStore()
   const controllers: Record<string, AbortController> = {}
 
@@ -28,7 +30,12 @@ export function useSSE() {
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, mode: opts.mode ?? 'single', ...(opts.scope ? { scope: opts.scope } : {}) }),
+        body: JSON.stringify({
+          messages,
+          mode: opts.mode ?? 'single',
+          ...(opts.scope ? { scope: opts.scope } : {}),
+          ...(ui.selectedModel ? { model: ui.selectedModel } : {}),
+        }),
         signal: controller.signal,
       })
 

@@ -6,6 +6,7 @@ import { useUIStore } from '@/stores/ui'
 import ApprovalPill from './ApprovalPill.vue'
 import ModeChip from './ModeChip.vue'
 import ReasoningChip from './ReasoningChip.vue'
+import ModelSelect from './ModelSelect.vue'
 import ConfigButton from './ConfigButton.vue'
 
 const ui = useUIStore()
@@ -41,6 +42,7 @@ function shortMsg(msg: string): string {
       </div>
       <ApprovalPill v-if="approval.hasPending" />
       <div class="header-divider" />
+      <ModelSelect />
       <ModeChip />
       <ReasoningChip />
       <ConfigButton />
