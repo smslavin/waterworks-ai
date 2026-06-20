@@ -48,6 +48,16 @@ These are the most common mistakes. Use the VALID form exactly as shown.
     Require group() first on tagged data or will error. Prefer last() for
     current-state queries where you just want the most recent value.
 
+  count() / distinct() / schema.* (remove _time — causes parser error):
+    INVALID: |> group(columns: ["target"]) |> count()
+    INVALID: |> distinct(column: "instance")
+    INVALID: schema.tagValues(bucket: "...", tag: "instance")
+             — these drop _time; the client raises KeyError: '_time'
+    VALID:   |> group(columns: ["target"]) |> last()
+             — use last() to get one row per group with _time preserved
+    VALID:   |> aggregateWindow(every: 1h, fn: count, createEmpty: false)
+             — for time-series event counts with _time intact
+
 Always cite specific time ranges and values. State clearly if no historical
 anomaly is found.
 

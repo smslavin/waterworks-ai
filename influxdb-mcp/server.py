@@ -190,6 +190,13 @@ def query(flux_query: str, org: str = "") -> str:
     try:
         tables = _get_client().query_api().query(flux_query, org=org or INFLUXDB_ORG)
         return _format_tables(tables)
+    except KeyError as exc:
+        return (
+            f"Error: result is missing column {exc}. "
+            "Functions like count(), distinct(), schema.tagValues(), and schema.fieldKeys() "
+            "remove _time from results. Use last() to get recent values, or "
+            "aggregateWindow(every: 1h, fn: count, createEmpty: false) for time-series counts."
+        )
     except Exception as exc:
         return f"Error: {exc}"
 
