@@ -21,6 +21,11 @@ const FLYOUT_ICONS: { key: NonNullable<FlyoutKey>; label: string; path: string }
     label: 'Fault injection',
     path: 'M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',
   },
+  {
+    key: 'settings',
+    label: 'Settings',
+    path: 'M3 9h12M19 9h2M15 7v4M3 15h2M9 15h12M5 13v4',
+  },
 ]
 
 function openAuditLog() {

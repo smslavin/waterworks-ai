@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
 import { useAlarmStore } from '@/stores/alarm'
@@ -7,6 +7,31 @@ import { useAlarmStore } from '@/stores/alarm'
 const ui = useUIStore()
 const topo = useTopologyStore()
 const alarm = useAlarmStore()
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+const cloudModels = ref<string[]>([])
+const localModels = ref<string[]>([])
+const modelsLoaded = ref(false)
+
+function shortModelName(m: string): string {
+  if (m.includes('opus'))   return 'Opus'
+  if (m.includes('sonnet')) return 'Sonnet'
+  if (m.includes('haiku'))  return 'Haiku'
+  return m
+}
+
+onMounted(async () => {
+  try {
+    const data = await fetch('/api/models').then(r => r.json()) as { cloud: string[]; local: string[] }
+    cloudModels.value = data.cloud ?? []
+    localModels.value = data.local ?? []
+    if (!ui.selectedModel && cloudModels.value.length) {
+      ui.selectedModel = cloudModels.value[0]
+    }
+  } catch { /* backend offline */ }
+  modelsLoaded.value = true
+})
 const visible = computed(() => ui.activeFlyout !== null)
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -98,9 +123,10 @@ const activeFaultCount = computed(() =>
     >
       <div class="flyout-header">
         <span class="flyout-title">
-          {{ ui.activeFlyout === 'notif'  ? 'Notifications'  :
-             ui.activeFlyout === 'health' ? 'Service Health'  :
-                                            'Fault Injection' }}
+          {{ ui.activeFlyout === 'notif'    ? 'Notifications'  :
+             ui.activeFlyout === 'health'   ? 'Service Health'  :
+             ui.activeFlyout === 'settings' ? 'Settings'        :
+                                              'Fault Injection' }}
         </span>
         <span
           v-if="ui.activeFlyout === 'faults' && activeFaultCount > 0"
@@ -142,6 +168,44 @@ const activeFaultCount = computed(() =>
           <span class="health-name">{{ svc.name }}</span>
           <span class="health-port">:{{ svc.port }}</span>
         </div>
+      </div>
+
+      <!-- Settings -->
+      <div v-else-if="ui.activeFlyout === 'settings'" class="flyout-body settings-body">
+        <div class="settings-label">Model</div>
+        <div v-if="!modelsLoaded" class="flyout-empty">Loading…</div>
+        <template v-else>
+          <div v-if="cloudModels.length">
+            <div class="settings-group">Cloud</div>
+            <div
+              v-for="m in cloudModels"
+              :key="m"
+              class="model-row"
+              :class="{ selected: ui.selectedModel === m }"
+              @click="ui.selectedModel = m"
+            >
+              <span class="model-dot" :class="{ active: ui.selectedModel === m }" />
+              <span class="model-name">{{ shortModelName(m) }}</span>
+              <span class="model-id">{{ m }}</span>
+            </div>
+          </div>
+          <div v-if="localModels.length" :class="{ 'settings-gap': cloudModels.length }">
+            <div class="settings-group">Local</div>
+            <div
+              v-for="m in localModels"
+              :key="m"
+              class="model-row"
+              :class="{ selected: ui.selectedModel === m }"
+              @click="ui.selectedModel = m"
+            >
+              <span class="model-dot" :class="{ active: ui.selectedModel === m }" />
+              <span class="model-name">{{ m }}</span>
+            </div>
+          </div>
+          <div v-if="!cloudModels.length && !localModels.length" class="flyout-empty">
+            No models available
+          </div>
+        </template>
       </div>
 
       <!-- Faults -->
@@ -345,6 +409,85 @@ const activeFaultCount = computed(() =>
 .notif-ack:hover {
   border-color: var(--color-ok);
   color: var(--color-ok);
+}
+
+/* Settings */
+.settings-body {
+  padding: 12px 12px;
+  gap: 4px;
+}
+
+.settings-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text2);
+  margin-bottom: 6px;
+}
+
+.settings-group {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text2);
+  padding: 2px 4px;
+  margin-bottom: 2px;
+}
+
+.settings-gap {
+  margin-top: 12px;
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border: 1px solid transparent;
+}
+
+.model-row:hover {
+  background: var(--color-bg3);
+}
+
+.model-row.selected {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+.model-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border);
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.model-dot.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.model-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text1);
+  flex-shrink: 0;
+}
+
+.model-id {
+  font-size: 10px;
+  color: var(--color-text2);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Health */

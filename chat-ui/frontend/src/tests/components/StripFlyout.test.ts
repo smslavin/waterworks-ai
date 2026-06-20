@@ -140,7 +140,8 @@ describe('StripFlyout', () => {
       await nextTick()
       ui.toggleFlyout('health')
       await flushPromises()
-      expect(mockFetch).toHaveBeenCalledTimes(2)
+      const healthCalls = mockFetch.mock.calls.filter(([url]) => url === '/api/health')
+      expect(healthCalls).toHaveLength(2)
     })
   })
 
