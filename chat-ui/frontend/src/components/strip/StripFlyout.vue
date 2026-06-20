@@ -119,10 +119,12 @@ const activeFaultCount = computed(() =>
           :class="a.severity"
           @click.stop="ui.setActiveNode(a.nodeId); ui.closeFlyout()"
         >
-          <span class="notif-severity" :class="a.severity">{{ a.severity }}</span>
-          <span class="notif-node">{{ a.nodeId }}</span>
-          <span class="notif-message">{{ a.message }}</span>
-          <button class="notif-ack" @click.stop="alarm.acknowledge(a.id)">ACK</button>
+          <div class="notif-top">
+            <span class="notif-severity" :class="a.severity">{{ a.severity }}</span>
+            <span class="notif-node">{{ a.nodeId }}</span>
+            <button class="notif-ack" @click.stop="alarm.acknowledge(a.id)">ACK</button>
+          </div>
+          <div class="notif-message">{{ a.message }}</div>
         </div>
       </div>
 
@@ -262,9 +264,9 @@ const activeFaultCount = computed(() =>
 
 .notif-row {
   display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 6px 8px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 8px;
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.12s;
@@ -285,6 +287,12 @@ const activeFaultCount = computed(() =>
   background: var(--color-bg3);
 }
 
+.notif-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .notif-severity {
   font-size: 9px;
   font-weight: 700;
@@ -293,7 +301,6 @@ const activeFaultCount = computed(() =>
   padding: 1px 5px;
   border-radius: 3px;
   flex-shrink: 0;
-  margin-top: 1px;
 }
 
 .notif-severity.critical {
@@ -309,17 +316,16 @@ const activeFaultCount = computed(() =>
 .notif-node {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-text1);
-  flex-shrink: 0;
   font-weight: 600;
+  color: var(--color-text1);
+  flex: 1;
 }
 
 .notif-message {
   font-size: 11px;
   color: var(--color-text2);
-  flex: 1;
   line-height: 1.4;
-  word-break: break-word;
+  padding-left: 2px;
 }
 
 .notif-ack {
@@ -334,7 +340,6 @@ const activeFaultCount = computed(() =>
   cursor: pointer;
   flex-shrink: 0;
   transition: border-color 0.12s, color 0.12s;
-  margin-top: 1px;
 }
 
 .notif-ack:hover {
