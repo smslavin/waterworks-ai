@@ -425,48 +425,50 @@ Setpoint changes use a first-order lag rather than an instantaneous clamp. Each 
 
 ## Demo sequence
 
+The UI is a plant topology graph — no chat input. Diagnosis is triggered by clicking on the graph: a **node** (individual equipment), an **area label** (process area), or the **plant name** in the status bar breadcrumb (whole plant). Each click opens a floating panel that fires the diagnostic query automatically. Follow-up questions go in the panel's footer input.
+
 ### Basic diagnostic demo
 
 1. Start all services (`./start.sh`) and open http://localhost:8080
-2. Ask: *"Give me a health overview of the plant"* — establishes baseline
-3. Inject: `RawWater_01 → suction_starvation`
-4. Ask: *"There seems to be an issue. Can you tell what is happening?"*
-5. Watch the AI cross-reference live values, pull historical data from InfluxDB, and diagnose without being told where the fault is
-6. Open http://localhost:3000 — fault annotation visible on both dashboards
-7. Clear the fault, ask the AI to confirm recovery
+2. Click the plant name in the status bar breadcrumb — a whole-plant summary opens and the AI queries all process areas automatically; this establishes a baseline
+3. Inject a fault: click the ⚠ icon in the left sidebar → select `RawWater_01` → `suction_starvation`
+4. Click the **RawWater_01** node on the graph — the diagnosis panel opens and the AI reads live sensor data to identify the condition without being told where the fault is
+5. The verdict card shows **Fault Detected** with key observations and confidence. Click *Full analysis* to expand the full reasoning.
+6. Open http://localhost:3000 — fault annotation visible on both dashboards at the same timestamp
+7. Clear the fault: sidebar ⚠ icon → `RawWater_01` → `normal`. Click the node again to confirm recovery.
 
 ### Audit and control demo
 
-1. Continue from the basic demo (or inject a new fault)
-2. Ask the AI to diagnose and propose a corrective action
-3. The approval dialog appears — review the rationale, approve or deny
+1. Continue from the basic demo with a fault active on `RawWater_01`
+2. In the node panel footer, ask: *"What corrective action would you recommend?"*
+3. If the AI proposes an action, an approval panel slides up — review the rationale, then approve or deny
 4. If approved: the AI calls `set_setpoint` or `clear_fault`; the value ramps toward the new target
-5. Ask the AI to confirm the change took effect by reading live sensor data
-6. Start a new session and ask: *"What happened in the last hour?"*
-7. The AI uses audit tools to narrate the incident, diagnosis, and operator decision from the session record
+5. In the panel footer, ask: *"Did the change take effect?"* — the AI reads live values to confirm
+6. Click the document icon in the left sidebar to open the audit log in a new window — the proposal and operator decision are both recorded with equal fidelity
+7. In the node panel footer, ask: *"What happened here in the last hour?"* — the AI uses audit tools to narrate the incident, diagnosis, and operator decision from the session record
 
 ### Agent memory demo
 
 Requires at least two diagnostic sessions with a non-normal finding to demonstrate cross-session recall.
 
-1. Complete the basic diagnostic demo — the session ends with a fault detected, confidence ≥ 0.7
-2. After the session, inspect what was stored:
+1. Complete the basic diagnostic demo — get a **Fault Detected** verdict with confidence ≥ 0.7
+2. After the verdict appears, inspect what was stored:
    - `data/specialist-memory/intake.md` — specialist's timestamped key findings
    - Query LadybugDB: `python -c "import ladybug as lb; db = lb.Database('data/ladybugdb/fieldworks.db', read_only=True); conn = lb.Connection(db); print(list(conn.execute('MATCH (i:Incident) RETURN i.session_id, i.status, i.confidence LIMIT 5').rows_as_dict()))"`
-3. Start a new session on the same area and ask the same question
-4. The specialist's system prompt now opens with *"Accumulated knowledge from prior sessions"* — you can observe this as the AI references previous findings without being told about them
-5. For cross-session pattern detection, ask: *"Has RawWater_01 had this kind of problem before?"*
-6. To inspect the full equipment history, ask: *"What is the incident history for the intake pumps?"* — the AI calls `get_equipment_history` which queries LadybugDB directly
+3. Click the **RawWater_01** node again — the specialist analysis now opens with *"Accumulated knowledge from prior sessions"* prepended, referencing previous findings without being told about them
+4. In the panel footer, ask: *"Has RawWater_01 had this kind of problem before?"*
+5. To inspect the full equipment history, ask: *"What is the incident history for the intake pumps?"* — the AI calls `get_equipment_history` which queries LadybugDB directly
 
 ### Historian long-horizon demo
 
 Requires memory-mcp running and at least one DuckDB sync cycle completed (wait up to `DUCKDB_SYNC_INTERVAL`, default 1 hour after first start, or set `DUCKDB_SYNC_INTERVAL=60` for a faster first sync).
 
-1. In multi-agent mode, ask: *"Is there any correlation between pump pressure drops and turbidity spikes over the last 30 days?"*
-2. The Historian specialist calls `memory__run_correlation` with a cross-equipment SQL query against DuckDB — watch the tool call appear in the browser
-3. The response cites specific days and magnitudes rather than just recent readings
-4. For fault frequency analysis, ask: *"Which unit has had the most faults in the last month?"* — Historian queries `wtp_fault_events` in DuckDB
-5. To confirm Historian is not using stale data for recent readings, ask: *"What is the current turbidity?"* — the Historian should use InfluxDB, not DuckDB, and note that live readings belong to the area specialists
+1. Click the **Multi** chip in the header to switch to multi-agent mode, then click the plant name in the status bar
+2. In the plant panel footer, ask: *"Is there any correlation between pump pressure drops and turbidity spikes over the last 30 days?"*
+3. The Historian specialist calls `memory__run_correlation` with a cross-equipment SQL query against DuckDB — watch the specialist badges update in real time
+4. The response cites specific days and magnitudes rather than just recent readings
+5. Ask: *"Which unit has had the most faults in the last month?"* — Historian queries `wtp_fault_events` in DuckDB
+6. To confirm Historian is not using stale data for recent readings, ask: *"What is the current turbidity?"* — the Historian should use InfluxDB, not DuckDB, and note that live readings belong to the area specialists
 
 ---
 
@@ -585,21 +587,22 @@ Reactive monitoring is opt-in and requires multi-agent mode to be active in the 
 # .env — set to 1 to auto-start on backend launch
 REACTIVE_ENABLED=1
 
-# Or toggle from the UI: switch to Multi Agent mode, then use the Reactive toggle in the status panel
+# Or toggle from the UI: click the Multi chip in the header, then click the Reactive pill
 ```
 
-The toggle in the UI starts and stops the monitor and Deadband loop at runtime without a restart.
+The Reactive pill in the header starts and stops the monitor and Deadband loop at runtime without a restart.
 
 ### Reactive demo sequence
 
 1. Start all services (`./start.sh`) and open http://localhost:8080
-2. Switch to **Multi Agent** mode and click **Enable** in the Reactive section of the status panel
-3. Wait for the status dot to turn green — the anomaly monitor is now watching MQTT
-4. Inject a fault: `RawWater_01 → suction_starvation`
-5. Within ~30–90 seconds a warning or critical bubble appears in the chat autonomously — no query needed
-6. For critical events: a pulsing orange pill appears in the header. You can keep working; click it when ready to review the proposed action
-7. Inject a second fault on a different unit while the first pill is pending — the count increments. Approve or deny each in turn; the dialog auto-advances
-8. Clear both faults and watch the monitor stop firing
+2. Click the **Multi** chip in the header to switch to multi-agent mode
+3. Click the **Reactive** pill in the header to enable reactive monitoring
+4. Wait for the pill to turn green — the anomaly monitor is now watching MQTT
+5. Inject a fault: sidebar ⚠ icon → `RawWater_01` → `suction_starvation`
+6. Within ~30–90 seconds a diagnosis panel opens autonomously for the affected node — no click needed
+7. For critical events: a pulsing orange pill appears in the header. Keep working; click it when ready to review the proposed action
+8. Inject a second fault on a different unit while the first pill is pending — the count increments. Approve or deny each; the panel auto-advances
+9. Clear both faults via the sidebar ⚠ icon and watch the monitor stop firing
 
 ---
 
