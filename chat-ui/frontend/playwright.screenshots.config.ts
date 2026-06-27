@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig } from '@playwright/test'
 
 /**
  * Screenshot capture config. Targets the full stack at :8080.
@@ -15,13 +15,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:8080',
     headless: true,
-    viewport: { width: 1440, height: 1400 },
+    browserName: 'chromium',
+    viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
+  projects: [{ name: 'chromium' }],
 })

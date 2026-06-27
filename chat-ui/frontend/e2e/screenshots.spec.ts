@@ -6,7 +6,9 @@
  * Captures:
  *   Screenshot_01    — topology overview (clean state)
  *   Screenshot_05    — fault injection flyout open
- *   Screenshot_06    — node panel analyzing skeleton (streaming started)
+ *   Screenshot_06    — node panel completed response
+ *   Screenshot_07    — multi-agent analysis with specialist badges
+ *   Screenshot_08    — approval dialog (seeded via Pinia store)
  *   Screenshot_alarm — alarm strip active (fault injected)
  */
 
@@ -98,6 +100,55 @@ test('Screenshot_06 — node panel completed response', async ({ page }) => {
 
   await page.screenshot({ path: path.join(OUT, 'Screenshot_06.png') })
   console.log('✓ Screenshot_06 saved')
+})
+
+// ── Screenshot 07: Multi-agent analysis (specialist badges) ──────────────────
+
+test('Screenshot_07 — multi-agent analysis', async ({ page }) => {
+  await loadTopology(page)
+
+  // Enable multi-agent mode
+  await page.locator('.mode-chip').click()
+  await page.waitForTimeout(200)
+
+  // Click an area label to open AreaPanel (which shows SpecialistBadges)
+  await page.locator('.topo-column-label').first().click()
+
+  // AreaPanel uses .area-panel.visible (not .float-panel)
+  await expect(page.locator('.area-panel.visible')).toBeVisible({ timeout: 8_000 })
+  await expect(page.locator('.specialist-badges')).toBeVisible({ timeout: 15_000 })
+
+  // Wait for all specialists to finish (.area-panel-status.done)
+  await expect(page.locator('.area-panel-status.done')).toBeVisible({ timeout: 90_000 })
+
+  await page.screenshot({ path: path.join(OUT, 'Screenshot_07.png') })
+  console.log('✓ Screenshot_07 saved')
+})
+
+// ── Screenshot 08: Approval dialog ───────────────────────────────────────────
+
+test('Screenshot_08 — approval dialog', async ({ page }) => {
+  await loadTopology(page)
+
+  // push() populates the queue; ui.approvalOpen must be set separately (only pushFromBackend does both)
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pinia = (window as any).__pinia
+    pinia._s.get('approval').push({
+      id: 'playwright-approval-demo',
+      nodeId: 'RawWater_01',
+      specialist: 'Intake',
+      action: 'Increase pump speed from 72% to 85% to restore target flow rate of 3.8 L/min',
+      impact: 'set_setpoint: RawWater_01 → pump_speed: 85',
+    })
+    pinia._s.get('ui').approvalOpen = true
+  })
+  await page.waitForTimeout(200)
+
+  await expect(page.locator('.approval-panel')).toBeVisible({ timeout: 5_000 })
+
+  await page.screenshot({ path: path.join(OUT, 'Screenshot_08.png') })
+  console.log('✓ Screenshot_08 saved')
 })
 
 // ── Screenshot_alarm: Alarm strip active ─────────────────────────────────────

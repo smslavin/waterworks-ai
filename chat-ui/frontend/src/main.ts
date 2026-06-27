@@ -5,5 +5,7 @@ import '@/assets/base.css'
 import '@/assets/animations.css'
 
 const app = createApp(App)
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
+;(window as any).__pinia = pinia
 app.mount('#app')

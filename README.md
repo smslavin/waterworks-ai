@@ -55,16 +55,41 @@ The water treatment plant is a starting point. The architecture transfers to any
 
 ## Screenshots
 
-**Natural language fault diagnosis**
-![Fault diagnosis](docs/images/Screenshot_01.png)
-*Suction starvation injected on RawWater_01. The AI reads live sensor
-data, queries fault history from InfluxDB, and identifies the condition
-without being told where to look.*
+**Plant topology graph**
+![Topology graph](docs/images/Screenshot_01.png)
+*The UI is a live topology graph. Click any node to diagnose that unit,
+a column label for a process-area summary, or the plant name in the
+breadcrumb for a whole-plant overview.*
 
-**Plant health overview**
-![Health overview](docs/images/Screenshot_02.png)
-*Full plant health check across all process units. The AI identifies
-run-status discrepancies on three pumps from a prior session.*
+**Fault injection**
+![Fault injection flyout](docs/images/Screenshot_05.png)
+*Fault injection flyout. Select any instance and apply a fault mode — suction
+starvation, cavitation, lamp failure, dosing blockage and more. Faults are
+applied at runtime with no simulator restart.*
+
+**Node diagnosis**
+![Node panel](docs/images/Screenshot_06.png)
+*Completed single-agent diagnosis on a process node. The AI reads live
+MQTT values and InfluxDB history, identifies the condition without being
+told where to look, and returns a structured verdict with confidence.*
+
+**Active alarm**
+![Alarm strip](docs/images/Screenshot_alarm.png)
+*Alarm strip fires when the simulator publishes a value outside the limits
+defined in `topology.yaml`. Clicking the alarm jumps directly to the
+affected node's diagnosis panel.*
+
+**Multi-agent analysis**
+![Multi-agent mode](docs/images/Screenshot_07.png)
+*Multi-agent mode fans out to four specialist Haiku agents in parallel.
+Chips update in real time and colour-code to Normal / Anomaly / Fault when
+each specialist completes. The orchestrator synthesises all four findings.*
+
+**Operator approval**
+![Approval dialog](docs/images/Screenshot_08.png)
+*When the AI proposes a control action, an approval dialog shows the action,
+rationale, and target setpoint. Approve or deny — both outcomes are recorded
+with equal fidelity in the compliance-grade audit log.*
 
 **Process monitoring dashboard**
 ![Process dashboard](docs/images/Screenshot_03.png)
@@ -75,28 +100,6 @@ lines mark fault events across all panels simultaneously.*
 ![AI metrics](docs/images/Screenshot_04.png)
 *AI session telemetry alongside fault events. Tool call count and latency
 spike at fault injection timestamps.*
-
-**Interface**
-![UI overview](docs/images/Screenshot_05.png)
-*Clean interface with fault injection panel, server status indicators
-and fault status panel. Deep Reasoning toggle enables extended thinking
-for complex diagnostic scenarios.*
-
-**Context management**
-![Tool call dashboard](docs/images/Screenshot_06.png)
-*Four consecutive health overview sessions. Tool selection guidance in
-the system prompt cut tool calls from 34 to 1. Latency dropped from
-58.8s to 21.8s. Response quality unchanged.*
-
-**Multi-agent mode**
-![Multi-agent Mode](docs/images/Screenshot_07_multi_agent.png)
-*Four specialist agents run in parallel, each scoped to their domain.
-The orchestrator synthesizes cross-system correlations that no single
-specialist could identify.*
-
-**Operator approval**
-![Approval dialog](docs/images/Screenshot_08_approval.png)
-*Agent validates a bearing wear finding on RawWater_P01 as actionable. Before executing the setpoint write, the operator is prompted to approve or deny.*
 
 ---
 
