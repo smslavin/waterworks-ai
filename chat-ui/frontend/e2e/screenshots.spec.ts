@@ -80,24 +80,21 @@ test('Screenshot_05 — fault injection flyout', async ({ page }) => {
   console.log('✓ Screenshot_05 saved')
 })
 
-// ── Screenshot 06: Node panel analyzing skeleton ──────────────────────────────
+// ── Screenshot 06: Node panel with completed response ────────────────────────
 
-test('Screenshot_06 — node panel analyzing skeleton', async ({ page }) => {
-  // Transitions disabled globally after loadTopology, but we need the panel's
-  // visible class to be applied instantly. Re-enable nothing — disabling is correct.
+test('Screenshot_06 — node panel completed response', async ({ page }) => {
   await loadTopology(page)
 
   // Click the first node to fire a diagnosis request
   await page.locator('.topo-node').first().click()
 
-  // Panel becomes visible; with transitions disabled it's immediately at full opacity
+  // Panel opens immediately (transitions disabled → full opacity at once)
   await expect(page.locator('.float-panel.visible')).toBeVisible({ timeout: 8_000 })
 
-  // Best case: catch the skeleton while streaming. Falls back gracefully if the
-  // AI responds before we get here (verdict-card is still a good shot).
-  try {
-    await expect(page.locator('.panel-analyzing')).toBeVisible({ timeout: 8_000 })
-  } catch { /* AI responded fast or backend offline */ }
+  // Wait for the model to finish streaming — however long that takes (up to 90s)
+  await expect(page.locator('.float-panel.visible .panel-status.done')).toBeVisible({
+    timeout: 90_000,
+  })
 
   await page.screenshot({ path: path.join(OUT, 'Screenshot_06.png') })
   console.log('✓ Screenshot_06 saved')
