@@ -61,6 +61,12 @@ The water treatment plant is a starting point. The architecture transfers to any
 a column label for a process-area summary, or the plant name in the
 breadcrumb for a whole-plant overview.*
 
+**Whole-plant summary**
+![Plant summary](docs/images/Screenshot_02.png)
+*Clicking the plant name in the status bar breadcrumb fires a full-plant
+diagnostic query. The AI checks all process areas, reports current status,
+and flags any anomalies across the site.*
+
 **Fault injection**
 ![Fault injection flyout](docs/images/Screenshot_05.png)
 *Fault injection flyout. Select any instance and apply a fault mode — suction

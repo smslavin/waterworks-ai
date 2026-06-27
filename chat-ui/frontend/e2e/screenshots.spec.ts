@@ -5,6 +5,7 @@
  *
  * Captures:
  *   Screenshot_01    — topology overview (clean state)
+ *   Screenshot_02    — plant-level summary (Waterworks breadcrumb click)
  *   Screenshot_05    — fault injection flyout open
  *   Screenshot_06    — node panel completed response
  *   Screenshot_07    — multi-agent analysis with specialist badges
@@ -64,6 +65,24 @@ test('Screenshot_01 — topology overview', async ({ page }) => {
 
   await page.screenshot({ path: path.join(OUT, 'Screenshot_01.png') })
   console.log('✓ Screenshot_01 saved')
+})
+
+// ── Screenshot 02: Plant-level summary ───────────────────────────────────────
+
+test('Screenshot_02 — plant summary', async ({ page }) => {
+  await clearFaults(page)
+  await loadTopology(page)
+
+  // Click the "Waterworks" breadcrumb button to open PlantPanel
+  await page.locator('.crumb-item', { hasText: 'Waterworks' }).click()
+
+  await expect(page.locator('.plant-panel.visible')).toBeVisible({ timeout: 8_000 })
+
+  // Wait for the model to finish streaming
+  await expect(page.locator('.plant-panel-status.done')).toBeVisible({ timeout: 90_000 })
+
+  await page.screenshot({ path: path.join(OUT, 'Screenshot_02.png') })
+  console.log('✓ Screenshot_02 saved')
 })
 
 // ── Screenshot 05: Fault injection flyout ────────────────────────────────────
