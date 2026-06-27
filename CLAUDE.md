@@ -59,7 +59,8 @@ topology-builder/   FastMCP: MQTT/OPC-UA discovery, inference, LadybugDB seeding
 mqtt-influx-bridge/ Paho subscriber → batched InfluxDB writes
 chat-ui/            backend.py, claude_loop.py, multi_agent_loop.py, openai_loop.py,
                     mcp_client.py, session_store.py, control.py, metrics.py, audit.py,
-                    providers.json, static/ (index.html + app.js — no framework, no bundler)
+                    providers.json, static/ (Vite build output — do not edit directly),
+                    frontend/ (Vue 3 + Vite source — edit here, then npm run build)
 mcp-servers/        git submodule → mqtt-mcp, opcua-mcp, strava-mcp, intervals-mcp, analytics-mcp
 mcp-aggregator/     git submodule (server/) + backends.json
 topology.yaml       single source of truth: process units, fault modes, specialist scopes, alarm limits
@@ -133,9 +134,27 @@ Topology-builder tests:
 pytest topology-builder/tests/
 ```
 
+## Frontend development
+
+The Vue 3 frontend lives in `chat-ui/frontend/`. The backend serves the built output from `chat-ui/static/`.
+
+```bash
+# Build for production (run from chat-ui/frontend/):
+npm run build        # outputs to ../static; backend picks it up immediately
+
+# Dev server with hot-reload (proxies /api/* to backend on :8080):
+npm run dev          # http://localhost:5173
+
+# Tests:
+npm run test:unit    # Vitest (166 tests)
+npm run type-check   # vue-tsc
+```
+
+Do not edit files in `chat-ui/static/` directly — they are overwritten on every build.
+
 ## Phase status
 
-Phases 0–11 complete. Phase 11 added ISA-18.2 three-tier reactive alarms: `monitor.py`, `deadband.py`, `reactive_loop.py` in `chat-ui/`. Severity defined in `topology.yaml` per attribute+direction. Opt-in via `REACTIVE_ENABLED=1`. Phase 12 (UI merge) is next; v1.0 tags on its completion. Phase 13: insight categories. Phase 14: knowledge memory (RAG).
+Phases 0–12 complete. Phase 12 replaced the vanilla HTML/JS frontend with a Vue 3 + Vite + Pinia app (topology graph, streaming panels, reactive alarms, multi-agent mode, approval flow). Phase 13: insight categories. Phase 14: knowledge memory (RAG).
 
 ## What not to touch
 

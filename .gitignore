@@ -25,3 +25,7 @@ influxdb-mcp/logs/
 audit-mcp/logs/
 control-mcp/logs/
 memory-mcp/logs/
+
+# start.sh output
+/logs/
+/.pids/

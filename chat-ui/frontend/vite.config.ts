@@ -6,6 +6,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
+  base: '/static/',
   plugins: [
     vue(),
     tailwindcss(),
@@ -15,6 +16,10 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
+  },
+  build: {
+    outDir: '../static',
+    emptyOutDir: true,
   },
   server: {
     port: 5173,
