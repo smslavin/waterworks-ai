@@ -4,9 +4,9 @@
  * Requires: ./start.sh running (full stack at :8080)
  *
  * Captures:
- *   Screenshot_01  — topology overview (clean state)
- *   Screenshot_05  — fault injection flyout open
- *   Screenshot_06  — node panel analyzing skeleton (streaming started)
+ *   Screenshot_01    — topology overview (clean state)
+ *   Screenshot_05    — fault injection flyout open
+ *   Screenshot_06    — node panel analyzing skeleton (streaming started)
  *   Screenshot_alarm — alarm strip active (fault injected)
  */
 
@@ -17,29 +17,38 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const OUT = path.resolve(__dirname, '../../../docs/images')
 
+// Injected after page load to eliminate transition/animation timing races.
+// Vue <Transition> components still function — transitionend fires instantly.
+const NO_TRANSITIONS = `
+  *, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+`
+
 async function loadTopology(page: Page) {
   await page.goto('/')
   await expect(page.locator('.topo-columns')).toBeVisible({ timeout: 15_000 })
-  // Let any on-mount fetches settle
-  await page.waitForTimeout(800)
+  // Let on-mount fetches (fault/status, topology) settle
+  await page.waitForTimeout(1_000)
+  // Kill transitions so every subsequent screenshot captures final render state
+  await page.addStyleTag({ content: NO_TRANSITIONS })
+  await page.waitForTimeout(100)
 }
 
 async function clearFaults(page: Page) {
-  // Reset all instances to normal before/after shots that need a clean state
   try {
-    const statusResp = await page.request.get('/api/fault/status')
-    if (statusResp.ok()) {
-      const status = await statusResp.json() as Record<string, string>
+    const resp = await page.request.get('/api/fault/status')
+    if (resp.ok()) {
+      const status = await resp.json() as Record<string, string>
       for (const [target, mode] of Object.entries(status)) {
         if (mode !== 'normal') {
-          await page.request.post('/api/fault', {
-            data: { target, mode: 'normal' },
-          })
+          await page.request.post('/api/fault', { data: { target, mode: 'normal' } })
         }
       }
     }
-  } catch { /* simulator offline — skip */ }
-  await page.waitForTimeout(400)
+  } catch { /* simulator offline */ }
+  await page.waitForTimeout(300)
 }
 
 // ── Screenshot 01: Topology overview ─────────────────────────────────────────
@@ -48,14 +57,10 @@ test('Screenshot_01 — topology overview', async ({ page }) => {
   await clearFaults(page)
   await loadTopology(page)
 
-  // Ensure no panels or flyouts are open
-  await page.locator('#topo-canvas').click({ position: { x: 50, y: 50 }, force: true })
-  await page.waitForTimeout(300)
+  // Dismiss any open panels by clicking empty canvas space
+  await page.locator('#topo-canvas').click({ position: { x: 20, y: 20 }, force: true })
 
-  await page.screenshot({
-    path: path.join(OUT, 'Screenshot_01.png'),
-    fullPage: false,
-  })
+  await page.screenshot({ path: path.join(OUT, 'Screenshot_01.png') })
   console.log('✓ Screenshot_01 saved')
 })
 
@@ -65,57 +70,45 @@ test('Screenshot_05 — fault injection flyout', async ({ page }) => {
   await clearFaults(page)
   await loadTopology(page)
 
-  // Open the fault injection flyout
   await page.locator('.strip-btn[title="Fault injection"]').click()
 
-  // Wait for the flyout to appear and fault rows to load (needs simulator)
+  // Flyout is in the DOM once activeFlyout is set; fault rows load from simulator
   await expect(page.locator('.strip-flyout')).toBeVisible({ timeout: 10_000 })
   await expect(page.locator('.fault-row').first()).toBeVisible({ timeout: 8_000 })
 
-  await page.screenshot({
-    path: path.join(OUT, 'Screenshot_05.png'),
-    fullPage: false,
-  })
+  await page.screenshot({ path: path.join(OUT, 'Screenshot_05.png') })
   console.log('✓ Screenshot_05 saved')
 })
 
 // ── Screenshot 06: Node panel analyzing skeleton ──────────────────────────────
 
 test('Screenshot_06 — node panel analyzing skeleton', async ({ page }) => {
+  // Transitions disabled globally after loadTopology, but we need the panel's
+  // visible class to be applied instantly. Re-enable nothing — disabling is correct.
   await loadTopology(page)
 
-  // Click first node — fires the diagnosis request
-  const firstNode = page.locator('.topo-node').first()
-  await firstNode.click()
+  // Click the first node to fire a diagnosis request
+  await page.locator('.topo-node').first().click()
 
-  // Wait for the panel to open
+  // Panel becomes visible; with transitions disabled it's immediately at full opacity
   await expect(page.locator('.float-panel.visible')).toBeVisible({ timeout: 8_000 })
 
-  // Capture as soon as the skeleton appears (streaming in progress)
-  // If the AI responds before this, verdict-card will be there instead — still a good shot
+  // Best case: catch the skeleton while streaming. Falls back gracefully if the
+  // AI responds before we get here (verdict-card is still a good shot).
   try {
-    await expect(page.locator('.panel-analyzing')).toBeVisible({ timeout: 6_000 })
-  } catch {
-    // AI responded very fast or backend offline — capture whatever state we have
-  }
+    await expect(page.locator('.panel-analyzing')).toBeVisible({ timeout: 8_000 })
+  } catch { /* AI responded fast or backend offline */ }
 
-  await page.screenshot({
-    path: path.join(OUT, 'Screenshot_06.png'),
-    fullPage: false,
-  })
+  await page.screenshot({ path: path.join(OUT, 'Screenshot_06.png') })
   console.log('✓ Screenshot_06 saved')
 })
 
-// ── Screenshot_alarm: Alarm strip with active fault ───────────────────────────
-// Saved as Screenshot_alarm.png for review; rename/number as needed.
+// ── Screenshot_alarm: Alarm strip active ─────────────────────────────────────
 
 test('Screenshot_alarm — alarm strip active', async ({ page }) => {
-  // Inject a fault before the page loads so App.vue onMounted picks it up
-  const baseURL = 'http://localhost:8080'
-  const initReq = page.request
-
+  // Inject fault before page load so App.vue onMounted sees it in /api/fault/status
   try {
-    await initReq.post(`${baseURL}/api/fault`, {
+    await page.request.post('http://localhost:8080/api/fault', {
       data: { target: 'RawWater_01', mode: 'suction_starvation' },
     })
   } catch {
@@ -124,22 +117,18 @@ test('Screenshot_alarm — alarm strip active', async ({ page }) => {
 
   await loadTopology(page)
 
-  // Wait for alarm strip to become visible
   try {
     await expect(page.locator('.alarm-strip')).toBeVisible({ timeout: 8_000 })
   } catch {
-    console.log('  (alarm strip not visible — simulator may be offline)')
+    console.log('  (alarm strip not visible — check simulator)')
   }
 
-  await page.screenshot({
-    path: path.join(OUT, 'Screenshot_alarm.png'),
-    fullPage: false,
-  })
+  await page.screenshot({ path: path.join(OUT, 'Screenshot_alarm.png') })
   console.log('✓ Screenshot_alarm saved')
 
   // Clean up
   try {
-    await initReq.post(`${baseURL}/api/fault`, {
+    await page.request.post('http://localhost:8080/api/fault', {
       data: { target: 'RawWater_01', mode: 'normal' },
     })
   } catch { /* ignore */ }

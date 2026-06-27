@@ -15,7 +15,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:8080',
     headless: true,
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: 1440, height: 1100 },
     deviceScaleFactor: 2,
   },
   projects: [
