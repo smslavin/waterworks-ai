@@ -133,6 +133,7 @@ The simulator runs a configurable fault injection engine. Inject a fault mid-ses
 - **Docker Desktop** — runs Mosquitto, InfluxDB, and Grafana
 - **Git with submodule support** — `git clone --recurse-submodules` is required
 - **Python 3.11+** — all components are pure Python
+- **Node.js 20+** — for the Vue 3 frontend (`brew install node` or [nodejs.org](https://nodejs.org))
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
 
@@ -151,7 +152,7 @@ cp .env.example .env
 python3 -c "import os, base64; print('AUDIT_KEY=' + base64.b64encode(os.urandom(32)).decode())" >> .env
 ```
 
-Each component gets its own virtualenv. Run this once to create and populate all of them:
+**One-time setup** — create virtualenvs and install frontend dependencies:
 
 ```bash
 (cd simulator              && uv venv && uv pip install -r requirements.txt)
@@ -161,64 +162,54 @@ Each component gets its own virtualenv. Run this once to create and populate all
 (cd audit-mcp              && uv venv && uv pip install -r requirements.txt)
 (cd control-mcp            && uv venv && uv pip install -r requirements.txt)
 (cd memory-mcp             && uv venv && uv pip install -r requirements.txt)
+(cd topology-builder       && uv venv && uv pip install -r requirements.txt)
 (cd mcp-aggregator/server  && uv venv && uv pip install -r requirements.txt)
 (cd chat-ui                && uv venv && uv pip install -r requirements.txt)
 (cd mqtt-influx-bridge     && uv venv && uv pip install -r requirements.txt)
+(cd chat-ui/frontend       && npm install)
 ```
 
-Then open eleven terminals (or a terminal multiplexer) and run each in order:
+**Start everything:**
 
 ```bash
-# 1 — Infrastructure
-docker compose up -d
+./start.sh
+```
 
-# 2 — Simulator  (MQTT + OPC-UA, fault/setpoint control on :8090)
-cd simulator && .venv/bin/python simulator.py
+This starts Docker infrastructure and all eleven services in the background. Logs go to `logs/<service>.log`. Press **Ctrl-C** to stop everything.
 
-# 3 — MQTT MCP server
-cd mcp-servers/mqtt-mcp && FASTMCP_PORT=8001 .venv/bin/python server.py
-
-# 4 — OPC-UA MCP server
-cd mcp-servers/opcua-mcp && FASTMCP_PORT=8002 .venv/bin/python server.py
-
-# 5 — InfluxDB MCP server
-cd influxdb-mcp && .venv/bin/python server.py
-
-# 6 — Audit MCP server
-cd audit-mcp && .venv/bin/python server.py
-
-# 7 — Control MCP server
-cd control-mcp && .venv/bin/python server.py
-
-# 8 — Memory MCP server  (LadybugDB + DuckDB + specialist memory, seeds DB on first run)
-cd memory-mcp && .venv/bin/python server.py
-
-# 9 — MCP Aggregator  (our backends.json, upstream server code)
-cd mcp-aggregator/server && BACKENDS_FILE=../backends.json .venv/bin/python server.py
-
-# 10 — MQTT → InfluxDB bridge
-cd mqtt-influx-bridge && .venv/bin/python bridge.py
-
-# 11 — Chat UI
-cd chat-ui && .venv/bin/python backend.py
+```bash
+./stop.sh   # stop without Ctrl-C (e.g. after detaching the terminal)
 ```
 
 Open **http://localhost:8080** in a browser.
 
 Open **dashboard.html** in a browser for an architecture overview and quick-start prompts.
 
+**Frontend development** (hot-reload at :5173):
+
+```bash
+cd chat-ui/frontend && npm run dev
+```
+
+The Vite dev server proxies `/api/*` to the backend on `:8080`. To build for production (output goes to `chat-ui/static/`, picked up by the backend immediately):
+
+```bash
+cd chat-ui/frontend && npm run build
+```
+
 ---
 
 ## Windows quick start
 
-The quick start above uses bash syntax. PowerShell equivalents follow. Clone and `.env` setup are identical.
+`start.sh` requires bash. On Windows, use the PowerShell equivalents below, or install all services as Windows services (see further down).
 
-**Create virtualenvs** — run from the repo root in PowerShell:
+**Create virtualenvs and install frontend dependencies** — run from the repo root in PowerShell:
 
 ```powershell
-foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "audit-mcp", "control-mcp", "memory-mcp", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
+foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "audit-mcp", "control-mcp", "memory-mcp", "topology-builder", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
     Push-Location $dir; uv venv; uv pip install -r requirements.txt; Pop-Location
 }
+Push-Location chat-ui/frontend; npm install; Pop-Location
 ```
 
 **Start services** — open eleven PowerShell terminals and run each in order:
@@ -436,7 +427,7 @@ Setpoint changes use a first-order lag rather than an instantaneous clamp. Each 
 
 ### Basic diagnostic demo
 
-1. Start all services and open http://localhost:8080
+1. Start all services (`./start.sh`) and open http://localhost:8080
 2. Ask: *"Give me a health overview of the plant"* — establishes baseline
 3. Inject: `RawWater_01 → suction_starvation`
 4. Ask: *"There seems to be an issue. Can you tell what is happening?"*
@@ -601,7 +592,7 @@ The toggle in the UI starts and stops the monitor and Deadband loop at runtime w
 
 ### Reactive demo sequence
 
-1. Start all services and open http://localhost:8080
+1. Start all services (`./start.sh`) and open http://localhost:8080
 2. Switch to **Multi Agent** mode and click **Enable** in the Reactive section of the status panel
 3. Wait for the status dot to turn green — the anomaly monitor is now watching MQTT
 4. Inject a fault: `RawWater_01 → suction_starvation`
@@ -719,7 +710,7 @@ waterworks-ai/
 │   ├── specialist_mem.py   File-based per-specialist memory (read at start, append at end)
 │   ├── requirements.txt
 │   └── seed_validation.py  Validates schema seeding against a temp database
-├── chat-ui/                Starlette/SSE backend and vanilla JS frontend
+├── chat-ui/                Starlette/SSE backend + Vue 3 frontend
 │   ├── backend.py          Routes: /api/chat, /api/health, /api/fault, /api/action/respond
 │   ├── topology.py         Loader for topology.yaml (chat-ui layer)
 │   ├── topology_prompts.py Builds specialist and orchestrator system prompts from topology.yaml
@@ -736,7 +727,8 @@ waterworks-ai/
 │   ├── audit.py            JSONL audit log — AES-256-GCM encrypted, hash-chained, append-only
 │   ├── audit_verify.py     CLI: verify chain integrity or decrypt for forensic export
 │   ├── providers.json      LLM provider and model configuration
-│   └── static/             index.html + app.js (no framework, no bundler)
+│   ├── frontend/           Vue 3 + Vite + TypeScript source (edit here)
+│   └── static/             Vite build output served by backend (do not edit directly)
 ├── tests/                  Import-level test suite (pytest, no infrastructure required)
 ├── mqtt-influx-bridge/     Subscribes Plant/WTP/# → writes wtp_process to InfluxDB
 ├── mcp-servers/            Git submodule — mqtt-mcp (:8001) and opcua-mcp (:8002)
@@ -760,7 +752,7 @@ waterworks-ai/
 
 **Add a new process unit:** add an entry under `instances` in `topology.yaml`. It appears in MQTT, OPC-UA, and the specialist system prompts on next restart — no Python changes required.
 
-**Add a new process area:** add an entry under `process_areas` in `topology.yaml` with an `instances` list, `data_sources`, and `description`. A new specialist agent appears in multi-agent mode on next restart.
+**Add a new process area:** add an entry under `process_areas` in `topology.yaml` with an `instances` list, `data_sources`, and `description`. A new specialist agent appears in multi-agent mode on next restart. Run `npm run build` in `chat-ui/frontend/` to reflect any topology-driven UI changes.
 
 **Add a new fault mode:** add a member to `FaultMode` in `simulator/faults.py`, a corresponding `_method` in `FaultState`, and an entry under the relevant equipment type's `faults` in `topology.yaml`. The HTTP control plane and specialist heuristics pick it up automatically.
 
