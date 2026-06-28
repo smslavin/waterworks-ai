@@ -9,6 +9,7 @@ export interface Alarm {
   severity: AlarmSeverity
   message: string
   timestamp: string
+  content?: string
 }
 
 const INITIAL_ALARMS: Alarm[] = []
@@ -27,5 +28,10 @@ export const useAlarmStore = defineStore('alarm', () => {
     }
   }
 
-  return { alarms, acknowledge, addAlarm }
+  function setAlarmContent(id: string, content: string) {
+    const a = alarms.value.find(a => a.id === id)
+    if (a) a.content = content
+  }
+
+  return { alarms, acknowledge, addAlarm, setAlarmContent }
 })

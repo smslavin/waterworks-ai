@@ -151,6 +151,7 @@ const activeFaultCount = computed(() =>
             <button class="notif-ack" @click.stop="alarm.acknowledge(a.id)">ACK</button>
           </div>
           <div class="notif-message">{{ a.message }}</div>
+          <div v-if="a.content" class="notif-content">{{ a.content }}</div>
         </div>
       </div>
 
@@ -390,6 +391,19 @@ const activeFaultCount = computed(() =>
   color: var(--color-text2);
   line-height: 1.4;
   padding-left: 2px;
+}
+
+.notif-content {
+  font-size: 11px;
+  color: var(--color-text2);
+  line-height: 1.5;
+  padding: 6px 8px;
+  margin-top: 4px;
+  background: var(--color-bg1);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .notif-ack {

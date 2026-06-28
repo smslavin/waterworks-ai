@@ -11,7 +11,7 @@ export function useReactive() {
 
   let eventController: AbortController | null = null
 
-  // Sync initial state from backend on mount
+  // Sync reactiveOn indicator from backend (stream is always open)
   async function syncState() {
     try {
       const resp = await fetch('/api/reactive')
@@ -19,7 +19,6 @@ export function useReactive() {
       const data = await resp.json() as { enabled: boolean }
       if (data.enabled && ui.multiAgent) {
         ui.reactiveOn = true
-        startAlertStream()
       }
     } catch { /* backend not running — leave default */ }
   }
@@ -79,9 +78,9 @@ export function useReactive() {
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
-      // Reconnect after 5 s if still running
+      // Reconnect after 5 s unless stream was explicitly stopped (eventController === null)
       setTimeout(() => {
-        if (ui.reactiveOn) {
+        if (eventController !== null) {
           eventController = new AbortController()
           void consumeAlertStream(eventController.signal)
         }
@@ -91,8 +90,15 @@ export function useReactive() {
 
   function handleAlertEvent(evt: Record<string, unknown>) {
     const type = evt.type as string
-    // Ignore keepalives, advisories, and updates (initial warning already shown)
-    if (type === 'ping' || type === 'reactive_advisory' || type === 'reactive_warning_update') return
+    if (type === 'ping' || type === 'reactive_advisory') return
+
+    // Warning diagnostic arrives in a follow-up update event — patch content onto the existing alarm
+    if (type === 'reactive_warning_update') {
+      const id = `${String(evt.instance_id ?? '')}_${String(evt.attribute ?? 'unknown')}`
+      const content = evt.content ? String(evt.content) : ''
+      if (content) alarm.setAlarmContent(id, content)
+      return
+    }
 
     const instanceId = String(evt.instance_id ?? '')
     const attribute  = String(evt.attribute  ?? 'unknown')
@@ -108,12 +114,12 @@ export function useReactive() {
       severity,
       message: `${attribute}: ${value} (normal: ${normalRange})`,
       timestamp: 'just now',
+      content: evt.content ? String(evt.content) : undefined,
     })
 
     topo.setAlarmState(instanceId, severity as AlarmState)
   }
 
-  // When multi-agent is turned off, stop the stream and tell the backend
   watch(() => ui.multiAgent, async (enabled) => {
     if (!enabled) {
       stopAlertStream()
@@ -124,10 +130,16 @@ export function useReactive() {
           body: JSON.stringify({ enable: false }),
         })
       } catch { /* ignore */ }
+    } else {
+      // Multi-agent turned on — sync reactiveOn indicator (stream is already open)
+      await syncState()
     }
   })
 
-  onMounted(syncState)
+  onMounted(() => {
+    startAlertStream()  // always connect on mount, same as old EventSource approach
+    void syncState()
+  })
   onUnmounted(stopAlertStream)
 
   return { toggle }

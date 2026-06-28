@@ -14,6 +14,7 @@ from mcp_client import call_mcp_tool
 
 logger = logging.getLogger(__name__)
 DEADBAND_MODEL = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
+INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
 DEADBAND_SYSTEM = """You are Deadband, a signal validation agent for an industrial water treatment plant.
 
@@ -103,30 +104,33 @@ async def _verify_sustained(
     # Use seconds for sub-minute precision. Clamp to 30s minimum.
     window_s = max(30, int(duration_minutes * 60))
     flux_viol = (
-        f'from(bucket:"wtp") |> range(start: -{window_s}s) '
+        f'from(bucket:"{INFLUXDB_BUCKET}") |> range(start: -{window_s}s) '
         f'|> filter(fn: (r) => r._measurement == "wtp_process" '
-        f'and r.instance == "{instance_id}" and r._field == "{attribute}") '
-        f"|> filter(fn: (r) => r._value {comp} {limit}) |> count()"
+        f'and r.instance == "{instance_id}" and r.attribute == "{attribute}") '
+        f"|> filter(fn: (r) => r._value {comp} {limit}) |> last()"
     )
     flux_total = flux_viol.replace(
         f"|> filter(fn: (r) => r._value {comp} {limit}) ", ""
     )
     try:
-        v = _extract_count(
-            await call_mcp_tool(
-                "influxdb__query",
-                {"bucket": "wtp", "flux_query": flux_viol},
-                aggregator_url,
-            )
+        raw_viol = await call_mcp_tool(
+            "influxdb__query", {"flux_query": flux_viol}, aggregator_url
         )
-        t = _extract_count(
-            await call_mcp_tool(
-                "influxdb__query",
-                {"bucket": "wtp", "flux_query": flux_total},
-                aggregator_url,
-            )
+        raw_total = await call_mcp_tool(
+            "influxdb__query", {"flux_query": flux_total}, aggregator_url
         )
+        logger.debug("deadband raw_viol=%r raw_total=%r", raw_viol, raw_total)
+        v = _extract_count(raw_viol)
+        t = _extract_count(raw_total)
         fraction = v / t if t > 0 else 0.0
+        logger.info(
+            "deadband verify_sustained %s/%s v=%d t=%d fraction=%.2f",
+            instance_id,
+            attribute,
+            v,
+            t,
+            fraction,
+        )
         return {
             "sustained": fraction >= 0.5,
             "fraction_in_violation": round(fraction, 2),
@@ -140,15 +144,17 @@ async def _get_trend_direction(
     instance_id, attribute, time_window_minutes, aggregator_url
 ):
     flux = (
-        f'from(bucket:"wtp") |> range(start: -{int(time_window_minutes)}m) '
+        f'from(bucket:"{INFLUXDB_BUCKET}") |> range(start: -{int(time_window_minutes)}m) '
         f'|> filter(fn: (r) => r._measurement == "wtp_process" '
-        f'and r.instance == "{instance_id}" and r._field == "{attribute}") '
+        f'and r.instance == "{instance_id}" and r.attribute == "{attribute}") '
         f'|> sort(columns: ["_time"])'
     )
     try:
         values = _extract_values(
             await call_mcp_tool(
-                "influxdb__query", {"bucket": "wtp", "flux_query": flux}, aggregator_url
+                "influxdb__query",
+                {"flux_query": flux},
+                aggregator_url,
             )
         )
         if len(values) < 4:
