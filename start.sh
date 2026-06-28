@@ -6,6 +6,7 @@ set -e
 cd "$(dirname "$0")"
 
 mkdir -p logs .pids
+echo $$ > .pids/start.pid
 
 PIDS=()
 cleanup() {

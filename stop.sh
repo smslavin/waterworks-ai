@@ -19,4 +19,11 @@ for pidfile in .pids/*.pid; do
     fi
     rm -f "$pidfile"
 done
+
+# Signal start.sh to exit if it's still holding a terminal
+if [[ -f .pids/start.pid ]]; then
+    kill "$(cat .pids/start.pid)" 2>/dev/null || true
+    rm -f .pids/start.pid
+fi
+
 echo "Done."
