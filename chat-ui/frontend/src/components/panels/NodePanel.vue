@@ -11,7 +11,7 @@ import SaveInsight from './SaveInsight.vue'
 const ui = useUIStore()
 const topo = useTopologyStore()
 const chat = useChatStore()
-const { panelTop, panelLeft, arrowSide, positionPanel } = useNodePanel()
+const { panelTop, panelLeft, arrowSide, panelMaxHeight, positionPanel } = useNodePanel()
 const { stream, stopStream } = useSSE()
 
 const KEY = 'node'
@@ -93,6 +93,7 @@ async function reposition() {
 }
 
 watch(analysisExpanded, reposition)
+watch(streamDone, (done) => { if (done && ui.activeNodeId) reposition() })
 
 watch(() => ui.activeNodeId, async (newId) => {
   if (!newId) return
@@ -140,7 +141,7 @@ function sendFollowUp() {
       'is-warning': isWarning,
       'is-pending': isPendingApproval,
     }"
-    :style="{ top: `${panelTop}px`, left: `${panelLeft}px` }"
+    :style="{ top: `${panelTop}px`, left: `${panelLeft}px`, maxHeight: panelMaxHeight ? `${panelMaxHeight}px` : undefined }"
     @click.stop
   >
     <div class="panel-arrow" :class="{ right: arrowSide === 'right' }" />
@@ -161,40 +162,42 @@ function sendFollowUp() {
       </div>
     </div>
 
-    <!-- Analyzing skeleton while streaming -->
-    <div v-if="isStreaming" class="panel-analyzing">
-      <div class="skeleton-line" style="width: 82%" />
-      <div class="skeleton-line" style="width: 67%" />
-      <div class="skeleton-line" style="width: 91%" />
-      <div class="skeleton-line" style="width: 55%" />
-    </div>
-
-    <!-- Verdict card: shown when stream done and FINDINGS parsed -->
-    <template v-else-if="verdict">
-      <div class="verdict-card" :class="verdictClass">
-        <div class="verdict-header">
-          <span class="verdict-status">{{ verdict.status }}</span>
-          <span class="verdict-conf">{{ Math.round(verdict.confidence * 100) }}%</span>
-        </div>
-        <ul class="verdict-obs">
-          <li v-for="obs in verdict.observations" :key="obs">{{ obs }}</li>
-        </ul>
-        <button class="verdict-expand-btn" @click.stop="analysisExpanded = !analysisExpanded">
-          {{ analysisExpanded ? 'Hide analysis ↑' : 'Full analysis ↓' }}
-        </button>
+    <div class="panel-scroll">
+      <!-- Analyzing skeleton while streaming -->
+      <div v-if="isStreaming" class="panel-analyzing">
+        <div class="skeleton-line" style="width: 82%" />
+        <div class="skeleton-line" style="width: 67%" />
+        <div class="skeleton-line" style="width: 91%" />
+        <div class="skeleton-line" style="width: 55%" />
       </div>
-      <div v-if="analysisExpanded" class="panel-body" v-html="renderText(analysisText)" />
-    </template>
 
-    <!-- Full text for general conversation / no FINDINGS -->
-    <div v-else class="panel-body" v-html="renderedContent" />
+      <!-- Verdict card: shown when stream done and FINDINGS parsed -->
+      <template v-else-if="verdict">
+        <div class="verdict-card" :class="verdictClass">
+          <div class="verdict-header">
+            <span class="verdict-status">{{ verdict.status }}</span>
+            <span class="verdict-conf">{{ Math.round(verdict.confidence * 100) }}%</span>
+          </div>
+          <ul class="verdict-obs">
+            <li v-for="obs in verdict.observations" :key="obs">{{ obs }}</li>
+          </ul>
+          <button class="verdict-expand-btn" @click.stop="analysisExpanded = !analysisExpanded">
+            {{ analysisExpanded ? 'Hide analysis ↑' : 'Full analysis ↓' }}
+          </button>
+        </div>
+        <div v-if="analysisExpanded" class="panel-body" v-html="renderText(analysisText)" />
+      </template>
 
-    <SaveInsight
-      v-if="activeNode"
-      :node-id="activeNode.id"
-      :stream-done="streamDone"
-      v-model:open="classifyOpen"
-    />
+      <!-- Full text for general conversation / no FINDINGS -->
+      <div v-else class="panel-body" v-html="renderedContent" />
+
+      <SaveInsight
+        v-if="activeNode"
+        :node-id="activeNode.id"
+        :stream-done="streamDone"
+        v-model:open="classifyOpen"
+      />
+    </div>
 
     <div class="panel-footer">
       <input
@@ -333,10 +336,13 @@ function sendFollowUp() {
   background: var(--color-ok);
 }
 
-.panel-body {
+.panel-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.panel-body {
   padding: 14px 16px;
   font-size: 13px;
   line-height: 1.6;
@@ -435,7 +441,6 @@ function sendFollowUp() {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex-shrink: 0;
 }
 
 .skeleton-line {
@@ -460,7 +465,6 @@ function sendFollowUp() {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex-shrink: 0;
   border-left: 3px solid transparent;
 }
 

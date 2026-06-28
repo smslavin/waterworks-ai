@@ -53,6 +53,7 @@ export function useNodePanel() {
   const panelTop = ref(-9999)
   const panelLeft = ref(-9999)
   const arrowSide = ref<'left' | 'right'>('left')
+  const panelMaxHeight = ref<number | null>(null)
 
   function positionPanel(nodeEl: HTMLElement) {
     const panel = document.getElementById('node-panel')
@@ -61,8 +62,9 @@ export function useNodePanel() {
     const circle = nodeEl.querySelector<HTMLElement>('.topo-node-circle')
     if (!circle) return
 
+    const canvasRect = canvas.getBoundingClientRect()
     const result = calculatePanelPosition(
-      canvas.getBoundingClientRect(),
+      canvasRect,
       circle.getBoundingClientRect(),
       PANEL_WIDTH,
       panel.offsetHeight || 440,
@@ -72,7 +74,8 @@ export function useNodePanel() {
     panelTop.value = result.top
     panelLeft.value = result.left
     arrowSide.value = result.arrowSide
+    panelMaxHeight.value = Math.floor(canvasRect.height - result.top - PANEL_MARGIN)
   }
 
-  return { panelTop, panelLeft, arrowSide, positionPanel }
+  return { panelTop, panelLeft, arrowSide, panelMaxHeight, positionPanel }
 }
