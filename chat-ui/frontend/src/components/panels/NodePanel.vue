@@ -189,7 +189,16 @@ function sendFollowUp() {
       </template>
 
       <!-- Full text for general conversation / no FINDINGS -->
-      <div v-else class="panel-body" v-html="renderedContent" />
+      <template v-else>
+        <div
+          class="panel-body"
+          :class="{ 'body-preview': streamDone && !analysisExpanded }"
+          v-html="renderedContent"
+        />
+        <button v-if="streamDone" class="verdict-expand-btn preview-expand-btn" @click.stop="analysisExpanded = !analysisExpanded">
+          {{ analysisExpanded ? 'Hide analysis ↑' : 'Full analysis ↓' }}
+        </button>
+      </template>
 
       <SaveInsight
         v-if="activeNode"
@@ -535,6 +544,17 @@ function sendFollowUp() {
 
 .verdict-expand-btn:hover {
   opacity: 0.75;
+}
+
+.body-preview {
+  max-height: 180px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+}
+
+.preview-expand-btn {
+  padding: 0 16px 10px;
 }
 
 .panel-footer {

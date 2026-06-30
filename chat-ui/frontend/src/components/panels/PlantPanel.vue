@@ -51,6 +51,7 @@ const statusText = computed(() => {
 })
 
 const followUpText = ref('')
+const analysisExpanded = ref(false)
 type Message = { role: 'user' | 'assistant'; content: string }
 const conversationLog = ref<Message[]>([])
 
@@ -67,6 +68,7 @@ watch(() => ui.activePanel, async (panel, prev) => {
   if (panel !== 'plant') return
   if (prev !== 'plant') {
     followUpText.value = ''
+    analysisExpanded.value = false
     stopStream(KEY)
   }
   await nextTick()
@@ -108,7 +110,16 @@ function sendFollowUp() {
       </div>
     </div>
     <SpecialistBadges :stream-key="KEY" />
-    <div class="plant-panel-body" v-html="renderedContent" />
+    <div class="panel-scroll">
+      <div
+        class="plant-panel-body"
+        :class="{ 'body-preview': streamDone && !analysisExpanded }"
+        v-html="renderedContent"
+      />
+      <button v-if="streamDone" class="expand-btn" @click.stop="analysisExpanded = !analysisExpanded">
+        {{ analysisExpanded ? 'Hide analysis ↑' : 'Full analysis ↓' }}
+      </button>
+    </div>
     <div class="plant-panel-footer">
       <input
         v-model="followUpText"
@@ -131,6 +142,7 @@ function sendFollowUp() {
 .plant-panel {
   position: absolute;
   width: 380px;
+  max-height: calc(100vh - 80px);
   background: var(--color-bg2);
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -142,6 +154,12 @@ function sendFollowUp() {
   pointer-events: none;
   transition: opacity 0.18s;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+
+.panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .plant-panel.visible {
@@ -200,8 +218,29 @@ function sendFollowUp() {
   font-size: 13px;
   line-height: 1.7;
   color: var(--color-text1);
-  max-height: 280px;
-  overflow-y: auto;
+}
+
+.body-preview {
+  max-height: 200px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+}
+
+.expand-btn {
+  background: transparent;
+  border: none;
+  padding: 0 18px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.12s;
+}
+
+.expand-btn:hover {
+  opacity: 0.75;
 }
 
 .plant-panel-body :deep(strong) {
