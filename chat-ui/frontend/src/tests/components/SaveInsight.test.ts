@@ -29,7 +29,7 @@ function renderSave(nodeId = 'UV_01', open = true) {
 describe('SaveInsight', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue({ ok: true } as Response))
   })
   afterEach(() => {
     cleanup()
@@ -94,7 +94,7 @@ describe('SaveInsight', () => {
     })
 
     it('posts to /api/insight with correct body', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true })
+      const mockFetch = vi.fn<typeof fetch>().mockResolvedValue({ ok: true } as Response)
       vi.stubGlobal('fetch', mockFetch)
       const { container } = renderSave('UV_01', true)
       await fireEvent.click(container.querySelectorAll('.chip')[0]!)

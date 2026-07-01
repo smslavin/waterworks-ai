@@ -1,4 +1,5 @@
 """Tests for audit-mcp insight review tools (Phase 13)."""
+
 import json
 import sqlite3
 import sys
@@ -82,7 +83,14 @@ def test_list_pending_reviews_fields(review_db):
     _insert_review(review_db, node_id="Clarifier_01", category_id="maintenance_flag")
     result = json.loads(audit_server.list_pending_reviews())
     row = result["reviews"][0]
-    assert {"id", "node_id", "category_id", "category_label", "target", "created_at"}.issubset(row.keys())
+    assert {
+        "id",
+        "node_id",
+        "category_id",
+        "category_label",
+        "target",
+        "created_at",
+    }.issubset(row.keys())
 
 
 # ── resolve_review ─────────────────────────────────────────────────────────────
@@ -97,7 +105,9 @@ def test_resolve_review_approved(review_db):
 
 def test_resolve_review_rejected(review_db):
     rid = _insert_review(review_db)
-    result = json.loads(audit_server.resolve_review(rid, "rejected", "not a real fault"))
+    result = json.loads(
+        audit_server.resolve_review(rid, "rejected", "not a real fault")
+    )
     assert result["status"] == "ok"
 
 
