@@ -56,7 +56,7 @@ Do NOT call list_measurements — use these directly.
 Flux syntax: boolean operators are lowercase — use `or`, `and`, `not`.
 Never use uppercase OR / AND / NOT — they are parsed as identifiers and will cause a 400 error."""
 
-_ORCHESTRATOR_TOOL_PREFIXES = ("control__",)
+_ORCHESTRATOR_TOOL_PREFIXES = ("control__", "audit__")
 
 _FINDINGS_RE = re.compile(
     r"FINDINGS:.*?Status:\s*([^\n]+)\n.*?Confidence:\s*([0-9.]+)",
@@ -361,6 +361,124 @@ async def _run_specialist(
     await queue.put(None)  # sentinel — this specialist is done
 
 
+async def _run_cascade_only(
+    messages: list[dict],
+    user_message: str,
+    all_tools: list[dict],
+    client,
+    session_id: str,
+    start_ts: float,
+    cascade_id: str | None,
+) -> AsyncIterator[str]:
+    """Run Cascade alone on a follow-up question, without specialist fan-out."""
+    yield json.dumps({"type": "synthesis_start"})
+
+    orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
+    orch_api_tools = [
+        {
+            **(
+                {"cache_control": {"type": "ephemeral"}}
+                if i == len(orch_tools) - 1
+                else {}
+            ),
+            "name": t["name"],
+            "description": t["description"],
+            "input_schema": t["inputSchema"],
+        }
+        for i, t in enumerate(orch_tools)
+    ]
+    # Full conversation history — Cascade sees all prior turns and the new message
+    orch_conv = [
+        {"role": m["role"], "content": m["content"]}
+        for m in messages
+        if m["role"] in ("user", "assistant")
+    ]
+
+    orch_input_tokens = orch_output_tokens = 0
+    orch_tool_call_count = 0
+    orch_full_text = ""
+
+    try:
+        while True:
+            orch_kwargs: dict = dict(
+                model=ORCHESTRATOR_MODEL,
+                max_tokens=2048,
+                system=[
+                    {
+                        "type": "text",
+                        "text": _ORCHESTRATOR_SYSTEM,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=orch_conv,
+            )
+            if orch_api_tools:
+                orch_kwargs["tools"] = orch_api_tools
+            response = await client.messages.create(**orch_kwargs)
+            orch_input_tokens += response.usage.input_tokens
+            orch_output_tokens += response.usage.output_tokens
+
+            tool_uses, text_blocks = [], []
+            for block in response.content:
+                if block.type == "tool_use":
+                    tool_uses.append(block)
+                elif block.type == "text":
+                    text_blocks.append(block)
+                    orch_full_text += block.text
+                    yield json.dumps({"type": "text", "text": block.text})
+
+            if response.stop_reason == "end_turn" or not tool_uses:
+                break
+
+            tool_results = []
+            for tu in tool_uses:
+                orch_tool_call_count += 1
+                result = await call_mcp_tool(tu.name, dict(tu.input))
+                tool_results.append(
+                    {"type": "tool_result", "tool_use_id": tu.id, "content": result}
+                )
+
+            orch_conv = orch_conv + [
+                {"role": "assistant", "content": response.content},
+                {"role": "user", "content": tool_results},
+            ]
+    except Exception as exc:
+        logger.exception("Cascade-only stream error: %s", exc)
+        yield json.dumps({"type": "error", "error": str(exc)})
+
+    latency = int((time.monotonic() - start_ts) * 1000)
+    metrics.log_turn(
+        session_id=session_id,
+        model=ORCHESTRATOR_MODEL,
+        input_tokens=orch_input_tokens,
+        output_tokens=orch_output_tokens,
+        tool_call_count=orch_tool_call_count,
+        error_count=0,
+        latency_ms=latency,
+        context_pressure=None,
+        user_message=user_message,
+        specialist="orchestrator",
+        cascade_id=cascade_id,
+    )
+    session_store.log_session_summary(
+        session_id=session_id,
+        user_question=user_message,
+        equipment=[],
+        diagnosis=orch_full_text,
+        status="Normal",
+        confidence=None,
+        mode="multi-followup",
+    )
+    yield json.dumps(
+        {
+            "type": "done",
+            "input_tokens": orch_input_tokens,
+            "output_tokens": orch_output_tokens,
+            "latency_ms": latency,
+        }
+    )
+
+
 async def run_multi_agent(
     messages: list[dict],
     model: str,
@@ -388,6 +506,15 @@ async def run_multi_agent(
     all_tools = await list_mcp_tools()
 
     await _fetch_process_state()  # warm the cache and populate _unit_running before fan-out
+
+    # ── Follow-up detection: skip specialist fan-out, route straight to Cascade ──
+    is_followup = any(m["role"] == "assistant" for m in messages[:-1])
+    if is_followup and include_orchestrator:
+        async for chunk in _run_cascade_only(
+            messages, user_message, all_tools, client, session_id, start_ts, cascade_id
+        ):
+            yield chunk
+        return
 
     # ── Scope specialists (reactive uses one; interactive uses all) ────────────
     if scope_instance_id:
@@ -485,7 +612,15 @@ async def run_multi_agent(
         }
         for i, t in enumerate(orch_tools)
     ]
-    orch_conv = [{"role": "user", "content": orchestrator_user}]
+    # Thread prior conversation history into Cascade so follow-up questions
+    # have full context. On a fresh open, messages[:-1] is empty and this is
+    # equivalent to the old single-turn start.
+    prior_turns = [
+        {"role": m["role"], "content": m["content"]}
+        for m in messages[:-1]
+        if m["role"] in ("user", "assistant")
+    ]
+    orch_conv = prior_turns + [{"role": "user", "content": orchestrator_user}]
     orch_full_text = ""
 
     try:

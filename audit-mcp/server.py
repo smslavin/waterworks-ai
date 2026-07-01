@@ -1,13 +1,15 @@
-"""Audit MCP server — query session summaries and action events.
+"""Audit MCP server — query session summaries, action events, and insight reviews.
 
-Reads from the same metrics.db that chat-ui writes to.
+Reads from and writes to the same metrics.db that chat-ui uses.
 
 Tools
 -----
-list_incidents       Fault/anomaly sessions in a date or recent window
-get_session_summary  Full detail (diagnosis + actions) for one session
-query_by_equipment   Sessions touching a specific equipment unit
-query_history        Narrative-ready correlated records for a time range
+list_incidents        Fault/anomaly sessions in a date or recent window
+get_session_summary   Full detail (diagnosis + actions) for one session
+query_by_equipment    Sessions touching a specific equipment unit
+query_history         Narrative-ready correlated records for a time range
+list_pending_reviews  Unresolved operator insight reviews
+resolve_review        Approve, reject, or defer a pending review
 
 Environment variables
 ---------------------
@@ -21,6 +23,7 @@ import logging
 import logging.handlers
 import os
 import sqlite3
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -59,6 +62,29 @@ def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(_DB_PATH)
     c.row_factory = sqlite3.Row
     return c
+
+
+def _ensure_tables() -> None:
+    c = _conn()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS insight_reviews (
+            id TEXT PRIMARY KEY,
+            node_id TEXT NOT NULL,
+            category_id TEXT NOT NULL,
+            category_label TEXT NOT NULL,
+            target TEXT NOT NULL,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolution TEXT,
+            resolver_note TEXT
+        )
+    """)
+    c.commit()
+    c.close()
+
+
+_ensure_tables()
 
 
 # ── Tools ──────────────────────────────────────────────────────────────────────
@@ -223,6 +249,72 @@ def query_history(start: str, end: str, equipment: str = "") -> str:
             },
             indent=2,
             default=str,
+        )
+    except Exception as exc:
+        return f"Error: {exc}"
+
+
+@mcp.tool()
+def list_pending_reviews(hours_back: int = 168) -> str:
+    """List unresolved operator insight reviews pending engineering approval.
+
+    Args:
+        hours_back: Window to search (default 168 = 7 days).
+    """
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).isoformat()
+        c = _conn()
+        rows = c.execute(
+            """SELECT id, node_id, category_id, category_label, target, note, created_at
+               FROM insight_reviews
+               WHERE resolved_at IS NULL AND created_at >= ?
+               ORDER BY created_at ASC""",
+            (cutoff,),
+        ).fetchall()
+        reviews = [dict(r) for r in rows]
+        if not reviews:
+            return json.dumps(
+                {
+                    "reviews": [],
+                    "message": "No pending reviews in the requested window.",
+                }
+            )
+        return json.dumps({"reviews": reviews}, indent=2, default=str)
+    except Exception as exc:
+        return f"Error: {exc}"
+
+
+@mcp.tool()
+def resolve_review(review_id: str, resolution: str, resolver_note: str = "") -> str:
+    """Resolve a pending insight review.
+
+    Args:
+        review_id:     Review UUID from list_pending_reviews.
+        resolution:    One of: approved | rejected | deferred
+        resolver_note: Optional explanation.
+    """
+    if resolution not in ("approved", "rejected", "deferred"):
+        return json.dumps(
+            {
+                "error": f"Invalid resolution '{resolution}'. Use: approved | rejected | deferred"
+            }
+        )
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        c = _conn()
+        result = c.execute(
+            """UPDATE insight_reviews
+               SET resolved_at = ?, resolution = ?, resolver_note = ?
+               WHERE id = ? AND resolved_at IS NULL""",
+            (now, resolution, resolver_note or None, review_id),
+        )
+        c.commit()
+        if result.rowcount == 0:
+            return json.dumps(
+                {"error": f"Review '{review_id}' not found or already resolved."}
+            )
+        return json.dumps(
+            {"status": "ok", "review_id": review_id, "resolution": resolution}
         )
     except Exception as exc:
         return f"Error: {exc}"

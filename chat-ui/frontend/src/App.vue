@@ -41,6 +41,7 @@ onMounted(async () => {
       })
     }
   } catch { /* backend not running */ }
+  topo.loadInsightCategories()
 })
 </script>
 
