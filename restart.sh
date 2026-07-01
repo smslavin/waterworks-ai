@@ -4,6 +4,11 @@
 #
 # Note: ./stop.sh will still cleanly stop all services including restarted ones.
 # Ctrl-C on the original start.sh will NOT kill a restarted service — use stop.sh instead.
+#
+# Restart order matters for tool cache correctness:
+#   MCP services (audit-mcp, etc.) → aggregator → chat-ui
+# If you restart an MCP service, you must also restart aggregator then chat-ui
+# so the backend's in-memory tool cache (mcp_client._tool_cache) reflects the new tool list.
 
 set -e
 cd "$(dirname "$0")"
@@ -29,6 +34,18 @@ if [[ -f "$PID_FILE" ]]; then
     fi
     rm -f "$PID_FILE"
 fi
+
+# Fallback: pkill any matching process not covered by the PID file
+# (catches services started manually outside of start.sh / restart.sh)
+case "$SERVICE" in
+    chat-ui)          pkill -f "python backend.py"    2>/dev/null || true ;;
+    simulator)        pkill -f "python simulator.py"  2>/dev/null || true ;;
+    aggregator)       pkill -P "$(pgrep -f 'mcp-aggregator/server' | head -1)" 2>/dev/null || true; kill "$(pgrep -f 'mcp-aggregator/server/.venv')" 2>/dev/null || true ;;
+    audit-mcp)        pkill -f "audit-mcp/server.py"  2>/dev/null || true ;;
+    control-mcp)      pkill -f "control-mcp/server.py" 2>/dev/null || true ;;
+    memory-mcp)       pkill -f "memory-mcp/server.py" 2>/dev/null || true ;;
+esac
+sleep 0.5
 
 # ── Restart ───────────────────────────────────────────────────────────────────
 

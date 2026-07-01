@@ -136,3 +136,21 @@ specialists:
   historian:
     data_sources: [influxdb, memory]
     role: historical_only
+
+insight_categories:
+  - id: fault_pattern
+    label: "Fault pattern"
+    target: graph_observation
+  - id: maintenance_flag
+    label: "Maintenance flag"
+    target: work_item
+    requires_review: true
+  - id: false_positive
+    label: "False positive"
+    target: confidence_feedback
+  - id: baseline_shift
+    label: "Baseline shift"
+    target: graph_observation
+  - id: operator_note
+    label: "Operator note"
+    target: specialist_memory

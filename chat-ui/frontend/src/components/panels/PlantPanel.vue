@@ -21,6 +21,7 @@ const { stream, stopStream } = useSSE()
 const KEY = 'plant'
 const panelTop = ref(0)
 const panelLeft = ref(0)
+const panelMaxHeight = ref(600)
 
 const visible = computed(() => ui.activePanel === 'plant')
 const crumbLevel = computed(() => ui.crumbLevel)
@@ -62,6 +63,8 @@ function positionPanel() {
   const panelH = 360
   panelLeft.value = canvas.offsetWidth / 2 - panelW / 2
   panelTop.value = canvas.offsetHeight / 2 - panelH / 2
+  // maxHeight is canvas-relative: panel must not extend past canvas bottom
+  panelMaxHeight.value = canvas.offsetHeight - panelTop.value - 20
 }
 
 watch(() => ui.activePanel, async (panel, prev) => {
@@ -98,7 +101,7 @@ function sendFollowUp() {
     id="plant-panel"
     class="plant-panel"
     :class="{ visible }"
-    :style="{ top: `${panelTop}px`, left: `${panelLeft}px` }"
+    :style="{ top: `${panelTop}px`, left: `${panelLeft}px`, maxHeight: `${panelMaxHeight}px` }"
     @click.stop
   >
     <div class="plant-panel-header">
@@ -113,7 +116,7 @@ function sendFollowUp() {
     <div class="panel-scroll">
       <div
         class="plant-panel-body"
-        :class="{ 'body-preview': streamDone && !analysisExpanded }"
+        :class="{ 'body-preview': !analysisExpanded }"
         v-html="renderedContent"
       />
       <button v-if="streamDone" class="expand-btn" @click.stop="analysisExpanded = !analysisExpanded">
@@ -142,7 +145,6 @@ function sendFollowUp() {
 .plant-panel {
   position: absolute;
   width: 380px;
-  max-height: calc(100vh - 80px);
   background: var(--color-bg2);
   border: 1px solid var(--color-border);
   border-radius: 12px;

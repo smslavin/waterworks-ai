@@ -14,28 +14,28 @@ const emit = defineEmits<{
 
 const topo = useTopologyStore()
 
-const pendingClassification = ref('')
+const selectedId = ref('')
 const note = ref('')
-
-const CLASSIFICATIONS = [
-  'Fault pattern',
-  'Maintenance flag',
-  'False positive',
-  'Baseline shift',
-  'Operator note',
-]
+const noteVisible = ref(false)
 
 watch(() => props.nodeId, () => {
   emit('update:open', false)
-  pendingClassification.value = ''
+  selectedId.value = ''
   note.value = ''
+  noteVisible.value = false
 })
 
+function selectChip(id: string) {
+  selectedId.value = id
+  noteVisible.value = true
+}
+
 function commitSave() {
-  if (!pendingClassification.value) return
-  topo.saveInsight(props.nodeId, note.value || undefined)
-  pendingClassification.value = ''
+  if (!selectedId.value) return
+  topo.saveInsight(props.nodeId, selectedId.value, note.value || undefined)
+  selectedId.value = ''
   note.value = ''
+  noteVisible.value = false
   emit('update:open', false)
 }
 </script>
@@ -46,25 +46,31 @@ function commitSave() {
       <div class="save-classify-label">
         Save as · <span class="save-classify-node">{{ nodeId }}</span>
       </div>
-      <div class="save-confirm-row">
-        <select v-model="pendingClassification" class="save-select">
-          <option value="" disabled>Category...</option>
-          <option v-for="cls in CLASSIFICATIONS" :key="cls" :value="cls">{{ cls }}</option>
-        </select>
-        <input
-          v-model="note"
-          class="save-annotation"
-          placeholder="Note (optional)"
-        />
+      <div class="save-chips">
         <button
-          class="save-confirm-btn"
-          :class="{ ready: pendingClassification !== '' }"
-          :disabled="pendingClassification === ''"
-          @click="commitSave"
-        >
-          Save
-        </button>
+          v-for="cat in topo.insightCategories"
+          :key="cat.id"
+          class="chip"
+          :class="{ selected: selectedId === cat.id }"
+          @click="selectChip(cat.id)"
+        >{{ cat.label }}</button>
       </div>
+      <Transition name="note-slide">
+        <div v-if="noteVisible" class="save-confirm-row">
+          <input
+            v-model="note"
+            class="save-annotation"
+            placeholder="Note (optional)"
+            autofocus
+          />
+          <button
+            class="save-confirm-btn ready"
+            @click="commitSave"
+          >
+            Save
+          </button>
+        </div>
+      </Transition>
     </div>
   </Transition>
 </template>
@@ -91,33 +97,37 @@ function commitSave() {
   font-family: var(--font-mono);
 }
 
-.save-confirm-row {
+.save-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
-.save-select {
-  width: 130px;
-  flex-shrink: 0;
-  appearance: none;
-  background: var(--color-bg3) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a1a1aa' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 8px center;
+.chip {
+  padding: 4px 10px;
+  border-radius: 20px;
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 5px 24px 5px 10px;
+  background: transparent;
+  color: var(--color-text2);
   font-size: 12px;
-  color: var(--color-text1);
   cursor: pointer;
-  outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-.save-select:focus {
-  border-color: var(--color-accent);
-}
-
-.save-select option {
-  background: var(--color-bg2);
+.chip:hover {
+  border-color: var(--color-text2);
   color: var(--color-text1);
+}
+
+.chip.selected {
+  border-color: var(--color-verified);
+  color: var(--color-verified);
+  background: rgba(45, 212, 191, 0.1);
+}
+
+.save-confirm-row {
+  display: flex;
+  gap: 6px;
 }
 
 .save-annotation {
@@ -168,5 +178,16 @@ function commitSave() {
 .classify-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+.note-slide-enter-active,
+.note-slide-leave-active {
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.note-slide-enter-from,
+.note-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

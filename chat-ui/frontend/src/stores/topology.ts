@@ -4,6 +4,14 @@ import { ref, computed } from 'vue'
 export type ConfidenceLevel = 'verified' | 'inferred' | 'suspect'
 export type AlarmState = 'normal' | 'warning' | 'critical' | 'pending-approval'
 
+export interface InsightCategory {
+  id: string
+  label: string
+  target: 'graph_observation' | 'work_item' | 'confidence_feedback' | 'topology_edit' | 'specialist_memory'
+  requires_review: boolean
+  correlates_to?: string[]
+}
+
 export interface TopologyNode {
   id: string
   area: string
@@ -53,6 +61,7 @@ const INITIAL_EDGES: TopologyEdge[] = [
 export const useTopologyStore = defineStore('topology', () => {
   const nodes = ref<TopologyNode[]>(INITIAL_NODES.map(n => ({ ...n })))
   const edges = ref<TopologyEdge[]>(INITIAL_EDGES.map(e => ({ ...e })))
+  const insightCategories = ref<InsightCategory[]>([])
 
   const nodesByArea = computed(() => {
     const result: Record<string, TopologyNode[]> = {}
@@ -75,13 +84,32 @@ export const useTopologyStore = defineStore('topology', () => {
     if (node) node.alarmState = state
   }
 
-  function saveInsight(id: string, note?: string) {
+  async function loadInsightCategories() {
+    try {
+      const res = await fetch('/api/insight/categories')
+      if (res.ok) insightCategories.value = await res.json()
+    } catch {
+      // non-fatal: UI falls back to empty list
+    }
+  }
+
+  async function saveInsight(id: string, categoryId: string, note?: string) {
     const node = nodes.value.find(n => n.id === id)
     if (!node) return
+    // optimistic update
     node.hasMemory = true
     node.saveCount++
     if (note) node.note = note
+    try {
+      await fetch('/api/insight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodeId: id, categoryId, note }),
+      })
+    } catch {
+      // fire-and-forget; optimistic state already applied
+    }
   }
 
-  return { nodes, edges, nodesByArea, areas, nodeById, setAlarmState, saveInsight }
+  return { nodes, edges, nodesByArea, areas, insightCategories, nodeById, setAlarmState, loadInsightCategories, saveInsight }
 })

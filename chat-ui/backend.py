@@ -4,7 +4,10 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import sys
+import uuid
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 
 _log_dir = os.path.join(os.path.dirname(__file__), "logs")
@@ -52,11 +55,26 @@ import mcp_client
 import multi_agent_loop
 import openai_loop
 import reactive_loop as _reactive_loop
+import topology as _topo_loader
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 MCP_AGGREGATOR_URL = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
 SIMULATOR_CONTROL = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+_METRICS_DB = os.environ.get(
+    "METRICS_DB_PATH", os.path.join(os.path.dirname(__file__), "metrics.db")
+)
+
+_topology = _topo_loader.load()
+
+
+def _specialist_for_node(node_id: str) -> str | None:
+    """Return the process-area name (== specialist name) for a given equipment id."""
+    for area, cfg in _topology.get("process_areas", {}).items():
+        if node_id in cfg.get("instances", []):
+            return area
+    return None
+
 
 # ── Reactive alert pub-sub ─────────────────────────────────────────────────────
 
@@ -732,6 +750,92 @@ async def lifespan(app):
     yield
 
 
+async def insight_categories_endpoint(request: Request):
+    categories = _topology.get("insight_categories", [])
+    result = [
+        {
+            "id": c["id"],
+            "label": c["label"],
+            "target": c["target"],
+            "requires_review": c.get("requires_review", False),
+            "correlates_to": c.get("correlates_to", []),
+        }
+        for c in categories
+    ]
+    return JSONResponse(result)
+
+
+async def insight_save_endpoint(request: Request):
+    body = await request.json()
+    node_id = body.get("nodeId", "")
+    category_id = body.get("categoryId", "")
+    note = body.get("note", "")
+
+    if not node_id or not category_id:
+        return JSONResponse(
+            {"error": "nodeId and categoryId required"}, status_code=400
+        )
+
+    categories = {c["id"]: c for c in _topology.get("insight_categories", [])}
+    cat = categories.get(category_id)
+    if not cat:
+        return JSONResponse(
+            {"error": f"Unknown category '{category_id}'"}, status_code=400
+        )
+
+    target = cat["target"]
+    requires_review = cat.get("requires_review", False)
+
+    if target in ("graph_observation", "specialist_memory"):
+        specialist = _specialist_for_node(node_id)
+        session_id = str(uuid.uuid4())
+
+    if requires_review:
+        now = datetime.now(timezone.utc).isoformat()
+        review_id = str(uuid.uuid4())
+        conn = sqlite3.connect(_METRICS_DB)
+        conn.execute(
+            """INSERT INTO insight_reviews
+               (id, node_id, category_id, category_label, target, note, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (review_id, node_id, category_id, cat["label"], target, note or None, now),
+        )
+        conn.commit()
+        conn.close()
+        return JSONResponse({"status": "queued", "review_id": review_id})
+
+    if target == "graph_observation":
+        await mcp_client.call_mcp_tool(
+            "memory__record_observation",
+            {
+                "session_id": session_id,
+                "equipment_id": node_id,
+                "text": note or f"Operator insight: {cat['label']}",
+                "confidence": 1.0,
+                "specialist": specialist or "operator",
+            },
+        )
+    elif target == "specialist_memory":
+        await mcp_client.call_mcp_tool(
+            "memory__append_specialist_memory",
+            {
+                "specialist": specialist or node_id,
+                "content": note or f"Operator insight ({cat['label']}) on {node_id}",
+            },
+        )
+    else:
+        audit.log(
+            "insight_saved",
+            node_id=node_id,
+            category_id=category_id,
+            category_label=cat["label"],
+            target=target,
+            note=note or None,
+        )
+
+    return JSONResponse({"status": "ok"})
+
+
 async def topology_commit_endpoint(request: Request):
     body = await request.json()
     facility_id = body.get("facility_id", "WTP_001")
@@ -773,6 +877,8 @@ routes = [
     Route("/api/audit/download", audit_download_endpoint),
     Route("/api/metrics", metrics_api_endpoint),
     Route("/api/topology/commit", topology_commit_endpoint, methods=["POST"]),
+    Route("/api/insight/categories", insight_categories_endpoint),
+    Route("/api/insight", insight_save_endpoint, methods=["POST"]),
     Route("/api/reactive", reactive_status_endpoint),
     Route("/api/reactive/toggle", reactive_toggle_endpoint, methods=["POST"]),
     Route("/api/events", events_endpoint),

@@ -74,20 +74,20 @@ describe('useTopologyStore', () => {
   describe('saveInsight', () => {
     it('sets hasMemory to true', () => {
       const topo = useTopologyStore()
-      topo.saveInsight('UV_01')
+      topo.saveInsight('UV_01', 'fault_pattern')
       expect(topo.nodeById('UV_01')?.hasMemory).toBe(true)
     })
 
     it('increments saveCount on each call', () => {
       const topo = useTopologyStore()
-      topo.saveInsight('UV_01')
-      topo.saveInsight('UV_01')
+      topo.saveInsight('UV_01', 'fault_pattern')
+      topo.saveInsight('UV_01', 'operator_note')
       expect(topo.nodeById('UV_01')?.saveCount).toBe(2)
     })
 
     it('is a no-op for unknown id', () => {
       const topo = useTopologyStore()
-      expect(() => topo.saveInsight('NonExistent')).not.toThrow()
+      expect(() => topo.saveInsight('NonExistent', 'fault_pattern')).not.toThrow()
     })
   })
 })

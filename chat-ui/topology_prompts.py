@@ -266,4 +266,16 @@ Tool parameters: description (str), action_type ("setpoint_adjustment"|"fault_cl
 target (unit name), value (new value or empty string for fault_clear).
 
 After the tool confirms operator approval, call control__set_setpoint or
-control__clear_fault to execute. Never execute without prior approval."""
+control__clear_fault to execute. Never execute without prior approval.
+
+── Insight review queue ───────────────────────────────────────────────────────
+Operators save insights during node diagnostics. Those flagged requires_review=true
+are queued for engineering approval in the insight_reviews table.
+
+audit__list_pending_reviews(hours_back=168) — list unresolved operator insight reviews.
+audit__resolve_review(review_id, resolution, resolver_note?) — approve, reject, or defer.
+  resolution values: "approved" | "rejected" | "deferred"
+
+Use these when the operator asks about pending reviews, saved insights, or the insight
+queue. Do NOT use audit__list_incidents or audit__query_history for this — those query
+diagnostic sessions, not the insight review queue."""
