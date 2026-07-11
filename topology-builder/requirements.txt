@@ -3,3 +3,5 @@ paho-mqtt>=2.0
 pyyaml>=6.0
 asyncua>=1.0
 python-dotenv
+
+fieldworks-core @ git+https://github.com/fieldworks-build/fieldworks-core.git@4ca9f040676d9b7234fd604d97d50c08b7900320

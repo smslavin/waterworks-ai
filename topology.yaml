@@ -1,136 +1,292 @@
-site: Plant
-facility: WTP
-
-equipment_types:
-  Pump:
-    attributes:
-      Flow:     { unit: L/min, normal: [200, 450], lo: 0,   hi: 500,   step: 4.0,  alarm_lo: critical, alarm_hi: advisory }
-      Pressure: { unit: bar,   normal: [3.5, 8.5], lo: 0,   hi: 10,    step: 0.08, alarm_lo: warning,  alarm_hi: warning  }
-      Power:    { unit: kW,    normal: [10, 70],   lo: 0,   hi: 75,    step: 0.6,  alarm_lo: warning,  alarm_hi: warning  }
-      Running:  { type: bool, initial: true, flip: 0.01 }
-    faults:
-      suction_starvation:
-        severity: critical
-        heuristic: "Flow ramping to zero + erratic pressure + Running=True → suction starvation"
-      run_status_fault:
-        severity: warning
-        heuristic: "Flow≈0 + Power≈0 + Running=True → run-status fault"
-      pressure_drift:
-        severity: advisory
-        heuristic: "Pressure diverging progressively from expected range → pressure drift"
-      cavitation:
-        severity: critical
-        heuristic: "High-frequency flow collapse + pressure spikes → cavitation"
-
-  Clarifier:
-    attributes:
-      Level:     { unit: "%",  normal: [20, 90], lo: 0,   hi: 100, step: 0.5,  alarm_lo: warning,  alarm_hi: warning  }
-      Turbidity: { unit: NTU,  normal: [0, 4],   lo: 0,   hi: 5,   step: 0.03, alarm_lo: advisory, alarm_hi: warning  }
-    faults:
-      level_sensor_fault:
-        severity: advisory
-        heuristic: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
-      turbidity_spike:
-        severity: warning
-        heuristic: "Turbidity rising above 4 NTU → sedimentation failure or upstream contamination"
-
-  StorageTank:
-    attributes:
-      Level:     { unit: "%",  normal: [20, 90],   lo: 0,   hi: 100, step: 0.4,  alarm_lo: warning,  alarm_hi: advisory }
-      Turbidity: { unit: NTU,  normal: [0, 1],     lo: 0,   hi: 5,   step: 0.03, alarm_lo: advisory, alarm_hi: critical }
-      pH:        { unit: pH,   normal: [6.5, 8.5], lo: 6.8, hi: 7.8, step: 0.01, alarm_lo: critical, alarm_hi: critical }
-    faults:
-      level_sensor_fault:
-        severity: advisory
-        heuristic: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
-      turbidity_spike:
-        severity: critical
-        heuristic: "Finished water turbidity above 1 NTU → treatment failure or contamination"
-
-  Dosing:
-    attributes:
-      FlowRate:  { unit: L/h, normal: [4.5, 5.5], lo: 0,   hi: 10,  step: 0.05, alarm_lo: critical, alarm_hi: warning  }
-      TankLevel: { unit: "%", normal: [10, 100],  lo: 20,  hi: 100, step: 0.2,  alarm_lo: warning,  alarm_hi: advisory }
-      Running:   { type: bool, initial: true, flip: 0.01 }
-    faults:
-      dosing_blockage:
-        severity: critical
-        heuristic: "FlowRate ramping to zero + Running=True + TankLevel normal → discharge blockage"
-      tank_empty:
-        severity: warning
-        heuristic: "TankLevel depleting toward zero + FlowRate dropping → chemical tank empty"
-      run_status_fault:
-        severity: warning
-        heuristic: "FlowRate≈0 + Running=True + TankLevel not depleting → run-status fault"
-
-  UV:
-    attributes:
-      Intensity: { unit: "%", normal: [80, 100],  lo: 85, hi: 100,   step: 0.3,  alarm_lo: critical, alarm_hi: advisory }
-      LampHours: { unit: hrs, normal: [0, 9000],  lo: 0,  hi: 10000, step: 0.01 }
-      Running:   { type: bool, initial: true, flip: 0.005 }
-    faults:
-      lamp_degradation:
-        severity: advisory
-        heuristic: "Intensity gradually decreasing over hours + LampHours accumulating → lamp degradation"
-      lamp_failure:
-        severity: critical
-        heuristic: "Intensity near zero immediately + Running=True → lamp failure"
-
-instances:
-  Pump:
-    - id: RawWater_01
-    - id: RawWater_02
-    - id: HighService_01
-      overrides:
-        Flow:     { step: 3.5 }
-        Pressure: { lo: 2, step: 0.06 }
-        Power:    { step: 0.5 }
-    - id: HighService_02
-      overrides:
-        Flow:     { step: 3.5 }
-        Pressure: { lo: 2, step: 0.06 }
-        Power:    { step: 0.5 }
-        Running:  { initial: false }
-
-  Clarifier:
-    - id: Clarifier_01
-
-  StorageTank:
-    - id: FinishedWater_01
-      overrides:
-        Turbidity: { lo: 0, hi: 1, step: 0.01 }
-
-  Dosing:
-    - id: Chlorine_01
-    - id: Fluoride_01
-      overrides:
-        FlowRate: { step: 0.04 }
-
-  UV:
-    - id: UV_01
-    - id: UV_02
-      overrides:
-        Running: { initial: false }
+facility:
+  name: WTP
+  site_id: wtp
+  description: Simulated municipal water treatment plant (waterworks-ai reference demo)
+  timezone: America/Chicago
+  units_system: metric
 
 process_areas:
-  Intake:
-    instances: [RawWater_01, RawWater_02]
-    data_sources: [mqtt, influxdb]
-    description: "River source with seasonal turbidity variation. Correlate intake
+  - id: intake
+    name: Intake
+    description: River source with seasonal turbidity variation.
+    specialist_prompt: "River source with seasonal turbidity variation. Correlate intake
       turbidity with downstream clarifier performance during spring runoff and storm events."
-  Treatment:
-    instances: [Clarifier_01, Chlorine_01, Fluoride_01, UV_01, UV_02]
-    data_sources: [mqtt, influxdb]
-    description: "Chlorination and UV run in series. Both barriers must be active for
+
+  - id: treatment
+    name: Treatment
+    description: Coagulation, filtration, chemical dosing, and UV disinfection.
+    specialist_prompt: "Chlorination and UV run in series. Both barriers must be active for
       regulatory compliance. Clarifier turbidity above 4 NTU warrants investigation
       before water advances to distribution."
-  Distribution:
-    instances: [HighService_01, HighService_02, FinishedWater_01]
-    data_sources: [mqtt, influxdb]
-    description: "Minimum 40 PSI required at discharge. HighService_02 has recurring
+
+  - id: distribution
+    name: Distribution
+    description: Pumping of treated water to the distribution network.
+    specialist_prompt: "Minimum 40 PSI required at discharge. HighService_02 has recurring
       pressure drift history — compare against HighService_01 before diagnosing
       transmitter vs. mechanical fault. Finished water tank level below 30% triggers
       demand-response protocol."
+
+equipment_types:
+  - id: pump
+    name: Pump
+    description: Centrifugal pump moving water through the process via impeller rotation.
+    attributes:
+      - id: flow
+        name: Flow
+        units: L/min
+        normal_range: { min: 200, max: 450 }
+      - id: pressure
+        name: Pressure
+        units: bar
+        normal_range: { min: 3.5, max: 8.5 }
+      - id: power
+        name: Power
+        units: kW
+        normal_range: { min: 10, max: 70 }
+      - id: running
+        name: Running
+        units: ""
+        normal_range: { min: 0, max: 1, description: "boolean state: 0 = stopped, 1 = running" }
+    fault_modes:
+      - id: suction_starvation
+        name: Suction Starvation
+        severity: critical
+        description: "Flow ramping to zero + erratic pressure + Running=True → suction starvation"
+        affected_attributes: [flow, pressure, running]
+      - id: run_status_fault
+        name: Run Status Fault
+        severity: warning
+        description: "Flow≈0 + Power≈0 + Running=True → run-status fault"
+        affected_attributes: [flow, power, running]
+      - id: pressure_drift
+        name: Pressure Drift
+        severity: advisory
+        description: "Pressure diverging progressively from expected range → pressure drift"
+        affected_attributes: [pressure]
+      - id: cavitation
+        name: Cavitation
+        severity: critical
+        description: "High-frequency flow collapse + pressure spikes → cavitation"
+        affected_attributes: [flow, pressure]
+
+  - id: clarifier
+    name: Clarifier
+    description: Settling tank that removes suspended solids before filtration.
+    attributes:
+      - id: level
+        name: Level
+        units: "%"
+        normal_range: { min: 20, max: 90 }
+      - id: turbidity
+        name: Turbidity
+        units: NTU
+        normal_range: { min: 0, max: 4 }
+    fault_modes:
+      - id: level_sensor_fault
+        name: Level Sensor Fault
+        severity: advisory
+        description: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
+        affected_attributes: [level]
+      - id: turbidity_spike
+        name: Turbidity Spike
+        severity: warning
+        description: "Turbidity rising above 4 NTU → sedimentation failure or upstream contamination"
+        affected_attributes: [turbidity]
+
+  - id: storage_tank
+    name: Storage Tank
+    description: Stores treated water with continuous quality monitoring before distribution.
+    attributes:
+      - id: level
+        name: Level
+        units: "%"
+        normal_range: { min: 20, max: 90 }
+      - id: turbidity
+        name: Turbidity
+        units: NTU
+        normal_range: { min: 0, max: 1 }
+      - id: ph
+        name: pH
+        units: pH
+        normal_range: { min: 6.5, max: 8.5 }
+    fault_modes:
+      - id: level_sensor_fault
+        name: Level Sensor Fault
+        severity: advisory
+        description: "Level oscillating ±20% around baseline + other attributes normal → level sensor fault"
+        affected_attributes: [level]
+      - id: turbidity_spike
+        name: Turbidity Spike
+        severity: critical
+        description: "Finished water turbidity above 1 NTU → treatment failure or contamination"
+        affected_attributes: [turbidity]
+
+  - id: chemical_dosing_pump
+    name: Dosing
+    description: Delivers chemical treatment agents at controlled flow rates.
+    attributes:
+      - id: flow_rate
+        name: FlowRate
+        units: L/h
+        normal_range: { min: 4.5, max: 5.5 }
+      - id: tank_level
+        name: TankLevel
+        units: "%"
+        normal_range: { min: 10, max: 100 }
+      - id: running
+        name: Running
+        units: ""
+        normal_range: { min: 0, max: 1, description: "boolean state: 0 = stopped, 1 = running" }
+    fault_modes:
+      - id: dosing_blockage
+        name: Dosing Blockage
+        severity: critical
+        description: "FlowRate ramping to zero + Running=True + TankLevel normal → discharge blockage"
+        affected_attributes: [flow_rate, running]
+      - id: tank_empty
+        name: Tank Empty
+        severity: warning
+        description: "TankLevel depleting toward zero + FlowRate dropping → chemical tank empty"
+        affected_attributes: [tank_level, flow_rate]
+      - id: run_status_fault
+        name: Run Status Fault
+        severity: warning
+        description: "FlowRate≈0 + Running=True + TankLevel not depleting → run-status fault"
+        affected_attributes: [flow_rate, running]
+
+  - id: uv_bank
+    name: UV
+    description: Provides UV disinfection of treated water before distribution.
+    attributes:
+      - id: intensity
+        name: Intensity
+        units: "%"
+        normal_range: { min: 80, max: 100 }
+      - id: lamp_hours
+        name: LampHours
+        units: hrs
+        normal_range: { min: 0, max: 9000 }
+      - id: running
+        name: Running
+        units: ""
+        normal_range: { min: 0, max: 1, description: "boolean state: 0 = stopped, 1 = running" }
+    fault_modes:
+      - id: lamp_degradation
+        name: Lamp Degradation
+        severity: advisory
+        description: "Intensity gradually decreasing over hours + LampHours accumulating → lamp degradation"
+        affected_attributes: [intensity, lamp_hours]
+      - id: lamp_failure
+        name: Lamp Failure
+        severity: critical
+        description: "Intensity near zero immediately + Running=True → lamp failure"
+        affected_attributes: [intensity, running]
+
+equipment_instances:
+  - id: raw_water_pump_1
+    name: RawWater_01
+    type_id: pump
+    process_area_id: intake
+    tag_bindings:
+      flow: Plant/WTP/Pump/RawWater_01/Flow
+      pressure: Plant/WTP/Pump/RawWater_01/Pressure
+      power: Plant/WTP/Pump/RawWater_01/Power
+      running: Plant/WTP/Pump/RawWater_01/Running
+
+  - id: raw_water_pump_2
+    name: RawWater_02
+    type_id: pump
+    process_area_id: intake
+    tag_bindings:
+      flow: Plant/WTP/Pump/RawWater_02/Flow
+      pressure: Plant/WTP/Pump/RawWater_02/Pressure
+      power: Plant/WTP/Pump/RawWater_02/Power
+      running: Plant/WTP/Pump/RawWater_02/Running
+
+  - id: high_service_pump_1
+    name: HighService_01
+    type_id: pump
+    process_area_id: distribution
+    tag_bindings:
+      flow: Plant/WTP/Pump/HighService_01/Flow
+      pressure: Plant/WTP/Pump/HighService_01/Pressure
+      power: Plant/WTP/Pump/HighService_01/Power
+      running: Plant/WTP/Pump/HighService_01/Running
+
+  - id: high_service_pump_2
+    name: HighService_02
+    type_id: pump
+    process_area_id: distribution
+    notes: "Recurring pressure drift history — compare against HighService_01 before diagnosing transmitter vs. mechanical fault."
+    tag_bindings:
+      flow: Plant/WTP/Pump/HighService_02/Flow
+      pressure: Plant/WTP/Pump/HighService_02/Pressure
+      power: Plant/WTP/Pump/HighService_02/Power
+      running: Plant/WTP/Pump/HighService_02/Running
+
+  - id: clarifier_1
+    name: Clarifier_01
+    type_id: clarifier
+    process_area_id: treatment
+    tag_bindings:
+      level: Plant/WTP/Clarifier/Clarifier_01/Level
+      turbidity: Plant/WTP/Clarifier/Clarifier_01/Turbidity
+
+  - id: finished_water_1
+    name: FinishedWater_01
+    type_id: storage_tank
+    process_area_id: distribution
+    notes: "Finished water tank level below 30% triggers demand-response protocol."
+    tag_bindings:
+      level: Plant/WTP/StorageTank/FinishedWater_01/Level
+      turbidity: Plant/WTP/StorageTank/FinishedWater_01/Turbidity
+      ph: Plant/WTP/StorageTank/FinishedWater_01/pH
+
+  - id: chlorine_1
+    name: Chlorine_01
+    type_id: chemical_dosing_pump
+    process_area_id: treatment
+    tag_bindings:
+      flow_rate: Plant/WTP/Dosing/Chlorine_01/FlowRate
+      tank_level: Plant/WTP/Dosing/Chlorine_01/TankLevel
+      running: Plant/WTP/Dosing/Chlorine_01/Running
+
+  - id: fluoride_1
+    name: Fluoride_01
+    type_id: chemical_dosing_pump
+    process_area_id: treatment
+    tag_bindings:
+      flow_rate: Plant/WTP/Dosing/Fluoride_01/FlowRate
+      tank_level: Plant/WTP/Dosing/Fluoride_01/TankLevel
+      running: Plant/WTP/Dosing/Fluoride_01/Running
+
+  - id: uv_1
+    name: UV_01
+    type_id: uv_bank
+    process_area_id: treatment
+    tag_bindings:
+      intensity: Plant/WTP/UV/UV_01/Intensity
+      lamp_hours: Plant/WTP/UV/UV_01/LampHours
+      running: Plant/WTP/UV/UV_01/Running
+
+  - id: uv_2
+    name: UV_02
+    type_id: uv_bank
+    process_area_id: treatment
+    tag_bindings:
+      intensity: Plant/WTP/UV/UV_02/Intensity
+      lamp_hours: Plant/WTP/UV/UV_02/LampHours
+      running: Plant/WTP/UV/UV_02/Running
+
+historian:
+  default_lookback_hours: 24
+  max_lookback_days: 90
+
+# ── Waterworks-ai extensions ──────────────────────────────────────────────────
+# Everything below is ignored by fieldworks.topology.load() (Pydantic ignores
+# unrecognized top-level keys) — read directly by waterworks-ai's own code.
+# Not part of the fieldworks-core spec.
 
 specialists:
   historian:
