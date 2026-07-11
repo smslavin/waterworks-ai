@@ -2,6 +2,8 @@
 
 Open source industrial AI demo stack: natural language diagnostics for a simulated water treatment plant using only open source components and public protocols. Reference implementation of the Fieldworks framework.
 
+**Depends on fieldworks-core** (git dependency, pinned per-service in each `requirements.txt`) as of the M8 port (v2.0.0): topology loading, specialist/orchestrator/Deadband prompts, LadybugDB/DuckDB/specialist-memory clients, and topology-builder's inference engine all come from the framework now. No framework logic remains in this repo — only topology.yaml/simulator.yaml config, thin MCP server wrappers, the Starlette backend, and the Vue 3 frontend. The MQTT/OPC-UA adapters (`mcp-servers/`) are still the pre-fieldworks-adapters Python generation — that swap is tracked separately (fieldworks-core#14).
+
 ## Starting the stack
 
 ```bash
@@ -73,7 +75,7 @@ data/               gitignored — ladybugdb/, duckdb/, specialist-memory/
 
 - **paho-mqtt over aiomqtt**: `loop_start()` background thread is correct for a publisher. aiomqtt adds a layer with no benefit here.
 - **MCP submodules**: never copy files from `mcp-servers/` or `mcp-aggregator/`. Update with `git submodule update --remote`.
-- **topology.yaml is the source of truth** for simulator instances, fault modes, specialist scope, and alarm limits. Edit this file; all layers derive from it. `simulator/topology.py` and `chat-ui/topology.py` are duplicate loaders pointing at the same file — known tech debt, don't add a third copy.
+- **topology.yaml is the source of truth** for equipment, fault modes, and specialist scope — in the fieldworks-core spec schema (list-based, explicit tag_bindings) since the M8 port. `simulator/topology.py` and `chat-ui/topology.py` are thin shims re-exporting the root `topology.py`, which delegates to `fieldworks.topology.load()`. Simulator-only generation mechanics (lo/hi/step/initial/flip, per-instance overrides) live in `simulator.yaml` instead — topology.yaml stays a clean, spec-compliant worked example (it's cited directly in the framework spec).
 - **OPC-UA excluded from specialists**: MQTT and OPC-UA expose the same data; specialists use MQTT only.
 - **Named Docker volumes**: data survives `docker compose down`. Wipe with `docker compose down -v`.
 - **Fault injection is per-instance** at runtime: `POST /fault?target=RawWater_01&mode=suction_starvation`; clear with `mode=normal`.
@@ -154,7 +156,9 @@ Do not edit files in `chat-ui/static/` directly — they are overwritten on ever
 
 ## Phase status
 
-Phases 0–12 complete. Phase 12 replaced the vanilla HTML/JS frontend with a Vue 3 + Vite + Pinia app (topology graph, streaming panels, reactive alarms, multi-agent mode, approval flow). Phase 13: insight categories. Phase 14: knowledge memory (RAG).
+Phases 0–13 complete. Phase 12 replaced the vanilla HTML/JS frontend with a Vue 3 + Vite + Pinia app (topology graph, streaming panels, reactive alarms, multi-agent mode, approval flow). Phase 13: insight categories.
+
+**M8 — fieldworks-core port (v2.0.0):** rebuilt as the framework's reference implementation. topology.yaml migrated to the fieldworks-core spec schema; chat-ui/simulator/memory-mcp/topology-builder now depend on fieldworks-core instead of containing their own copies of that logic. See the note at the top of this file. Phase 14 (knowledge memory / RAG) is next.
 
 ## What not to touch
 
