@@ -173,14 +173,53 @@ def _build_specialists(topology) -> list[dict]:
     return specialists
 
 
-_topology = _load_topology()
-SPECIALISTS = _build_specialists(_topology)
-_ORCHESTRATOR_SYSTEM = _fw_build_orchestrator_system(
-    _fw_build_specialists(_topology), _topology
-) + (
+_HISTORIAN_MENTION = (
     "\n\nYou also have a Historian agent available for historical trend analysis"
     " (InfluxDB + DuckDB correlation queries). Historian is not scoped to a"
     " process area — route cross-cutting or long-horizon questions to it."
+)
+
+# control-mcp/audit-mcp are app-specific tools fieldworks.agents.
+# build_orchestrator_system() has no knowledge of (by design — the framework
+# builder only knows about topology-derived specialists). Their usage
+# guidance is appended here rather than lost.
+_CONTROL_ACTION_GUIDANCE = """
+
+── Control actions ────────────────────────────────────────────────────────────
+If the synthesis reveals a clear fault requiring immediate corrective action,
+call the control__propose_action tool. Do this SILENTLY — do not write "I am
+proposing an action" or any similar text before the tool call. Just call it.
+
+Writing about a proposed action in text without calling the tool is a protocol
+violation. The tool IS the proposal — text is not.
+
+Only propose when evidence is strong; do not propose for Normal status or minor
+anomalies.
+
+Tool parameters: description (str), action_type ("setpoint_adjustment"|"fault_clear"),
+target (unit name), value (new value or empty string for fault_clear).
+
+After the tool confirms operator approval, call control__set_setpoint or
+control__clear_fault to execute. Never execute without prior approval.
+
+── Insight review queue ───────────────────────────────────────────────────────
+Operators save insights during node diagnostics. Those flagged requires_review=true
+are queued for engineering approval in the insight_reviews table.
+
+audit__list_pending_reviews(hours_back=168) — list unresolved operator insight reviews.
+audit__resolve_review(review_id, resolution, resolver_note?) — approve, reject, or defer.
+  resolution values: "approved" | "rejected" | "deferred"
+
+Use these when the operator asks about pending reviews, saved insights, or the insight
+queue. Do NOT use audit__list_incidents or audit__query_history for this — those query
+diagnostic sessions, not the insight review queue."""
+
+_topology = _load_topology()
+SPECIALISTS = _build_specialists(_topology)
+_ORCHESTRATOR_SYSTEM = (
+    _fw_build_orchestrator_system(_fw_build_specialists(_topology), _topology)
+    + _HISTORIAN_MENTION
+    + _CONTROL_ACTION_GUIDANCE
 )
 
 _FINDINGS_FORMAT = """

@@ -1,14 +1,15 @@
 """Phase 8 simulator tests — topology.yaml drives instances and fault modes.
 
 All tests are import-level only: no MQTT, no OPC-UA, no network.
+
+Topology-loader tests rewritten for the fieldworks-core port (M8):
+topology.py now delegates to fieldworks.topology.load(), returning a
+validated TopologyConfig object (raises ValueError with Pydantic's message
+on schema violations) instead of a raw dict validated by hand-rolled
+assertions.
 """
 
-import os
 import pytest
-from pathlib import Path
-
-TOPOLOGY_PATH = Path(__file__).parent.parent.parent / "topology.yaml"
-
 
 # ── topology loader ────────────────────────────────────────────────────────────
 
@@ -17,37 +18,46 @@ def test_topology_loads():
     from topology import load
 
     data = load()
-    assert "equipment_types" in data
-    assert "instances" in data
-    assert "process_areas" in data
+    assert data.facility.name
+    assert len(data.equipment_types) > 0
+    assert len(data.process_areas) > 0
+    assert len(data.equipment_instances) > 0
+
+
+def test_topology_validation_missing_facility(tmp_path):
+    from topology import load
+
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(
+        "process_areas: []\nequipment_types: []\nequipment_instances: []\n"
+        "historian: {default_lookback_hours: 24, max_lookback_days: 90}\n"
+    )
+    with pytest.raises(ValueError, match="facility"):
+        load(bad)
 
 
 def test_topology_validation_missing_equipment_types(tmp_path):
     from topology import load
 
     bad = tmp_path / "bad.yaml"
-    bad.write_text("instances:\n  Pump: []\n")
-    with pytest.raises(AssertionError, match="equipment_types"):
+    bad.write_text(
+        "facility: {name: Test, site_id: t, timezone: UTC}\n"
+        "process_areas: []\nequipment_instances: []\n"
+        "historian: {default_lookback_hours: 24, max_lookback_days: 90}\n"
+    )
+    with pytest.raises(ValueError, match="equipment_types"):
         load(bad)
 
 
-def test_topology_validation_missing_instances(tmp_path):
-    from topology import load
-
-    bad = tmp_path / "bad.yaml"
-    bad.write_text("equipment_types:\n  Pump:\n    attributes: {}\n    faults: []\n")
-    with pytest.raises(AssertionError, match="instances"):
-        load(bad)
-
-
-def test_topology_validation_missing_attributes(tmp_path):
+def test_topology_validation_missing_historian(tmp_path):
     from topology import load
 
     bad = tmp_path / "bad.yaml"
     bad.write_text(
-        "equipment_types:\n  Pump:\n    faults: []\ninstances:\n  Pump: []\n"
+        "facility: {name: Test, site_id: t, timezone: UTC}\n"
+        "process_areas: []\nequipment_types: []\nequipment_instances: []\n"
     )
-    with pytest.raises(AssertionError, match="attributes"):
+    with pytest.raises(ValueError, match="historian"):
         load(bad)
 
 
@@ -55,13 +65,34 @@ def test_topology_file_env_override(monkeypatch, tmp_path):
     from topology import load
 
     alt = tmp_path / "alt.yaml"
-    alt.write_text(
-        "equipment_types:\n  Pump:\n    attributes: {Flow: {lo: 0, hi: 10, step: 1}}\n    faults: []\n"
-        "instances:\n  Pump:\n    - id: TestPump_01\n"
-    )
+    alt.write_text("""
+facility: {name: Test Plant, site_id: test, timezone: UTC}
+process_areas:
+  - id: area_a
+    name: Area A
+    description: Test area
+equipment_types:
+  - id: pump
+    name: Pump
+    description: A pump
+    attributes:
+      - id: flow
+        name: Flow
+        units: L/min
+        normal_range: {min: 0, max: 10}
+    fault_modes: []
+equipment_instances:
+  - id: test_pump_01
+    name: TestPump_01
+    type_id: pump
+    process_area_id: area_a
+    tag_bindings:
+      flow: Test/TestPump_01/Flow
+historian: {default_lookback_hours: 24, max_lookback_days: 90}
+""")
     monkeypatch.setenv("TOPOLOGY_FILE", str(alt))
     data = load()
-    assert list(data["instances"]["Pump"][0]["id"]) == list("TestPump_01")
+    assert data.equipment_instances[0].name == "TestPump_01"
 
 
 # ── instances ──────────────────────────────────────────────────────────────────
@@ -243,22 +274,52 @@ def test_uv_fault_modes():
 
 
 def test_unknown_fault_in_topology_skipped(tmp_path, monkeypatch):
-    """A fault name in topology with no FaultMode enum entry is silently skipped."""
+    """A fault id in topology with no FaultMode enum entry is silently skipped."""
     import yaml
-    import importlib
     import faults as faults_module
 
     alt = tmp_path / "alt.yaml"
     alt.write_text(
         yaml.dump(
             {
-                "equipment_types": {
-                    "Pump": {
-                        "attributes": {"Flow": {"lo": 0, "hi": 10, "step": 1}},
-                        "faults": {"nonexistent_fault": {"heuristic": "test"}},
+                "facility": {"name": "Test", "site_id": "t", "timezone": "UTC"},
+                "process_areas": [
+                    {"id": "area_a", "name": "Area A", "description": "Test"}
+                ],
+                "equipment_types": [
+                    {
+                        "id": "pump",
+                        "name": "Pump",
+                        "description": "A pump",
+                        "attributes": [
+                            {
+                                "id": "flow",
+                                "name": "Flow",
+                                "units": "L/min",
+                                "normal_range": {"min": 0, "max": 10},
+                            }
+                        ],
+                        "fault_modes": [
+                            {
+                                "id": "nonexistent_fault",
+                                "name": "Nonexistent",
+                                "description": "test",
+                                "severity": "warning",
+                                "affected_attributes": ["flow"],
+                            }
+                        ],
                     }
-                },
-                "instances": {"Pump": [{"id": "P1"}]},
+                ],
+                "equipment_instances": [
+                    {
+                        "id": "p1",
+                        "name": "P1",
+                        "type_id": "pump",
+                        "process_area_id": "area_a",
+                        "tag_bindings": {"flow": "Test/P1/Flow"},
+                    }
+                ],
+                "historian": {"default_lookback_hours": 24, "max_lookback_days": 90},
             }
         )
     )
