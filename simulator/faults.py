@@ -57,20 +57,16 @@ class FaultMode(str, Enum):
 from topology import load as _load_topology
 
 
-def _build_type_fault_modes(data: dict) -> dict[str, list[FaultMode]]:
+def _build_type_fault_modes(topology) -> dict[str, list[FaultMode]]:
     result = {}
-    for eq_type, spec in data["equipment_types"].items():
+    for eq_type in topology.equipment_types:
         modes = [FaultMode.NORMAL]
-        for fault_id in (
-            spec["faults"].keys()
-            if isinstance(spec["faults"], dict)
-            else spec["faults"]
-        ):
+        for fault in eq_type.fault_modes:
             try:
-                modes.append(FaultMode(fault_id))
+                modes.append(FaultMode(fault.id))
             except ValueError:
                 pass  # fault in topology has no simulation code yet — skip silently
-        result[eq_type] = modes
+        result[eq_type.name] = modes  # keyed by wire-format type name, e.g. "Pump"
     return result
 
 
