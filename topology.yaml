@@ -96,7 +96,7 @@ equipment_types:
         affected_attributes: [turbidity]
 
   - id: storage_tank
-    name: Storage Tank
+    name: StorageTank
     description: Stores treated water with continuous quality monitoring before distribution.
     attributes:
       - id: level

@@ -66,13 +66,15 @@ _METRICS_DB = os.environ.get(
 )
 
 _topology = _topo_loader.load()
+_topology_extensions = _topo_loader.load_extensions()
 
 
 def _specialist_for_node(node_id: str) -> str | None:
     """Return the process-area name (== specialist name) for a given equipment id."""
-    for area, cfg in _topology.get("process_areas", {}).items():
-        if node_id in cfg.get("instances", []):
-            return area
+    for area in _topology.process_areas:
+        instances = _topology.instances_in_area(area.id)
+        if any(i.name == node_id for i in instances):
+            return area.name
     return None
 
 
@@ -751,7 +753,7 @@ async def lifespan(app):
 
 
 async def insight_categories_endpoint(request: Request):
-    categories = _topology.get("insight_categories", [])
+    categories = _topology_extensions.get("insight_categories", [])
     result = [
         {
             "id": c["id"],
@@ -776,7 +778,9 @@ async def insight_save_endpoint(request: Request):
             {"error": "nodeId and categoryId required"}, status_code=400
         )
 
-    categories = {c["id"]: c for c in _topology.get("insight_categories", [])}
+    categories = {
+        c["id"]: c for c in _topology_extensions.get("insight_categories", [])
+    }
     cat = categories.get(category_id)
     if not cat:
         return JSONResponse(

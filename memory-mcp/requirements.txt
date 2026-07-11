@@ -1,9 +1,7 @@
 fastmcp
-ladybug
-duckdb
-influxdb-client
 pydantic
 uvicorn
 python-dotenv
+pyyaml
 
-fieldworks-core[memory] @ git+https://github.com/fieldworks-build/fieldworks-core.git@44bb681ccec908a545d72c93ce6b2cd2786d051d
+fieldworks-core[memory] @ git+https://github.com/fieldworks-build/fieldworks-core.git@45ad4d4c3425cdff8754d57c8ef7550fe36e0d90
