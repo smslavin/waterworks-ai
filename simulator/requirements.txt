@@ -4,4 +4,4 @@ aiohttp>=3.9.0
 python-dotenv>=1.0.0
 pyyaml>=6.0
 
-fieldworks-core @ git+https://github.com/fieldworks-build/fieldworks-core.git@4ca9f040676d9b7234fd604d97d50c08b7900320
+fieldworks-core @ git+https://github.com/fieldworks-build/fieldworks-core.git@44bb681ccec908a545d72c93ce6b2cd2786d051d

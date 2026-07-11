@@ -47,7 +47,8 @@ equipment_types:
       - id: running
         name: Running
         units: ""
-        normal_range: { min: 0, max: 1, description: "boolean state: 0 = stopped, 1 = running" }
+        data_type: boolean
+        normal_state: true
     fault_modes:
       - id: suction_starvation
         name: Suction Starvation
@@ -137,7 +138,8 @@ equipment_types:
       - id: running
         name: Running
         units: ""
-        normal_range: { min: 0, max: 1, description: "boolean state: 0 = stopped, 1 = running" }
+        data_type: boolean
+        normal_state: true
     fault_modes:
       - id: dosing_blockage
         name: Dosing Blockage
@@ -170,7 +172,8 @@ equipment_types:
       - id: running
         name: Running
         units: ""
-        normal_range: { min: 0, max: 1, description: "boolean state: 0 = stopped, 1 = running" }
+        data_type: boolean
+        normal_state: true
     fault_modes:
       - id: lamp_degradation
         name: Lamp Degradation
