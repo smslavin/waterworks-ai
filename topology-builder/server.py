@@ -11,11 +11,14 @@ Tools:
 import asyncio
 import os
 import uuid
+from pathlib import Path
 
 from fastmcp import FastMCP
 
 from discovery import MQTTCrawler, OPCUACrawler
-from inference import load_template, infer_topology
+from fieldworks.topology_builder.inference import infer_topology, load_template
+
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 mcp = FastMCP("topology-builder")
 
@@ -126,7 +129,7 @@ async def _run_discovery(
 ) -> None:
     session = _sessions[discovery_id]
     try:
-        tmpl = load_template(template_name)
+        tmpl = load_template(_TEMPLATES_DIR / f"{template_name}.yaml")
 
         crawler = MQTTCrawler(broker_url, duration=duration)
         mqtt_topics = await crawler.crawl()
@@ -139,7 +142,11 @@ async def _run_discovery(
             except Exception as e:
                 session["stats"]["opcua_error"] = str(e)
 
-        instances = infer_topology(mqtt_topics, opcua_nodes, tmpl)
+        # fieldworks.topology_builder.inference expects mqtt_topics as list[str]
+        # (payload values were never read); MQTTCrawler still returns
+        # {topic: last_value} — this crawler hasn't been swapped onto the
+        # fieldworks-adapters contract yet (fieldworks-core#14).
+        instances = infer_topology(list(mqtt_topics), opcua_nodes, tmpl)
         session["instances"] = instances
         session["stats"]["instances_found"] = len(instances)
         session["status"] = "complete"

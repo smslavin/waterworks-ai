@@ -11,83 +11,20 @@ import anthropic
 
 import metrics
 from mcp_client import call_mcp_tool
+from topology import load as _load_topology
+
+from fieldworks.agents.deadband import (
+    DEADBAND_TOOLS,
+    build_deadband_system,
+    check_confidence_threshold,
+    parse_decision,
+)
 
 logger = logging.getLogger(__name__)
 DEADBAND_MODEL = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
-DEADBAND_SYSTEM = """You are Deadband, a signal validation agent for an industrial water treatment plant.
-
-Your only job is to determine whether a detected anomaly is real, sustained, and worth escalating.
-You are the filter between sensor noise and a full diagnostic cycle.
-
-You have three tools:
-- verify_sustained: confirms the condition has persisted in InfluxDB history
-- get_trend_direction: determines if the condition is worsening, improving, or stable
-- check_confidence_threshold: gates the escalation decision on composite confidence
-
-Call all three. For check_confidence_threshold, pass the confidence from get_trend_direction
-directly — do not invent a different number or override the threshold parameter.
-
-A sustained violation (fraction_in_violation >= 0.5) that is stable or worsening is almost
-always worth escalating. Only suppress if the violation is not sustained OR is clearly improving.
-
-Then respond with exactly one of:
-ESCALATE: <one sentence reason>
-SUPPRESS: <one sentence reason>
-
-Do not diagnose. Do not recommend actions. Decide only: escalate or suppress."""
-
-DEADBAND_TOOLS = [
-    {
-        "name": "verify_sustained",
-        "description": "Check InfluxDB: has this attribute been outside its normal range for the given duration? Returns {sustained, fraction_in_violation, sample_count}.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "instance_id": {"type": "string"},
-                "attribute": {"type": "string"},
-                "condition": {"type": "string", "enum": ["below_min", "above_max"]},
-                "duration_minutes": {"type": "number"},
-                "normal_lo": {"type": "number"},
-                "normal_hi": {"type": "number"},
-            },
-            "required": [
-                "instance_id",
-                "attribute",
-                "condition",
-                "duration_minutes",
-                "normal_lo",
-                "normal_hi",
-            ],
-        },
-    },
-    {
-        "name": "get_trend_direction",
-        "description": "Query InfluxDB and compute whether the value is trending worsening, improving, or stable. Returns {direction, slope, confidence}.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "instance_id": {"type": "string"},
-                "attribute": {"type": "string"},
-                "time_window_minutes": {"type": "number"},
-            },
-            "required": ["instance_id", "attribute", "time_window_minutes"],
-        },
-    },
-    {
-        "name": "check_confidence_threshold",
-        "description": "Gate: is this confidence score high enough to escalate? Returns {escalate, confidence, threshold}.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "confidence": {"type": "number"},
-                "threshold": {"type": "number"},
-            },
-            "required": ["confidence"],
-        },
-    },
-]
+DEADBAND_SYSTEM = build_deadband_system(_load_topology().facility.name)
 
 
 async def _verify_sustained(
@@ -179,14 +116,6 @@ async def _get_trend_direction(
         return {"direction": "stable", "slope": 0.0, "confidence": 0.0, "error": str(e)}
 
 
-def _check_confidence_threshold(confidence, threshold=0.7):
-    return {
-        "escalate": confidence >= threshold,
-        "confidence": confidence,
-        "threshold": threshold,
-    }
-
-
 def _extract_count(r) -> int:
     m = re.search(r"\b(\d+)\b", str(r))
     return int(m.group(1)) if m else 0
@@ -212,7 +141,7 @@ async def _dispatch(name, inputs, aggregator_url):
     if name == "get_trend_direction":
         return await _get_trend_direction(aggregator_url=aggregator_url, **inputs)
     if name == "check_confidence_threshold":
-        return _check_confidence_threshold(**inputs)
+        return check_confidence_threshold(**inputs)
     return {"error": f"unknown tool: {name}"}
 
 
@@ -248,12 +177,7 @@ async def run_deadband(
         total_output += resp.usage.output_tokens
         if resp.stop_reason == "end_turn":
             text = next((b.text for b in resp.content if hasattr(b, "text")), "")
-            escalate = "ESCALATE" in text
-            reason = (
-                text.split("ESCALATE:", 1)[-1].strip()
-                if escalate
-                else text.split("SUPPRESS:", 1)[-1].strip()
-            )
+            escalate, reason = parse_decision(text)
             metrics.log_turn(
                 session_id=cascade_id or "reactive",
                 model=DEADBAND_MODEL,

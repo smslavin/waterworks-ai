@@ -218,7 +218,11 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
 async def _run(broker_url: str, aggregator_url: str, model: str, broadcast_fn):
     global _monitor
     try:
-        _monitor = AnomalyMonitor(broker_url=broker_url, min_duration=MIN_DURATION)
+        _monitor = AnomalyMonitor(
+            broker_url=broker_url,
+            aggregator_url=aggregator_url,
+            min_duration=MIN_DURATION,
+        )
         await _monitor.start()
         logger.info(
             "Reactive loop started (broker=%s min_duration=%.0fs)",

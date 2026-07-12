@@ -39,7 +39,7 @@ _unit_running: dict[str, bool] = (
 )  # populated by _fetch_process_state; keyed by unit name
 
 _topo = _load_topology()
-_TYPE_ORDER = list(_topo.get("equipment_types", {}).keys())
+_TYPE_ORDER = [et.name for et in _topo.equipment_types]
 _LABEL_OVERRIDES = {"UV": "UV", "Dosing": "Dosing", "StorageTank": "Storage Tanks"}
 _TYPE_LABELS = {k: _LABEL_OVERRIDES.get(k, k + "s") for k in _TYPE_ORDER}
 

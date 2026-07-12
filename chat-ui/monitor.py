@@ -1,11 +1,19 @@
-"""MQTT anomaly monitor. Watches Plant/WTP/# against topology.yaml normal ranges and alarm severities."""
+"""MQTT anomaly monitor. Watches Plant/WTP/# against topology normal ranges.
+
+Severity comes from LadybugDB via memory-mcp's get_severity_for_attribute
+tool (fieldworks-core#6/#7) rather than static topology.yaml alarm_lo/
+alarm_hi config — fetched once at startup (see _populate_severities), not
+per-message, so the synchronous _on_message callback never needs to await.
+"""
 
 import asyncio
+import json
 import logging
 import time
 
 import paho.mqtt.client as mqtt
 
+from mcp_client import call_mcp_tool
 from topology import load as _load_topology
 
 logger = logging.getLogger(__name__)
@@ -13,21 +21,31 @@ logger = logging.getLogger(__name__)
 _topology = _load_topology()
 _window: dict[tuple, dict] = {}
 
+_DEFAULT_SEVERITY = "warning"  # used until _populate_severities() completes
+
 
 def _build_normal_map() -> dict[tuple, dict]:
-    """Return {(instance_id, attribute): {normal, alarm_lo, alarm_hi, eq_type}} for all numeric attributes."""
+    """Return {(instance_name, attribute_name): {normal, eq_type, type_id,
+    attr_id, severity_below, severity_above}} for all numeric attributes.
+    Boolean/discrete attributes (e.g. Running) aren't watched for threshold
+    excursions, matching the original topology.yaml-based behavior.
+    """
     result = {}
-    types = _topology.get("equipment_types", {})
-    for eq_type, type_def in types.items():
-        for attr, attr_def in type_def.get("attributes", {}).items():
-            if "normal" not in attr_def:
+    for eq_type in _topology.equipment_types:
+        instances = [
+            i for i in _topology.equipment_instances if i.type_id == eq_type.id
+        ]
+        for attr in eq_type.attributes:
+            if attr.data_type != "numeric":
                 continue
-            for inst in _topology.get("instances", {}).get(eq_type, []):
-                result[(inst["id"], attr)] = {
-                    "normal": attr_def["normal"],
-                    "alarm_lo": attr_def.get("alarm_lo", "warning"),
-                    "alarm_hi": attr_def.get("alarm_hi", "warning"),
-                    "eq_type": eq_type,
+            for inst in instances:
+                result[(inst.name, attr.name)] = {
+                    "normal": (attr.normal_range.min, attr.normal_range.max),
+                    "eq_type": eq_type.name,
+                    "type_id": eq_type.id,
+                    "attr_id": attr.id,
+                    "severity_below": _DEFAULT_SEVERITY,
+                    "severity_above": _DEFAULT_SEVERITY,
                 }
     return result
 
@@ -35,13 +53,49 @@ def _build_normal_map() -> dict[tuple, dict]:
 _NORMAL_MAP = _build_normal_map()
 
 
+async def _populate_severities(aggregator_url: str) -> None:
+    """Fetch real severities from LadybugDB via memory-mcp. Call once at
+    monitor startup, before the MQTT client connects, so no message can
+    arrive before _NORMAL_MAP has real severities.
+    """
+    for key, meta in _NORMAL_MAP.items():
+        for condition, field in (
+            ("below_min", "severity_below"),
+            ("above_max", "severity_above"),
+        ):
+            try:
+                raw = await call_mcp_tool(
+                    "memory__get_severity_for_attribute",
+                    {
+                        "type_id": meta["type_id"],
+                        "attr_id": meta["attr_id"],
+                        "condition": condition,
+                    },
+                    aggregator_url,
+                )
+                severity = json.loads(raw)
+                if severity:
+                    meta[field] = severity
+            except Exception as e:
+                logger.warning(
+                    "severity fetch failed for %s (%s): %s — using default %r",
+                    key,
+                    condition,
+                    e,
+                    _DEFAULT_SEVERITY,
+                )
+
+
 class AnomalyMonitor:
-    def __init__(self, broker_url: str, min_duration: float = 30.0):
+    def __init__(
+        self, broker_url: str, aggregator_url: str, min_duration: float = 30.0
+    ):
         host, port = (
             broker_url.split(":") if ":" in broker_url else (broker_url, "1883")
         )
         self._host = host
         self._port = int(port)
+        self._aggregator_url = aggregator_url
         self._min_duration = min_duration
         self._queue: asyncio.Queue = asyncio.Queue()
         self._loop = None
@@ -87,7 +141,9 @@ class AnomalyMonitor:
 
             condition = "below_min" if value < lo else "above_max"
             severity = (
-                meta["alarm_lo"] if condition == "below_min" else meta["alarm_hi"]
+                meta["severity_below"]
+                if condition == "below_min"
+                else meta["severity_above"]
             )
 
             if key not in _window:
@@ -127,6 +183,7 @@ class AnomalyMonitor:
 
     async def start(self):
         self._loop = asyncio.get_event_loop()
+        await _populate_severities(self._aggregator_url)
         self._client.connect_async(self._host, self._port)
         self._client.loop_start()
         logger.info("Anomaly monitor started (min_duration=%.0fs)", self._min_duration)

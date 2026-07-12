@@ -19,7 +19,14 @@ import session_store
 from claude_loop import _fetch_process_state, running_state_for
 from mcp_client import call_mcp_tool, list_mcp_tools
 from topology import load as _load_topology
-from topology_prompts import build_specialists, build_orchestrator_system
+
+from fieldworks.agents import (
+    build_specialist_prompt,
+    build_specialists as _fw_build_specialists,
+    build_orchestrator_system as _fw_build_orchestrator_system,
+    cache_system,
+    cache_tools,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +39,188 @@ ORCHESTRATOR_MODEL = "claude-sonnet-4-6"
 _MQTT_PREFIXES = ("mqtt__",)
 _INFLUXDB_PREFIXES = ("influxdb__",)
 
+# Historian is a fixed cross-cutting agent, not generated from topology (it isn't
+# scoped to a process area) — fieldworks.agents.build_specialists() only builds
+# one specialist per process area, so Historian is defined here directly.
+_MEMORY_READ_TOOLS = (
+    "memory__run_correlation",
+    "memory__get_equipment_history",
+    "memory__query_graph",
+    "memory__get_topology",
+    "memory__get_specialist_context",
+    "memory__get_writable_attributes",
+    "memory__get_specialist_memory",
+)
+_HISTORIAN_TOOL_PREFIXES = _INFLUXDB_PREFIXES + _MEMORY_READ_TOOLS
+
+_HISTORIAN_SYSTEM = """You are the Historian diagnostic specialist for a water treatment plant.
+
+You provide HISTORICAL trend analysis only. Do NOT read live sensor data.
+
+Tools available: InfluxDB only. Do NOT use MQTT tools even if listed.
+
+Available measurements (do NOT call list_measurements — use these directly):
+  wtp_process     tags: type, instance, attribute  field: value (float)
+                  types: Pump, Clarifier, StorageTank, Dosing, UV
+  wtp_fault_events  tags: target  field: mode (string)
+
+Your role:
+1. Query InfluxDB for trends relevant to the user's question
+2. Look for patterns over the last 1–24 hours depending on the question
+3. Identify: gradual drifts, repeated fault events, correlated multi-unit trends,
+   or deviations from baseline that live readings alone cannot reveal
+
+── Query efficiency ───────────────────────────────────────────────────────────
+Write broad Flux queries that cover multiple units or attributes in one call.
+Do NOT issue one query per unit or per attribute — that is wasteful and slow.
+Filter by type or measurement to get a wide view, then narrow only if needed.
+Aim for 2–3 queries total: one for process trends, one for fault events.
+
+── Flux syntax rules — violations cause 400 errors ──────────────────────────
+These are the most common mistakes. Use the VALID form exactly as shown.
+
+  group():
+    INVALID: |> group(by: ["instance"])        ← "by:" does not exist in Flux
+    VALID:   |> group(columns: ["instance"])
+
+  sort():
+    INVALID: |> sort(by: ["_time"])            ← "by:" does not exist in Flux
+    VALID:   |> sort(columns: ["_time"], desc: true)
+
+  filter():
+    INVALID: r.type == "Pump" || r.type == "Tank"   ← || not valid in Flux
+    VALID:   r.type == "Pump" or r.type == "Tank"
+
+  range():
+    INVALID: range(start: -24h, stop: -1h)     ← use |> range(start:) then filter by time if needed
+    VALID:   range(start: -24h)
+
+  aggregates (mean, sum, etc.):
+    Require group() first on tagged data or will error. Prefer last() for
+    current-state queries where you just want the most recent value.
+
+  count() / distinct() / schema.* (remove _time — causes parser error):
+    INVALID: |> group(columns: ["target"]) |> count()
+    INVALID: |> distinct(column: "instance")
+    INVALID: schema.tagValues(bucket: "...", tag: "instance")
+             — these drop _time; the client raises KeyError: '_time'
+    VALID:   |> group(columns: ["target"]) |> last()
+             — use last() to get one row per group with _time preserved
+    VALID:   |> aggregateWindow(every: 1h, fn: count, createEmpty: false)
+             — for time-series event counts with _time intact
+
+Always cite specific time ranges and values. State clearly if no historical
+anomaly is found.
+
+── DuckDB (run_correlation) vs InfluxDB ──────────────────────────────────────
+Use InfluxDB for: recent trends (≤ 7 days), single-unit queries, fault event history.
+Use memory__run_correlation for: cross-equipment correlations, window functions,
+queries spanning weeks or months.
+
+Note: DuckDB is a materialized copy synced from InfluxDB on a schedule
+(default 1 hour, set by DUCKDB_SYNC_INTERVAL). Do not use it for data from
+the last hour — query InfluxDB directly for recent values.
+
+Example queries:
+  -- Correlation: pressure drops across all pumps vs turbidity spikes (90 days)
+  SELECT date_trunc('day', time) AS day,
+         AVG(CASE WHEN attribute = 'Pressure' THEN value END) AS avg_pressure,
+         AVG(CASE WHEN attribute = 'Turbidity' THEN value END) AS avg_turbidity
+  FROM wtp_process
+  WHERE time > NOW() - INTERVAL '90 days'
+    AND (instance LIKE '%Pump%' OR instance LIKE '%Clarifier%')
+  GROUP BY day ORDER BY day
+
+  -- Fault frequency by instance (30 days)
+  SELECT target, COUNT(*) AS fault_count
+  FROM wtp_fault_events
+  WHERE time > NOW() - INTERVAL '30 days'
+  GROUP BY target ORDER BY fault_count DESC
+
+DuckDB schema:
+  wtp_process(time TIMESTAMPTZ, type VARCHAR, instance VARCHAR, attribute VARCHAR, value DOUBLE)
+  wtp_fault_events(time TIMESTAMPTZ, target VARCHAR, mode VARCHAR)"""
+
+
+def _build_specialists(topology) -> list[dict]:
+    """Adapt fieldworks.agents' framework-shaped specialists (area_id/area_name/
+    instance_ids/system_prompt) into the shape this fan-out loop needs at
+    runtime: tool_prefixes for MQTT/InfluxDB routing, and unit_names using the
+    *original* instance display names (e.g. "RawWater_01") rather than
+    topology.yaml ids — MQTT/InfluxDB data is keyed by the former.
+    """
+    specialists = []
+    for area in topology.process_areas:
+        instances = topology.instances_in_area(area.id)
+        specialists.append(
+            {
+                "name": area.id,
+                "label": area.name,
+                "unit_names": [i.name for i in instances],
+                "tool_prefixes": _MQTT_PREFIXES + _INFLUXDB_PREFIXES,
+                "system": build_specialist_prompt(area.id, topology),
+            }
+        )
+    specialists.append(
+        {
+            "name": "historian",
+            "label": "Historian",
+            "unit_names": [],
+            "tool_prefixes": _HISTORIAN_TOOL_PREFIXES,
+            "system": _HISTORIAN_SYSTEM,
+        }
+    )
+    return specialists
+
+
+_HISTORIAN_MENTION = (
+    "\n\nYou also have a Historian agent available for historical trend analysis"
+    " (InfluxDB + DuckDB correlation queries). Historian is not scoped to a"
+    " process area — route cross-cutting or long-horizon questions to it."
+)
+
+# control-mcp/audit-mcp are app-specific tools fieldworks.agents.
+# build_orchestrator_system() has no knowledge of (by design — the framework
+# builder only knows about topology-derived specialists). Their usage
+# guidance is appended here rather than lost.
+_CONTROL_ACTION_GUIDANCE = """
+
+── Control actions ────────────────────────────────────────────────────────────
+If the synthesis reveals a clear fault requiring immediate corrective action,
+call the control__propose_action tool. Do this SILENTLY — do not write "I am
+proposing an action" or any similar text before the tool call. Just call it.
+
+Writing about a proposed action in text without calling the tool is a protocol
+violation. The tool IS the proposal — text is not.
+
+Only propose when evidence is strong; do not propose for Normal status or minor
+anomalies.
+
+Tool parameters: description (str), action_type ("setpoint_adjustment"|"fault_clear"),
+target (unit name), value (new value or empty string for fault_clear).
+
+After the tool confirms operator approval, call control__set_setpoint or
+control__clear_fault to execute. Never execute without prior approval.
+
+── Insight review queue ───────────────────────────────────────────────────────
+Operators save insights during node diagnostics. Those flagged requires_review=true
+are queued for engineering approval in the insight_reviews table.
+
+audit__list_pending_reviews(hours_back=168) — list unresolved operator insight reviews.
+audit__resolve_review(review_id, resolution, resolver_note?) — approve, reject, or defer.
+  resolution values: "approved" | "rejected" | "deferred"
+
+Use these when the operator asks about pending reviews, saved insights, or the insight
+queue. Do NOT use audit__list_incidents or audit__query_history for this — those query
+diagnostic sessions, not the insight review queue."""
+
 _topology = _load_topology()
-SPECIALISTS = build_specialists(_topology)
-_ORCHESTRATOR_SYSTEM = build_orchestrator_system(SPECIALISTS)
+SPECIALISTS = _build_specialists(_topology)
+_ORCHESTRATOR_SYSTEM = (
+    _fw_build_orchestrator_system(_fw_build_specialists(_topology), _topology)
+    + _HISTORIAN_MENTION
+    + _CONTROL_ACTION_GUIDANCE
+)
 
 _FINDINGS_FORMAT = """
 End your response with this block exactly:
@@ -102,17 +288,7 @@ async def _run_specialist(
     name = config["name"]
     start = time.monotonic()
     tools = _filter_tools(all_tools, config["tool_prefixes"])
-    api_tools = [
-        {**t, "cache_control": {"type": "ephemeral"}} if i == len(tools) - 1 else t
-        for i, t in enumerate(
-            {
-                "name": t["name"],
-                "description": t["description"],
-                "input_schema": t["inputSchema"],
-            }
-            for t in tools
-        )
-    ]
+    api_tools = cache_tools(tools)
 
     has_mqtt = any(p in config["tool_prefixes"] for p in _MQTT_PREFIXES)
     system_text = config["system"] + (_SPECIALIST_TOOL_GUIDANCE if has_mqtt else "")
@@ -153,13 +329,7 @@ async def _run_specialist(
             kwargs: dict = dict(
                 model=SPECIALIST_MODEL,
                 max_tokens=8192,
-                system=[
-                    {
-                        "type": "text",
-                        "text": system_text,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
+                system=cache_system(system_text),
                 messages=conv,
             )
             if api_tools:
@@ -374,19 +544,7 @@ async def _run_cascade_only(
     yield json.dumps({"type": "synthesis_start"})
 
     orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
-    orch_api_tools = [
-        {
-            **(
-                {"cache_control": {"type": "ephemeral"}}
-                if i == len(orch_tools) - 1
-                else {}
-            ),
-            "name": t["name"],
-            "description": t["description"],
-            "input_schema": t["inputSchema"],
-        }
-        for i, t in enumerate(orch_tools)
-    ]
+    orch_api_tools = cache_tools(orch_tools)
     # Full conversation history — Cascade sees all prior turns and the new message
     orch_conv = [
         {"role": m["role"], "content": m["content"]}
@@ -403,13 +561,7 @@ async def _run_cascade_only(
             orch_kwargs: dict = dict(
                 model=ORCHESTRATOR_MODEL,
                 max_tokens=2048,
-                system=[
-                    {
-                        "type": "text",
-                        "text": _ORCHESTRATOR_SYSTEM,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
+                system=cache_system(_ORCHESTRATOR_SYSTEM),
                 messages=orch_conv,
             )
             if orch_api_tools:
@@ -599,19 +751,7 @@ async def run_multi_agent(
     orch_start = time.monotonic()
 
     orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
-    orch_api_tools = [
-        {
-            **(
-                {"cache_control": {"type": "ephemeral"}}
-                if i == len(orch_tools) - 1
-                else {}
-            ),
-            "name": t["name"],
-            "description": t["description"],
-            "input_schema": t["inputSchema"],
-        }
-        for i, t in enumerate(orch_tools)
-    ]
+    orch_api_tools = cache_tools(orch_tools)
     # Thread prior conversation history into Cascade so follow-up questions
     # have full context. On a fresh open, messages[:-1] is empty and this is
     # equivalent to the old single-turn start.
@@ -628,13 +768,7 @@ async def run_multi_agent(
             orch_kwargs: dict = dict(
                 model=ORCHESTRATOR_MODEL,
                 max_tokens=2048,
-                system=[
-                    {
-                        "type": "text",
-                        "text": _ORCHESTRATOR_SYSTEM,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
+                system=cache_system(_ORCHESTRATOR_SYSTEM),
                 messages=orch_conv,
             )
             if orch_api_tools:

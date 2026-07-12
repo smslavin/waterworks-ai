@@ -3,3 +3,5 @@ paho-mqtt>=2.0.0
 aiohttp>=3.9.0
 python-dotenv>=1.0.0
 pyyaml>=6.0
+
+fieldworks-core @ git+https://github.com/fieldworks-build/fieldworks-core.git@45ad4d4c3425cdff8754d57c8ef7550fe36e0d90

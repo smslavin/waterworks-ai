@@ -1,0 +1,63 @@
+# Simulator-only generation parameters, keyed by the equipment_type/attribute
+# and equipment_instance ids in topology.yaml. Split out during the fieldworks
+# port (M8) because random-walk mechanics (lo/hi/step, boolean flip chance,
+# initial state) have no place in fieldworks' plant-description schema —
+# topology.yaml stays a clean, spec-compliant worked example; this file is
+# waterworks-ai's own demo-simulation config.
+
+equipment_types:
+  pump:
+    attributes:
+      flow: { lo: 0, hi: 500, step: 4.0 }
+      pressure: { lo: 0, hi: 10, step: 0.08 }
+      power: { lo: 0, hi: 75, step: 0.6 }
+      running: { type: bool, initial: true, flip: 0.01 }
+
+  clarifier:
+    attributes:
+      level: { lo: 0, hi: 100, step: 0.5 }
+      turbidity: { lo: 0, hi: 5, step: 0.03 }
+
+  storage_tank:
+    attributes:
+      level: { lo: 0, hi: 100, step: 0.4 }
+      turbidity: { lo: 0, hi: 5, step: 0.03 }
+      ph: { lo: 6.8, hi: 7.8, step: 0.01 }
+
+  chemical_dosing_pump:
+    attributes:
+      flow_rate: { lo: 0, hi: 10, step: 0.05 }
+      tank_level: { lo: 20, hi: 100, step: 0.2 }
+      running: { type: bool, initial: true, flip: 0.01 }
+
+  uv_bank:
+    attributes:
+      intensity: { lo: 85, hi: 100, step: 0.3 }
+      lamp_hours: { lo: 0, hi: 10000, step: 0.01 }
+      running: { type: bool, initial: true, flip: 0.005 }
+
+equipment_instances:
+  high_service_pump_1:
+    overrides:
+      flow: { step: 3.5 }
+      pressure: { lo: 2, step: 0.06 }
+      power: { step: 0.5 }
+
+  high_service_pump_2:
+    overrides:
+      flow: { step: 3.5 }
+      pressure: { lo: 2, step: 0.06 }
+      power: { step: 0.5 }
+      running: { initial: false }
+
+  finished_water_1:
+    overrides:
+      turbidity: { lo: 0, hi: 1, step: 0.01 }
+
+  fluoride_1:
+    overrides:
+      flow_rate: { step: 0.04 }
+
+  uv_2:
+    overrides:
+      running: { initial: false }

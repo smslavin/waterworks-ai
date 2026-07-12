@@ -2,27 +2,33 @@
 
 simulator/topology.py and chat-ui/topology.py are thin shims that re-export
 this module. Edit here; both layers pick it up automatically.
+
+Thin wrapper around fieldworks.topology.load() — env-var/default path
+resolution is waterworks-ai's own concern, not the framework's.
 """
 
 import os
 from pathlib import Path
 
 import yaml
+from fieldworks.topology import TopologyConfig
+from fieldworks.topology import load as _fw_load
 
 _DEFAULT_PATH = Path(__file__).parent / "topology.yaml"
 
 
-def load(path: str | Path | None = None) -> dict:
-    p = Path(path) if path else Path(os.environ.get("TOPOLOGY_FILE", _DEFAULT_PATH))
-    with open(p) as f:
-        data = yaml.safe_load(f)
-    _validate(data)
-    return data
+def _resolve_path(path: str | Path | None) -> Path:
+    return Path(path) if path else Path(os.environ.get("TOPOLOGY_FILE", _DEFAULT_PATH))
 
 
-def _validate(data: dict) -> None:
-    assert "equipment_types" in data, "topology.yaml missing 'equipment_types'"
-    assert "instances" in data, "topology.yaml missing 'instances'"
-    for eq_type, spec in data["equipment_types"].items():
-        assert "attributes" in spec, f"{eq_type}: missing 'attributes'"
-        assert "faults" in spec, f"{eq_type}: missing 'faults'"
+def load(path: str | Path | None = None) -> TopologyConfig:
+    return _fw_load(_resolve_path(path))
+
+
+def load_extensions(path: str | Path | None = None) -> dict:
+    """Raw top-level keys fieldworks.topology.load() doesn't know about
+    (insight_categories, specialists) — waterworks-ai's own config sections,
+    ignored (not rejected) by the fieldworks-core schema.
+    """
+    with open(_resolve_path(path)) as f:
+        return yaml.safe_load(f)

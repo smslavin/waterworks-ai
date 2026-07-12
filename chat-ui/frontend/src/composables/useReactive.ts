@@ -3,11 +3,13 @@ import { useUIStore } from '@/stores/ui'
 import { useAlarmStore } from '@/stores/alarm'
 import { useTopologyStore } from '@/stores/topology'
 import type { AlarmState } from '@/stores/topology'
+import { useApprovalStore, type BackendActionProposal } from '@/stores/approval'
 
 export function useReactive() {
   const ui = useUIStore()
   const alarm = useAlarmStore()
   const topo = useTopologyStore()
+  const approval = useApprovalStore()
 
   let eventController: AbortController | null = null
 
@@ -91,6 +93,18 @@ export function useReactive() {
   function handleAlertEvent(evt: Record<string, unknown>) {
     const type = evt.type as string
     if (type === 'ping' || type === 'reactive_advisory') return
+
+    // Reactive-triggered Cascade sessions propose control actions the same way
+    // direct chat sessions do (control__propose_action), but the event arrives
+    // on this stream (/api/events), not the chat stream — route it to the same
+    // approval dialog rather than letting it fall through to the generic alarm
+    // handling below (which expects instance_id/attribute and would silently
+    // drop it).
+    if (type === 'action_proposed') {
+      approval.pushFromBackend(evt as unknown as BackendActionProposal)
+      return
+    }
+    if (type === 'action_decision') return // frontend already resolves its own queue
 
     // Warning diagnostic arrives in a follow-up update event — patch content onto the existing alarm
     if (type === 'reactive_warning_update') {

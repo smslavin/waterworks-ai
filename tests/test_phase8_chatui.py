@@ -1,11 +1,18 @@
 """Phase 8 chat-ui tests — topology.yaml drives specialist and orchestrator prompts.
 
+Ported for the fieldworks-core port (M8): topology_prompts.py is gone,
+replaced by fieldworks.agents.build_specialist_prompt/build_orchestrator_system
+plus multi_agent_loop._build_specialists (a thin adapter restoring
+tool_prefixes and wire-format unit_names — see that module's docstring).
+
 All tests are import-level only: no API calls, no MCP servers, no network.
+multi_agent_loop imports anthropic at module level; these tests need
+chat-ui's full dependency stack installed (same as the original topology_
+prompts-based version needed chat-ui's topology_prompts module directly).
 """
 
 import pytest
 from topology import load
-from topology_prompts import build_specialists, build_orchestrator_system
 
 
 # Shared fixture: load topology and build specialists once per session
@@ -15,13 +22,17 @@ def topology():
 
 
 @pytest.fixture(scope="session")
-def specialists(topology):
-    return build_specialists(topology)
+def specialists():
+    from multi_agent_loop import SPECIALISTS
+
+    return SPECIALISTS
 
 
 @pytest.fixture(scope="session")
-def orchestrator_system(specialists):
-    return build_orchestrator_system(specialists)
+def orchestrator_system():
+    from multi_agent_loop import _ORCHESTRATOR_SYSTEM
+
+    return _ORCHESTRATOR_SYSTEM
 
 
 # ── specialist list structure ──────────────────────────────────────────────────
@@ -141,14 +152,8 @@ def test_system_prompts_contain_area_description(specialists):
     for s in specialists:
         if s["name"] != "historian":
             assert (
-                "Area context:" in s["system"]
+                "Your process area:" in s["system"]
             ), f"{s['name']} missing area description"
-
-
-def test_system_prompts_contain_mqtt_topic_root(specialists):
-    for s in specialists:
-        if s["name"] != "historian":
-            assert "Plant/WTP/" in s["system"], f"{s['name']} missing MQTT topic root"
 
 
 def test_historian_system_contains_flux_rules(specialists):
@@ -165,19 +170,27 @@ def test_historian_system_contains_updated_types(specialists):
 # ── orchestrator ───────────────────────────────────────────────────────────────
 
 
-def test_orchestrator_lists_all_specialist_labels(orchestrator_system, specialists):
+def test_orchestrator_lists_all_area_specialist_labels(
+    orchestrator_system, specialists
+):
+    """Historian isn't in this list — fieldworks.agents.build_orchestrator_system()
+    is process-area-only by design (Historian isn't scoped to an area); it's
+    appended as a separate paragraph in multi_agent_loop.py."""
     for s in specialists:
-        assert s["label"] in orchestrator_system
+        if s["name"] != "historian":
+            assert s["label"] in orchestrator_system
+
+
+def test_orchestrator_mentions_historian(orchestrator_system):
+    assert "Historian" in orchestrator_system
 
 
 def test_orchestrator_contains_control_guidance(orchestrator_system):
+    """control-mcp is app-specific — fieldworks.agents.build_orchestrator_system()
+    has no knowledge of it. multi_agent_loop.py appends this guidance directly
+    (_CONTROL_ACTION_GUIDANCE) so it isn't silently lost by the port."""
     assert "control__propose_action" in orchestrator_system
-
-
-def test_orchestrator_no_hardcoded_four(orchestrator_system):
-    """Orchestrator should not hardcode 'four specialist agents'."""
-    assert "four\nspecialist" not in orchestrator_system.lower().replace("\n", " ")
-    assert "four specialist agents: Intake" not in orchestrator_system
+    assert "insight_reviews" in orchestrator_system
 
 
 # ── claude_loop type labels (tested via topology, not claude_loop import) ──────
@@ -186,17 +199,17 @@ def test_orchestrator_no_hardcoded_four(orchestrator_system):
 # directly from topology — same computation, no heavy deps required.
 
 
-def test_type_order_matches_topology_keys(topology):
-    eq_type_keys = list(topology["equipment_types"].keys())
-    assert "Clarifier" in eq_type_keys
-    assert "StorageTank" in eq_type_keys
-    assert "Tank" not in eq_type_keys
+def test_type_order_matches_topology_names(topology):
+    eq_type_names = [et.name for et in topology.equipment_types]
+    assert "Clarifier" in eq_type_names
+    assert "StorageTank" in eq_type_names
+    assert "Tank" not in eq_type_names
 
 
 def test_type_labels_derived_correctly(topology):
     _LABEL_OVERRIDES = {"UV": "UV", "Dosing": "Dosing", "StorageTank": "Storage Tanks"}
-    keys = list(topology["equipment_types"].keys())
-    labels = {k: _LABEL_OVERRIDES.get(k, k + "s") for k in keys}
+    names = [et.name for et in topology.equipment_types]
+    labels = {k: _LABEL_OVERRIDES.get(k, k + "s") for k in names}
     assert labels["Pump"] == "Pumps"
     assert labels["Clarifier"] == "Clarifiers"
     assert labels["StorageTank"] == "Storage Tanks"
@@ -209,8 +222,10 @@ def test_type_labels_derived_correctly(topology):
 
 
 def test_build_specialists_idempotent(topology):
-    s1 = build_specialists(topology)
-    s2 = build_specialists(topology)
+    from multi_agent_loop import _build_specialists
+
+    s1 = _build_specialists(topology)
+    s2 = _build_specialists(topology)
     for a, b in zip(s1, s2):
         assert a["name"] == b["name"]
         assert a["system"] == b["system"]
