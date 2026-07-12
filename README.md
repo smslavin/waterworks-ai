@@ -126,6 +126,7 @@ MCP Aggregator  :8100
     ├── control-mcp   :8005 ──► Simulator  :8090  (/fault, /setpoint)
     └── memory-mcp    :8006 ──► LadybugDB (graph) + DuckDB (analytical)
                                     │       + data/specialist-memory/ (per-agent files)
+                                    │       (thin wrapper over the fieldworks-core framework)
                                     ▲
 Simulator ──────────────────────────┤  publishes to MQTT + OPC-UA simultaneously
                                     │
@@ -145,6 +146,7 @@ The simulator runs a configurable fault injection engine. Inject a fault mid-ses
 - **Node.js 20+** — for the Vue 3 frontend (`brew install node` or [nodejs.org](https://nodejs.org))
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
+- **GitHub network access** — each service installs [fieldworks-core](https://github.com/fieldworks-build/fieldworks-core) as a git dependency (not yet on PyPI), so `uv pip install -r requirements.txt` needs to reach github.com
 
 ---
 
