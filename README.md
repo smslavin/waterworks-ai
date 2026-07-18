@@ -146,7 +146,7 @@ The simulator runs a configurable fault injection engine. Inject a fault mid-ses
 - **Node.js 20+** — for the Vue 3 frontend (`brew install node` or [nodejs.org](https://nodejs.org))
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
-- **GitHub network access** — each service installs [fieldworks-core](https://github.com/fieldworks-build/fieldworks-core) as a git dependency (not yet on PyPI), so `uv pip install -r requirements.txt` needs to reach github.com
+- Each service depends on [fieldworks-core](https://pypi.org/project/fieldworks-core/) (`pip install fieldworks-core`), pulled in automatically via `requirements.txt`
 
 ---
 

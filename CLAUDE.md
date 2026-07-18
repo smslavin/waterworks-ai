@@ -2,7 +2,7 @@
 
 Open source industrial AI demo stack: natural language diagnostics for a simulated water treatment plant using only open source components and public protocols. Reference implementation of the Fieldworks framework.
 
-**Depends on fieldworks-core** (git dependency, pinned per-service in each `requirements.txt`) as of the M8 port (v2.0.0): topology loading, specialist/orchestrator/Deadband prompts, LadybugDB/DuckDB/specialist-memory clients, and topology-builder's inference engine all come from the framework now. No framework logic remains in this repo — only topology.yaml/simulator.yaml config, thin MCP server wrappers, the Starlette backend, and the Vue 3 frontend. The MQTT/OPC-UA adapters (`mcp-servers/`) are still the pre-fieldworks-adapters Python generation — that swap is tracked separately (fieldworks-core#14).
+**Depends on fieldworks-core** (PyPI package, version-pinned per-service in each `requirements.txt`) as of the M8 port (v2.0.0): topology loading, specialist/orchestrator/Deadband prompts, LadybugDB/DuckDB/specialist-memory clients, and topology-builder's inference engine all come from the framework now. No framework logic remains in this repo — only topology.yaml/simulator.yaml config, thin MCP server wrappers, the Starlette backend, and the Vue 3 frontend. The MQTT/OPC-UA adapters (`mcp-servers/`) are still the pre-fieldworks-adapters Python generation — that swap is tracked separately (fieldworks-core#14).
 
 ## Starting the stack
 
