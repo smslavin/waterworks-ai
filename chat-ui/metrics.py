@@ -70,6 +70,16 @@ def _init_db() -> None:
             c.execute("ALTER TABLE turns ADD COLUMN cascade_id TEXT")
         except Exception:
             pass  # column already exists on existing databases
+        try:
+            c.execute(
+                "ALTER TABLE turns ADD COLUMN cache_creation_input_tokens INTEGER"
+            )
+        except Exception:
+            pass  # column already exists on existing databases
+        try:
+            c.execute("ALTER TABLE turns ADD COLUMN cache_read_input_tokens INTEGER")
+        except Exception:
+            pass  # column already exists on existing databases
         c.commit()
 
 
@@ -88,6 +98,8 @@ def log_turn(
     specialist_status: str | None = None,
     specialist_confidence: float | None = None,
     cascade_id: str | None = None,
+    cache_creation_input_tokens: int | None = None,
+    cache_read_input_tokens: int | None = None,
 ) -> None:
     # Write to InfluxDB — best-effort, for Grafana dashboards
     try:
@@ -104,6 +116,8 @@ def log_turn(
             .field("latency_ms", int(latency_ms))
             .field("context_pressure", float(context_pressure or 0.0))
             .field("user_message", (user_message or "")[:200])
+            .field("cache_creation_input_tokens", int(cache_creation_input_tokens or 0))
+            .field("cache_read_input_tokens", int(cache_read_input_tokens or 0))
         )
         if specialist_status is not None:
             point = point.field("specialist_status", specialist_status)
@@ -121,8 +135,9 @@ def log_turn(
             c.execute(
                 """INSERT INTO turns
                    (ts, session_id, model, input_tokens, output_tokens,
-                    tool_call_count, error_count, latency_ms, context_pressure, user_message, specialist, cascade_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    tool_call_count, error_count, latency_ms, context_pressure, user_message, specialist, cascade_id,
+                    cache_creation_input_tokens, cache_read_input_tokens)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     session_id,
@@ -136,6 +151,8 @@ def log_turn(
                     (user_message or "")[:200],
                     specialist,
                     cascade_id,
+                    cache_creation_input_tokens,
+                    cache_read_input_tokens,
                 ),
             )
             c.commit()
@@ -161,7 +178,9 @@ def get_summary() -> dict:
                 SUM(output_tokens)         AS total_output_tokens,
                 SUM(tool_call_count)       AS total_tool_calls,
                 SUM(error_count)           AS total_errors,
-                ROUND(AVG(latency_ms))     AS avg_latency_ms
+                ROUND(AVG(latency_ms))     AS avg_latency_ms,
+                SUM(cache_creation_input_tokens) AS total_cache_creation_input_tokens,
+                SUM(cache_read_input_tokens)     AS total_cache_read_input_tokens
             FROM turns
         """).fetchone()
         return dict(row) if row else {}

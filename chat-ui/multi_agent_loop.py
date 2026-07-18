@@ -319,6 +319,7 @@ async def _run_specialist(
     ]
     full_text = ""
     input_tokens = output_tokens = 0
+    cache_creation_input_tokens = cache_read_input_tokens = 0
     tool_call_count = error_count = 0
     after_tool_call = False  # track turns so paragraph breaks are inserted
 
@@ -349,6 +350,8 @@ async def _run_specialist(
 
             input_tokens += final.usage.input_tokens
             output_tokens += final.usage.output_tokens
+            cache_creation_input_tokens += final.usage.cache_creation_input_tokens or 0
+            cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
 
             if final.stop_reason == "end_turn":
                 if not _FINDINGS_RE.search(full_text):
@@ -517,6 +520,8 @@ async def _run_specialist(
         specialist_status=status,
         specialist_confidence=confidence,
         cascade_id=cascade_id,
+        cache_creation_input_tokens=cache_creation_input_tokens,
+        cache_read_input_tokens=cache_read_input_tokens,
     )
 
     await queue.put(
@@ -553,6 +558,7 @@ async def _run_cascade_only(
     ]
 
     orch_input_tokens = orch_output_tokens = 0
+    orch_cache_creation_input_tokens = orch_cache_read_input_tokens = 0
     orch_tool_call_count = 0
     orch_full_text = ""
 
@@ -569,6 +575,10 @@ async def _run_cascade_only(
             response = await client.messages.create(**orch_kwargs)
             orch_input_tokens += response.usage.input_tokens
             orch_output_tokens += response.usage.output_tokens
+            orch_cache_creation_input_tokens += (
+                response.usage.cache_creation_input_tokens or 0
+            )
+            orch_cache_read_input_tokens += response.usage.cache_read_input_tokens or 0
 
             tool_uses, text_blocks = [], []
             for block in response.content:
@@ -611,6 +621,8 @@ async def _run_cascade_only(
         user_message=user_message,
         specialist="orchestrator",
         cascade_id=cascade_id,
+        cache_creation_input_tokens=orch_cache_creation_input_tokens,
+        cache_read_input_tokens=orch_cache_read_input_tokens,
     )
     session_store.log_session_summary(
         session_id=session_id,
@@ -747,6 +759,7 @@ async def run_multi_agent(
     )
 
     orch_input_tokens = orch_output_tokens = 0
+    orch_cache_creation_input_tokens = orch_cache_read_input_tokens = 0
     orch_tool_call_count = 0
     orch_start = time.monotonic()
 
@@ -782,6 +795,10 @@ async def run_multi_agent(
 
             orch_input_tokens += final.usage.input_tokens
             orch_output_tokens += final.usage.output_tokens
+            orch_cache_creation_input_tokens += (
+                final.usage.cache_creation_input_tokens or 0
+            )
+            orch_cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
 
             if final.stop_reason == "end_turn":
                 _action_keywords = (
@@ -965,6 +982,8 @@ async def run_multi_agent(
         user_message=user_message,
         specialist="orchestrator",
         cascade_id=cascade_id,
+        cache_creation_input_tokens=orch_cache_creation_input_tokens,
+        cache_read_input_tokens=orch_cache_read_input_tokens,
     )
 
     total_latency_ms = int((time.monotonic() - start_ts) * 1000)

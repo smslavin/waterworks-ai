@@ -290,6 +290,7 @@ async def run_chat(
     input_tokens = output_tokens = 0
     tool_call_count = error_count = 0
     last_input_tokens = 0
+    cache_creation_input_tokens = cache_read_input_tokens = 0
     _warn_triggered = False
     _compact_triggered = False
     user_message = next(
@@ -398,6 +399,8 @@ async def run_chat(
             last_input_tokens = final.usage.input_tokens
             input_tokens += last_input_tokens
             output_tokens += final.usage.output_tokens
+            cache_creation_input_tokens += final.usage.cache_creation_input_tokens or 0
+            cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
 
             if final.stop_reason == "end_turn":
                 text_content = " ".join(
@@ -609,6 +612,8 @@ async def run_chat(
             latency_ms=latency_ms,
             context_pressure=context_pressure,
             user_message=user_message,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
         )
 
         # Write session summary for compliance audit trail
