@@ -24,6 +24,19 @@ jobs:
           pip install black bandit pytest pyyaml
           pip install -r topology-builder/requirements.txt
 
+      - name: Check topology-builder template matches fieldworks-core reference
+        run: |
+          FW_VERSION=$(pip show fieldworks-core | awk '/^Version/ {print $2}')
+          REF_URL="https://raw.githubusercontent.com/fieldworks-build/fieldworks-core/v${FW_VERSION}/examples/waterworks/topology_builder/water-treatment-municipal.yaml"
+          curl -sf "$REF_URL" -o /tmp/reference-template.yaml || {
+            echo "::error::Could not fetch reference template from fieldworks-core v${FW_VERSION} ($REF_URL). If the reference moved or was removed, update this check.";
+            exit 1;
+          }
+          diff topology-builder/templates/water-treatment-municipal.yaml /tmp/reference-template.yaml || {
+            echo "::error::topology-builder/templates/water-treatment-municipal.yaml has drifted from fieldworks-core's reference example (examples/waterworks/topology_builder/, v${FW_VERSION}). Sync intentionally, then update this check if the divergence is deliberate.";
+            exit 1;
+          }
+
       - name: black
         run: black --check --exclude "/(mcp-servers|mcp-aggregator|\.venv)/" .
 
