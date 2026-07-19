@@ -119,8 +119,8 @@ Claude API or Ollama
     │
     ▼
 MCP Aggregator  :8100
-    ├── mqtt-mcp      :8001 ──► Mosquitto MQTT broker  :1883
-    ├── opcua-mcp     :8002 ──► OPC-UA server (in simulator)
+    ├── mqtt-mcp      (stdio subprocess) ──► Mosquitto MQTT broker  :1883
+    ├── opcua-mcp     (stdio subprocess) ──► OPC-UA server (in simulator)
     ├── influxdb-mcp  :8003 ──► InfluxDB  :8086
     ├── audit-mcp     :8004 ──► metrics.db  (session_summaries, action_events)
     ├── control-mcp   :8005 ──► Simulator  :8090  (/fault, /setpoint)
@@ -142,9 +142,14 @@ The simulator runs a configurable fault injection engine. Inject a fault mid-ses
 
 - **Docker Desktop** — runs Mosquitto, InfluxDB, and Grafana
 - **Git with submodule support** — `git clone --recurse-submodules` is required
-- **Python 3.11+** — all components are pure Python
+- **Python 3.11+** — most components are Python
 - **Node.js 20+** — for the Vue 3 frontend (`brew install node` or [nodejs.org](https://nodejs.org))
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
+- **Rust/cargo** — for the MQTT/OPC-UA adapters ([fieldworks-adapters](https://github.com/fieldworks-build/fieldworks-adapters), Rust binaries). Install via [rustup](https://rustup.rs), then:
+  ```bash
+  cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
+  ```
+  Make sure `~/.cargo/bin` is on your `PATH` (rustup adds this automatically; Homebrew-installed Rust may not — `cargo install` warns if it's missing). The aggregator spawns these as subprocesses by name, so they need to resolve on `PATH`.
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
 - Each service depends on [fieldworks-core](https://pypi.org/project/fieldworks-core/) (`pip install fieldworks-core`), pulled in automatically via `requirements.txt`
 
@@ -166,9 +171,8 @@ python3 -c "import os, base64; print('AUDIT_KEY=' + base64.b64encode(os.urandom(
 **One-time setup** — create virtualenvs and install frontend dependencies:
 
 ```bash
+cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
 (cd simulator              && uv venv && uv pip install -r requirements.txt)
-(cd mcp-servers/mqtt-mcp  && uv venv && uv pip install -r requirements.txt)
-(cd mcp-servers/opcua-mcp && uv venv && uv pip install -r requirements.txt)
 (cd influxdb-mcp           && uv venv && uv pip install -r requirements.txt)
 (cd audit-mcp              && uv venv && uv pip install -r requirements.txt)
 (cd control-mcp            && uv venv && uv pip install -r requirements.txt)
@@ -186,7 +190,7 @@ python3 -c "import os, base64; print('AUDIT_KEY=' + base64.b64encode(os.urandom(
 ./start.sh
 ```
 
-This starts Docker infrastructure and all eleven services in the background. Logs go to `logs/<service>.log`. Press **Ctrl-C** to stop everything.
+This starts Docker infrastructure and all ten services in the background. Logs go to `logs/<service>.log`. Press **Ctrl-C** to stop everything.
 
 ```bash
 ./stop.sh   # stop without Ctrl-C (e.g. after detaching the terminal)
@@ -217,13 +221,14 @@ cd chat-ui/frontend && npm run build
 **Create virtualenvs and install frontend dependencies** — run from the repo root in PowerShell:
 
 ```powershell
-foreach ($dir in @("simulator", "mcp-servers/mqtt-mcp", "mcp-servers/opcua-mcp", "influxdb-mcp", "audit-mcp", "control-mcp", "memory-mcp", "topology-builder", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
+cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
+foreach ($dir in @("simulator", "influxdb-mcp", "audit-mcp", "control-mcp", "memory-mcp", "topology-builder", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
     Push-Location $dir; uv venv; uv pip install -r requirements.txt; Pop-Location
 }
 Push-Location chat-ui/frontend; npm install; Pop-Location
 ```
 
-**Start services** — open eleven PowerShell terminals and run each in order:
+**Start services** — open nine PowerShell terminals and run each in order:
 
 ```powershell
 # 1 — Infrastructure
@@ -232,31 +237,25 @@ docker compose up -d
 # 2 — Simulator
 cd simulator; .venv\Scripts\python simulator.py
 
-# 3 — MQTT MCP server
-cd mcp-servers\mqtt-mcp; $env:FASTMCP_PORT = "8001"; .venv\Scripts\python server.py
-
-# 4 — OPC-UA MCP server
-cd mcp-servers\opcua-mcp; $env:FASTMCP_PORT = "8002"; .venv\Scripts\python server.py
-
-# 5 — InfluxDB MCP server
+# 3 — InfluxDB MCP server
 cd influxdb-mcp; .venv\Scripts\python server.py
 
-# 6 — Audit MCP server
+# 4 — Audit MCP server
 cd audit-mcp; .venv\Scripts\python server.py
 
-# 7 — Control MCP server
+# 5 — Control MCP server
 cd control-mcp; .venv\Scripts\python server.py
 
-# 8 — Memory MCP server
+# 6 — Memory MCP server
 cd memory-mcp; .venv\Scripts\python server.py
 
-# 9 — MCP Aggregator
+# 7 — MCP Aggregator (spawns mqtt-mcp/opcua-mcp itself, via backends.json)
 cd mcp-aggregator\server; $env:BACKENDS_FILE = "..\backends.json"; .venv\Scripts\python server.py
 
-# 10 — MQTT → InfluxDB bridge
+# 8 — MQTT → InfluxDB bridge
 cd mqtt-influx-bridge; .venv\Scripts\python bridge.py
 
-# 11 — Chat UI
+# 9 — Chat UI
 cd chat-ui; .venv\Scripts\python backend.py
 ```
 
@@ -271,7 +270,7 @@ For a Windows Server VM, use [NSSM](https://nssm.cc/download) to run each compon
 .\windows\install-services.ps1
 ```
 
-This installs all ten components as auto-start Windows services with timestamped log rotation to `C:\logs\waterworks\`. Ports are pre-offset to coexist with graccess-mcp on the same host — adjust the port variables at the top of the script if running standalone.
+This installs all nine components as auto-start Windows services with timestamped log rotation to `C:\logs\waterworks\`. Ports are pre-offset to coexist with graccess-mcp on the same host — adjust the port variables at the top of the script if running standalone. (mqtt-mcp/opcua-mcp aren't separate services — install them once via `cargo install`, see Prerequisites.)
 
 The script shares an existing MQTT broker rather than running a second Mosquitto instance. If no broker is running, install [Mosquitto for Windows](https://mosquitto.org/download/) first — it installs as a Windows service automatically. InfluxDB and Grafana must also be installed natively (links in the script header). After the first manual start sequence (printed by the script), all services restart automatically at boot and on failure.
 
@@ -745,10 +744,12 @@ waterworks-ai/
 │   └── static/             Vite build output served by backend (do not edit directly)
 ├── tests/                  Import-level test suite (pytest, no infrastructure required)
 ├── mqtt-influx-bridge/     Subscribes Plant/WTP/# → writes wtp_process to InfluxDB
-├── mcp-servers/            Git submodule — mqtt-mcp (:8001) and opcua-mcp (:8002)
 ├── mcp-aggregator/
 │   ├── server/             Git submodule — aggregator server code (:8100)
 │   └── backends.json       Waterworks endpoint config (BACKENDS_FILE=../backends.json)
+│                             mqtt/opcua entries are stdio — the aggregator spawns the
+│                             fieldworks-adapters mqtt-mcp/opcua-mcp binaries itself
+│                             (installed via cargo, see Prerequisites; not vendored here)
 ├── data/                   Gitignored runtime data
 │   ├── ladybugdb/          LadybugDB database files (auto-created on first start)
 │   ├── duckdb/             DuckDB analytical database (auto-created on first start)

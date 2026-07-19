@@ -2,7 +2,7 @@
 
 Open source industrial AI demo stack: natural language diagnostics for a simulated water treatment plant using only open source components and public protocols. Reference implementation of the Fieldworks framework.
 
-**Depends on fieldworks-core** (PyPI package, version-pinned per-service in each `requirements.txt`) as of the M8 port (v2.0.0): topology loading, specialist/orchestrator/Deadband prompts, LadybugDB/DuckDB/specialist-memory clients, and topology-builder's inference engine all come from the framework now. No framework logic remains in this repo — only topology.yaml/simulator.yaml config, thin MCP server wrappers, the Starlette backend, and the Vue 3 frontend. The MQTT/OPC-UA adapters (`mcp-servers/`) are still the pre-fieldworks-adapters Python generation — that swap is tracked separately (fieldworks-core#14).
+**Depends on fieldworks-core** (PyPI package, version-pinned per-service in each `requirements.txt`) as of the M8 port (v2.0.0): topology loading, specialist/orchestrator/Deadband prompts, LadybugDB/DuckDB/specialist-memory clients, and topology-builder's inference engine all come from the framework now. No framework logic remains in this repo — only topology.yaml/simulator.yaml config, thin MCP server wrappers, the Starlette backend, and the Vue 3 frontend. **MQTT/OPC-UA adapters** (fieldworks-core#14/#21, 2026-07-19): swapped from the old `mcp-servers/` Python submodule to the Rust `fieldworks-adapters` binaries (`mqtt-mcp`, `opcua-mcp`), installed via `cargo install` and spawned by the aggregator itself as stdio subprocesses (see `mcp-aggregator/backends.json`). The `mcp-servers` submodule is gone — nothing in this repo uses it anymore. `topology-builder/discovery.py`'s crawler still bypasses the aggregator entirely — its own direct paho-mqtt/asyncua clients, not MCP tool calls at all — pending fieldworks-core#22.
 
 ## Starting the stack
 
@@ -13,11 +13,13 @@ docker compose up -d
 # 2. Submodules (if not yet initialized)
 git submodule update --init --recursive
 
+# 2b. mqtt-mcp/opcua-mcp binaries (if not yet installed) — the aggregator spawns
+#     these itself as stdio subprocesses, no separate terminal needed for them:
+cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
+
 # 3. Each service — run in separate terminals from its directory with uv:
 cd simulator         && uv run python simulator.py
 cd mqtt-influx-bridge && uv run python bridge.py
-cd mcp-servers/mqtt-mcp   && uv run python server.py
-cd mcp-servers/opcua-mcp  && uv run python server.py
 cd influxdb-mcp      && uv run python server.py
 cd audit-mcp         && uv run python server.py
 cd control-mcp       && uv run python server.py
@@ -35,8 +37,7 @@ Dashboard overview: open `dashboard.html` in browser.
 | Service | Port |
 |---|---|
 | Chat UI | 8000 |
-| mqtt-mcp | 8001 |
-| opcua-mcp | 8002 |
+| mqtt-mcp / opcua-mcp | none — stdio, spawned by the aggregator |
 | influxdb-mcp | 8003 |
 | audit-mcp | 8004 |
 | control-mcp | 8005 |
@@ -63,8 +64,9 @@ chat-ui/            backend.py, claude_loop.py, multi_agent_loop.py, openai_loop
                     mcp_client.py, session_store.py, control.py, metrics.py, audit.py,
                     providers.json, static/ (Vite build output — do not edit directly),
                     frontend/ (Vue 3 + Vite source — edit here, then npm run build)
-mcp-servers/        git submodule → mqtt-mcp, opcua-mcp, strava-mcp, intervals-mcp, analytics-mcp
 mcp-aggregator/     git submodule (server/) + backends.json
+                    mqtt/opcua entries are stdio — aggregator spawns the fieldworks-adapters
+                    mqtt-mcp/opcua-mcp binaries itself (cargo-installed, not vendored here)
 topology.yaml       single source of truth: process units, fault modes, specialist scopes, alarm limits
 data/               gitignored — ladybugdb/, duckdb/, specialist-memory/
 ```
@@ -74,7 +76,8 @@ data/               gitignored — ladybugdb/, duckdb/, specialist-memory/
 **Don't relitigate these:**
 
 - **paho-mqtt over aiomqtt**: `loop_start()` background thread is correct for a publisher. aiomqtt adds a layer with no benefit here.
-- **MCP submodules**: never copy files from `mcp-servers/` or `mcp-aggregator/`. Update with `git submodule update --remote`.
+- **MCP submodules**: never copy files from `mcp-aggregator/`. Update with `git submodule update --remote`.
+- **mqtt-mcp/opcua-mcp connection**: the Rust adapters don't auto-connect at startup like the old Python ones did — `connect` is an explicit MCP tool call. `chat-ui/backend.py`'s `lifespan` fires `mqtt__connect` once in the background on startup (bounded retry, absorbs the aggregator/mosquitto startup race). `opcua__connect` is not called anywhere — nothing currently calls `opcua__*` tools (specialists are MQTT-only; see below).
 - **topology.yaml is the source of truth** for equipment, fault modes, and specialist scope — in the fieldworks-core spec schema (list-based, explicit tag_bindings) since the M8 port. `simulator/topology.py` and `chat-ui/topology.py` are thin shims re-exporting the root `topology.py`, which delegates to `fieldworks.topology.load()`. Simulator-only generation mechanics (lo/hi/step/initial/flip, per-instance overrides) live in `simulator.yaml` instead — topology.yaml stays a clean, spec-compliant worked example (it's cited directly in the framework spec).
 - **OPC-UA excluded from specialists**: MQTT and OPC-UA expose the same data; specialists use MQTT only.
 - **Named Docker volumes**: data survives `docker compose down`. Wipe with `docker compose down -v`.
@@ -163,5 +166,5 @@ Phases 0–13 complete. Phase 12 replaced the vanilla HTML/JS frontend with a Vu
 ## What not to touch
 
 - `simulator/simulator.py` main loop — stable, don't refactor without a reason
-- `mcp-aggregator/server/` and `mcp-servers/` — these are submodules; changes belong upstream
+- `mcp-aggregator/server/` — this is a submodule; changes belong upstream
 - `backends.json` lives in `mcp-aggregator/` (not the submodule `server/` directory)

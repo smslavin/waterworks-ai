@@ -4,21 +4,28 @@
     Install the waterworks-ai stack as Windows services via NSSM.
 
 .DESCRIPTION
-    Installs ten services:
+    Installs nine services:
       WaterWorks Simulator      — MQTT + OPC-UA publisher, fault/setpoint control (:8090)
-      WaterWorks MqttMcp        — MQTT MCP server        (:8011 by default)
-      WaterWorks OpcuaMcp       — OPC-UA MCP server      (:8012 by default)
       WaterWorks InfluxdbMcp    — InfluxDB MCP server    (:8003)
       WaterWorks AuditMcp       — Audit query MCP server (:8004)
       WaterWorks ControlMcp     — Control write MCP server (:8005)
       WaterWorks MemoryMcp      — Memory MCP server      (:8006)
+      WaterWorks TopologyBuilder — Topology builder MCP server (:8007)
       WaterWorks Aggregator     — MCP aggregator         (:8110 by default)
       WaterWorks Bridge         — MQTT → InfluxDB bridge
       WaterWorks ChatUI         — Chat UI backend        (:8082 by default)
 
-    Default ports are offset from waterworks defaults (8001, 8002, 8080, 8100)
-    to avoid conflicts with graccess-mcp running on the same host.
-    Adjust the port variables in the Configuration block if not co-hosting.
+    mqtt-mcp/opcua-mcp are no longer separate services — they're Rust binaries
+    (fieldworks-adapters) the aggregator spawns itself as stdio subprocesses.
+    Install them once, outside this script, and make sure they're on the
+    service account's PATH:
+      cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
+    Since they no longer bind their own port, the graccess-mcp offset-port
+    concern that used to apply to them (8011/8012) no longer exists.
+
+    Default ports are offset from waterworks defaults (8080, 8100) to avoid
+    conflicts with graccess-mcp running on the same host. Adjust the port
+    variables in the Configuration block if not co-hosting.
 
     MQTT broker is shared with graccess — no separate Mosquitto service.
     InfluxDB and Grafana must be installed natively (not via Docker):
@@ -41,9 +48,7 @@ $ErrorActionPreference = "Stop"
 $WaterworksRoot = Resolve-Path "$PSScriptRoot\.."
 
 # Ports — offset from waterworks defaults to coexist with graccess-mcp.
-# If running standalone (no graccess), change these back to 8001, 8002, 8080, 8100.
-$MqttMcpPort     = "8011"
-$OpcuaMcpPort    = "8012"
+# If running standalone (no graccess), change these back to 8080, 8100.
 $InfluxdbMcpPort = "8003"
 $AuditMcpPort         = "8004"
 $ControlMcpPort       = "8005"
@@ -106,33 +111,6 @@ $Services = @(
             "CONTROL_PORT=$SimControlPort"
         )
         Desc    = "WaterWorks AI — MQTT + OPC-UA simulator with fault injection (port $SimControlPort)"
-    },
-    @{
-        Name    = "WaterWorks MqttMcp"
-        Exe     = Resolve-AbsPath $WaterworksRoot "mcp-servers\mqtt-mcp\.venv\Scripts\python.exe"
-        Args    = "server.py"
-        WorkDir = Resolve-AbsPath $WaterworksRoot "mcp-servers\mqtt-mcp"
-        LogOut  = Join-Path $LogDir "mqtt-mcp.log"
-        LogErr  = Join-Path $LogDir "mqtt-mcp-err.log"
-        Env     = @(
-            "FASTMCP_PORT=$MqttMcpPort"
-            "MQTT_BROKER_URL=$MqttBrokerUrl"
-            "MQTT_BROKER_PORT=$MqttBrokerPort"
-        )
-        Desc    = "WaterWorks AI — MQTT MCP server (port $MqttMcpPort)"
-    },
-    @{
-        Name    = "WaterWorks OpcuaMcp"
-        Exe     = Resolve-AbsPath $WaterworksRoot "mcp-servers\opcua-mcp\.venv\Scripts\python.exe"
-        Args    = "server.py"
-        WorkDir = Resolve-AbsPath $WaterworksRoot "mcp-servers\opcua-mcp"
-        LogOut  = Join-Path $LogDir "opcua-mcp.log"
-        LogErr  = Join-Path $LogDir "opcua-mcp-err.log"
-        Env     = @(
-            "FASTMCP_PORT=$OpcuaMcpPort"
-            "OPCUA_ENDPOINT=opc.tcp://localhost:$OpcuaPort/freeopcua/server/"
-        )
-        Desc    = "WaterWorks AI — OPC-UA MCP server (port $OpcuaMcpPort)"
     },
     @{
         Name    = "WaterWorks InfluxdbMcp"
@@ -291,8 +269,6 @@ Write-Host "`nStarting services ..." -ForegroundColor Cyan
 
 $startOrder = @(
     "WaterWorks Simulator",
-    "WaterWorks MqttMcp",
-    "WaterWorks OpcuaMcp",
     "WaterWorks InfluxdbMcp",
     "WaterWorks AuditMcp",
     "WaterWorks ControlMcp",

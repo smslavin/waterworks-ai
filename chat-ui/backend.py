@@ -743,8 +743,34 @@ def _reactive_params() -> tuple[str, str, str]:
     return broker_url, aggregator_url, model
 
 
+async def _connect_mqtt_adapter() -> None:
+    """The fieldworks-adapters mqtt-mcp binary (unlike the old Python one) doesn't
+    auto-connect at startup — connect is an explicit MCP tool call. Specialists
+    call mqtt__* tools assuming a live connection, so establish one here, once,
+    before serving any requests. Bounded retry absorbs the aggregator/mosquitto
+    startup-ordering race in start.sh (no health-check gating between services)."""
+    broker_url = os.environ.get("MQTT_BROKER_URL", "localhost:1883")
+    host, _, port = broker_url.partition(":")
+    for attempt in range(1, 6):
+        result = await mcp_client.call_mcp_tool(
+            "mqtt__connect",
+            {"host": host, "port": int(port or 1883)},
+            MCP_AGGREGATOR_URL,
+        )
+        if not result.startswith("Error calling"):
+            logger.info("mqtt__connect succeeded (attempt %d): %s", attempt, result)
+            return
+        logger.warning("mqtt__connect attempt %d/5 failed: %s", attempt, result)
+        await asyncio.sleep(2)
+    logger.error(
+        "mqtt__connect failed after 5 attempts — mqtt__* tools will error until reconnected"
+    )
+
+
 @asynccontextmanager
 async def lifespan(app):
+    asyncio.create_task(_connect_mqtt_adapter())
+
     if os.environ.get("REACTIVE_ENABLED", "0") == "1":
         broker_url, aggregator_url, model = _reactive_params()
         _reactive_loop.start(broker_url, aggregator_url, model, broadcast_alert)

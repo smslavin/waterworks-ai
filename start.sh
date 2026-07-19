@@ -41,14 +41,21 @@ sleep 2  # give brokers time to be ready
 echo "Starting services..."
 start_service "simulator"        "simulator"          "uv run python simulator.py"
 start_service "bridge"           "mqtt-influx-bridge" "uv run python bridge.py"
-start_service "mqtt-mcp"         "mcp-servers/mqtt-mcp"  "uv run python server.py"
-start_service "opcua-mcp"        "mcp-servers/opcua-mcp" "uv run python server.py"
 start_service "influxdb-mcp"     "influxdb-mcp"       "uv run python server.py"
 start_service "audit-mcp"        "audit-mcp"          "uv run python server.py"
 start_service "control-mcp"      "control-mcp"        "uv run python server.py"
 start_service "memory-mcp"       "memory-mcp"         "uv run python server.py"
 start_service "topology-builder" "topology-builder"   "uv run python server.py"
-start_service "aggregator"       "mcp-aggregator/server" "uv run python server.py"
+
+sleep 2  # give the backend MCP servers above a head start — aggregator discovery
+         # below is one-shot at startup with no retry; a backend not yet listening
+         # when discovery runs is silently skipped for the rest of the process
+
+# aggregator spawns mqtt-mcp/opcua-mcp itself as stdio subprocesses (see backends.json) —
+# no separate start_service entries for them. BACKENDS_FILE must be set explicitly:
+# the aggregator's own default (backends.json relative to its cwd) resolves to the
+# submodule's bundled example, not this repo's real config.
+start_service "aggregator" "mcp-aggregator/server" "BACKENDS_FILE=../backends.json uv run python server.py"
 start_service "chat-ui"          "chat-ui"            "uv run python backend.py"
 start_service "frontend"         "chat-ui/frontend"   "npm run dev"
 
