@@ -1,72 +1,19 @@
-"""MQTT and OPC-UA crawlers for topology discovery."""
+"""MQTT and OPC-UA discovery via the fieldworks-adapters MCP tool contract.
 
-import asyncio
+Spawns mqtt-mcp/opcua-mcp directly as stdio subprocesses — not through the
+mcp-aggregator's pool, since discovery is a rare, on-demand operation
+(triggered by start_discovery), not something that benefits from a
+persistent connection. See fieldworks.topology_builder.discovery for the
+actual crawl/flatten logic; this module only owns the session lifecycle
+(spawn, connect, crawl) that module expects its caller to provide.
+"""
 
-import paho.mqtt.client as mqtt
+from __future__ import annotations
 
-CRAWL_DURATION = 10.0
+from mcp import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
 
-
-class MQTTCrawler:
-    """Subscribe to # and collect all topics seen during the crawl window."""
-
-    def __init__(self, broker_url: str, duration: float = CRAWL_DURATION):
-        self.host, self.port = _parse_broker_url(broker_url)
-        self.duration = duration
-
-    async def crawl(self) -> dict[str, str]:
-        """Returns {topic: last_value_str}."""
-        topics: dict[str, str] = {}
-
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        client.on_message = lambda c, u, msg: topics.update(
-            {msg.topic: msg.payload.decode(errors="replace")}
-        )
-        client.connect(self.host, self.port, 60)
-        client.subscribe("#")
-        client.loop_start()
-        await asyncio.sleep(self.duration)
-        client.loop_stop()
-        client.disconnect()
-        return topics
-
-
-class OPCUACrawler:
-    """Browse OPC-UA node tree and return all leaf node browse paths."""
-
-    def __init__(self, opcua_url: str):
-        self.url = opcua_url
-
-    async def crawl(self) -> list[str]:
-        """Returns list of node path strings."""
-        try:
-            from asyncua import Client as OPCUAClient
-        except ImportError:
-            return []
-
-        paths: list[str] = []
-        try:
-            async with OPCUAClient(url=self.url) as client:
-                root = client.nodes.root
-                await _browse_recursive(root, "", paths)
-        except Exception:
-            pass
-        return paths
-
-
-async def _browse_recursive(node, prefix: str, out: list[str]) -> None:
-    try:
-        children = await node.get_children()
-        for child in children:
-            name = (await child.read_browse_name()).Name
-            path = f"{prefix}/{name}" if prefix else name
-            grandchildren = await child.get_children()
-            if not grandchildren:
-                out.append(path)
-            else:
-                await _browse_recursive(child, path, out)
-    except Exception:
-        pass
+from fieldworks.topology_builder.discovery import crawl_mqtt, crawl_opcua
 
 
 def _parse_broker_url(url: str) -> tuple[str, int]:
@@ -75,3 +22,27 @@ def _parse_broker_url(url: str) -> tuple[str, int]:
     host = parts[0]
     port = int(parts[1]) if len(parts) > 1 else 1883
     return host, port
+
+
+async def discover_mqtt_topics(broker_url: str) -> list[str]:
+    """Spawn mqtt-mcp, connect to broker_url, crawl the full topic tree."""
+    host, port = _parse_broker_url(broker_url)
+    params = StdioServerParameters(command="mqtt-mcp", args=[])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            await session.call_tool("connect", {"host": host, "port": port})
+            return await crawl_mqtt(session)
+
+
+async def discover_opcua_nodes(opcua_url: str) -> list[str]:
+    """Spawn opcua-mcp, connect to opcua_url, crawl the full node tree.
+
+    opcua-mcp's connect accepts a full opc.tcp:// URL directly as `host`.
+    """
+    params = StdioServerParameters(command="opcua-mcp", args=[])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            await session.call_tool("connect", {"host": opcua_url})
+            return await crawl_opcua(session)

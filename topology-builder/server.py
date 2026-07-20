@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 
-from discovery import MQTTCrawler, OPCUACrawler
+from discovery import discover_mqtt_topics, discover_opcua_nodes
 from fieldworks.topology_builder.inference import infer_topology, load_template
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -38,7 +38,9 @@ async def start_discovery(
     broker_url: MQTT broker URL, e.g. 'localhost:1883' or 'mqtt://192.168.1.10:1883'
     template: equipment type library name (default 'water-treatment-municipal')
     opcua_url: optional OPC-UA endpoint, e.g. 'opc.tcp://localhost:4840'
-    crawl_duration: seconds to listen for MQTT topics (default 10)
+    crawl_duration: unused — retained for API compatibility. mqtt-mcp's
+        get_topic_tree (fieldworks-core#22) manages its own fixed scan
+        window internally; the adapter doesn't expose a way to configure it.
     """
     discovery_id = str(uuid.uuid4())[:8]
     _sessions[discovery_id] = {
@@ -50,9 +52,7 @@ async def start_discovery(
         "stats": {"topics_seen": 0, "instances_found": 0},
         "error": None,
     }
-    asyncio.create_task(
-        _run_discovery(discovery_id, broker_url, opcua_url, template, crawl_duration)
-    )
+    asyncio.create_task(_run_discovery(discovery_id, broker_url, opcua_url, template))
     return {
         "discovery_id": discovery_id,
         "status": "running",
@@ -125,28 +125,22 @@ async def _run_discovery(
     broker_url: str,
     opcua_url: str | None,
     template_name: str,
-    duration: float,
 ) -> None:
     session = _sessions[discovery_id]
     try:
         tmpl = load_template(_TEMPLATES_DIR / f"{template_name}.yaml")
 
-        crawler = MQTTCrawler(broker_url, duration=duration)
-        mqtt_topics = await crawler.crawl()
+        mqtt_topics = await discover_mqtt_topics(broker_url)
         session["stats"]["topics_seen"] = len(mqtt_topics)
 
         opcua_nodes: list[str] = []
         if opcua_url:
             try:
-                opcua_nodes = await OPCUACrawler(opcua_url).crawl()
+                opcua_nodes = await discover_opcua_nodes(opcua_url)
             except Exception as e:
                 session["stats"]["opcua_error"] = str(e)
 
-        # fieldworks.topology_builder.inference expects mqtt_topics as list[str]
-        # (payload values were never read); MQTTCrawler still returns
-        # {topic: last_value} — this crawler hasn't been swapped onto the
-        # fieldworks-adapters contract yet (fieldworks-core#14).
-        instances = infer_topology(list(mqtt_topics), opcua_nodes, tmpl)
+        instances = infer_topology(mqtt_topics, opcua_nodes, tmpl)
         session["instances"] = instances
         session["stats"]["instances_found"] = len(instances)
         session["status"] = "complete"

@@ -1,7 +1,6 @@
 fastmcp
 paho-mqtt>=2.0
 pyyaml>=6.0
-asyncua>=1.0
 python-dotenv
 
-fieldworks-core>=1.0.1
+fieldworks-core[adapters]>=1.0.1
