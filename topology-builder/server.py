@@ -4,8 +4,11 @@ Tools:
   start_discovery          — begin async MQTT (+OPC-UA) crawl, returns discovery_id
   get_discovery_progress   — poll results for a discovery_id
   override_instance_type   — operator correction: reclassify an instance
-  commit_topology          — write confirmed topology to LadybugDB via memory-mcp
   generate_topology_yaml   — preview topology.yaml without committing
+
+Committing a reviewed topology to LadybugDB does NOT go through this server —
+chat-ui/backend.py's POST /api/topology/commit calls memory__seed_discovered_topology
+directly via the aggregator (see fieldworks-core#19).
 """
 
 import asyncio
