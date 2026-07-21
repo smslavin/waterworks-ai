@@ -41,7 +41,9 @@ from fieldworks.topology import seed_topology
 PORT = int(os.environ.get("MEMORY_MCP_PORT", 8006))
 
 graph = GraphClient(
-    GraphConfig(db_path=os.environ.get("LADYBUG_DB_PATH", "../data/ladybugdb/fieldworks.db"))
+    GraphConfig(
+        db_path=os.environ.get("LADYBUG_DB_PATH", "../data/ladybugdb/fieldworks.db")
+    )
 )
 analytical = AnalyticalClient(
     AnalyticalConfig(
@@ -172,7 +174,9 @@ def record_observation(
     specialist: str,
 ) -> str:
     """Write a specialist observation that should persist across sessions."""
-    obs_id = graph.record_observation(session_id, equipment_id, text, confidence, specialist)
+    obs_id = graph.record_observation(
+        session_id, equipment_id, text, confidence, specialist
+    )
     return _dump({"observation_id": obs_id})
 
 

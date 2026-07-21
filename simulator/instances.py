@@ -33,9 +33,7 @@ def _build_instances() -> list[tuple[str, str, dict]]:
     instances = []
     for eq_type in topology.equipment_types:
         type_attrs = sim_types.get(eq_type.id, {}).get("attributes", {})
-        insts = [
-            i for i in topology.equipment_instances if i.type_id == eq_type.id
-        ]
+        insts = [i for i in topology.equipment_instances if i.type_id == eq_type.id]
         for inst in insts:
             overrides = sim_instances.get(inst.id, {}).get("overrides", {})
             attr_gens = {}
