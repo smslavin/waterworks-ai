@@ -6,5 +6,6 @@
   },
   "categories": {
     "correctness": "error"
-  }
+  },
+  "ignorePatterns": ["e2e/screenshots.spec.ts"]
 }
