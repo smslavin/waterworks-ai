@@ -134,10 +134,7 @@ pytest tests/
 
 Key fixtures in `tests/conftest.py`: fresh LadybugDB from `schema.cypher` via `tmp_path`, seeded simulator, DuckDB connection. MCP tool functions called directly — no SSE transport. Agent loop tests (full Claude API round-trips) are a separate slow suite; don't run with unit suite.
 
-Topology-builder tests:
-```bash
-pytest topology-builder/tests/
-```
+Topology-builder's inference tests live in fieldworks-core (M6), not in this repo — `topology-builder/tests/` was removed in the M8 port (a777299).
 
 ## Frontend development
 

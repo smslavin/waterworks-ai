@@ -23,6 +23,9 @@ jobs:
         run: |
           pip install black bandit pytest pyyaml
           pip install -r topology-builder/requirements.txt
+          pip install -r chat-ui/requirements.txt
+          pip install -r simulator/requirements.txt
+          pip install -r audit-mcp/requirements.txt
 
       - name: Check topology-builder template matches fieldworks-core reference
         run: |
@@ -44,7 +47,7 @@ jobs:
         run: bandit -r . -ll --exclude ./mcp-servers,./mcp-aggregator,./.git
 
       - name: pytest
-        run: pytest tests/ topology-builder/tests/ -v
+        run: pytest tests/ -v
 
   frontend:
     name: Vue — type check, lint, unit, e2e
