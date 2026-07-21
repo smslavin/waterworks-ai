@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: false  # mcp-servers and mcp-aggregator are not scanned
 
@@ -57,7 +57,7 @@ jobs:
         working-directory: chat-ui/frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v5
         with:
