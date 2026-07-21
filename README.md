@@ -2,6 +2,7 @@
 # WaterWorks AI
 
 [![Tests](https://github.com/smslavin/waterworks-ai/actions/workflows/test.yml/badge.svg)](https://github.com/smslavin/waterworks-ai/actions/workflows/test.yml)
+[![Tests](https://github.com/smslavin/waterworks-ai/actions/workflows/release.yml/badge.svg)](https://github.com/smslavin/waterworks-ai/actions/workflows/release.yml)
 ![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)
 ![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white)
 ![InfluxDB](https://img.shields.io/badge/InfluxDB-2.x-22ADF6?logo=influxdb&logoColor=white)
