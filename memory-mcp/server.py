@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 import topology as _topo_loader
 from fieldworks.memory import (
@@ -91,7 +91,7 @@ async def _lifespan(server: FastMCP) -> AsyncIterator[None]:
     yield
 
 
-mcp = FastMCP("memory-mcp", lifespan=_lifespan)
+mcp = FastMCP("memory-mcp", lifespan=_lifespan, port=PORT)
 
 
 # ── Knowledge graph — read ────────────────────────────────────────────────────
@@ -229,4 +229,4 @@ def append_specialist_memory(specialist: str, content: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse", port=PORT)
+    mcp.run(transport="sse")

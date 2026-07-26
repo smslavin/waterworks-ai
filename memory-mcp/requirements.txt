@@ -1,6 +1,4 @@
-fastmcp
-pydantic
-uvicorn
+mcp[cli]
 python-dotenv
 pyyaml
 

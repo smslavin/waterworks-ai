@@ -16,14 +16,16 @@ import os
 import uuid
 from pathlib import Path
 
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 from discovery import discover_mqtt_topics, discover_opcua_nodes
 from fieldworks.topology_builder.inference import infer_topology, load_template
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-mcp = FastMCP("topology-builder")
+mcp = FastMCP(
+    "topology-builder", port=int(os.environ.get("TOPOLOGY_BUILDER_PORT", 8007))
+)
 
 _sessions: dict[str, dict] = {}
 
@@ -169,5 +171,4 @@ def _generate_yaml(facility_id: str, facility_name: str, instances: list[dict]) 
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("TOPOLOGY_BUILDER_PORT", 8007))
-    mcp.run(transport="sse", port=port)
+    mcp.run(transport="sse")
