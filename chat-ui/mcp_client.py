@@ -33,7 +33,7 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
                     {
                         "name": t.name,
                         "description": t.description or "",
-                        "inputSchema": t.inputSchema,
+                        "inputSchema": t.input_schema,
                     }
                     for t in result.tools
                 ]
