@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 load_dotenv()
 
@@ -55,7 +55,7 @@ _DB_PATH = os.environ.get(
         os.path.join(os.path.dirname(__file__), "..", "chat-ui", "metrics.db")
     ),
 )
-mcp = FastMCP("audit-mcp", port=int(os.environ.get("FASTMCP_PORT", 8004)))
+mcp = MCPServer("audit-mcp")
 
 
 def _conn() -> sqlite3.Connection:
@@ -321,4 +321,4 @@ def resolve_review(review_id: str, resolution: str, resolver_note: str = "") -> 
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", port=int(os.environ.get("FASTMCP_PORT", 8004)))

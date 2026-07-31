@@ -1,4 +1,4 @@
-"""topology-builder — FastMCP :8007.
+"""topology-builder — MCPServer :8007.
 
 Tools:
   start_discovery          — begin async MQTT (+OPC-UA) crawl, returns discovery_id
@@ -16,16 +16,14 @@ import os
 import uuid
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from discovery import discover_mqtt_topics, discover_opcua_nodes
 from fieldworks.topology_builder.inference import infer_topology, load_template
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-mcp = FastMCP(
-    "topology-builder", port=int(os.environ.get("TOPOLOGY_BUILDER_PORT", 8007))
-)
+mcp = MCPServer("topology-builder")
 
 _sessions: dict[str, dict] = {}
 
@@ -171,4 +169,4 @@ def _generate_yaml(facility_id: str, facility_name: str, instances: list[dict]) 
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", port=int(os.environ.get("TOPOLOGY_BUILDER_PORT", 8007)))

@@ -21,7 +21,7 @@ import os
 
 import httpx
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 load_dotenv()
 
@@ -44,7 +44,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SIMULATOR_URL = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
-mcp = FastMCP("control-mcp", port=int(os.environ.get("FASTMCP_PORT", 8005)))
+mcp = MCPServer("control-mcp")
 
 
 @mcp.tool()
@@ -123,4 +123,4 @@ def clear_fault(target: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", port=int(os.environ.get("FASTMCP_PORT", 8005)))

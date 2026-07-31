@@ -54,11 +54,11 @@ Dashboard overview: open `dashboard.html` in browser.
 
 ```
 simulator/          simulator.py (entrypoint), generators.py, faults.py, instances.py, topology.py
-influxdb-mcp/       FastMCP: write_point, query, list_measurements
-audit-mcp/          FastMCP: list_incidents, get_session_summary, query_history, query_by_equipment
-control-mcp/        FastMCP: propose_action (intercepted), set_setpoint, clear_fault
-memory-mcp/         FastMCP: LadybugDB graph + DuckDB analytical queries
-topology-builder/   FastMCP: MQTT/OPC-UA discovery, inference, LadybugDB seeding
+influxdb-mcp/       MCPServer: write_point, query, list_measurements
+audit-mcp/          MCPServer: list_incidents, get_session_summary, query_history, query_by_equipment
+control-mcp/        MCPServer: propose_action (intercepted), set_setpoint, clear_fault
+memory-mcp/         MCPServer: LadybugDB graph + DuckDB analytical queries
+topology-builder/   MCPServer: MQTT/OPC-UA discovery, inference, LadybugDB seeding
 mqtt-influx-bridge/ Paho subscriber → batched InfluxDB writes
 chat-ui/            backend.py, claude_loop.py, multi_agent_loop.py, openai_loop.py,
                     mcp_client.py, session_store.py, control.py, metrics.py, audit.py,

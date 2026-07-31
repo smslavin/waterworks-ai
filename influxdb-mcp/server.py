@@ -25,7 +25,7 @@ from typing import Any
 from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 load_dotenv()
 
@@ -52,7 +52,7 @@ INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
 INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
-mcp = FastMCP("influxdb-mcp", port=int(os.environ.get("FASTMCP_PORT", 8003)))
+mcp = MCPServer("influxdb-mcp")
 
 # Single client instance for the lifetime of the process.
 _client: InfluxDBClient | None = None
@@ -202,4 +202,4 @@ def query(flux_query: str, org: str = "") -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", port=int(os.environ.get("FASTMCP_PORT", 8003)))

@@ -1,4 +1,4 @@
-"""memory-mcp — thin FastMCP wrapper around fieldworks.memory.
+"""memory-mcp — thin MCPServer wrapper around fieldworks.memory.
 
 Startup:
   python server.py
@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 import topology as _topo_loader
 from fieldworks.memory import (
@@ -85,13 +85,13 @@ def _maybe_seed_from_topology() -> None:
 
 
 @asynccontextmanager
-async def _lifespan(server: FastMCP) -> AsyncIterator[None]:
+async def _lifespan(server: MCPServer) -> AsyncIterator[None]:
     _maybe_seed_from_topology()
     asyncio.create_task(analytical.sync_loop())  # warms DuckDB on first iteration
     yield
 
 
-mcp = FastMCP("memory-mcp", lifespan=_lifespan, port=PORT)
+mcp = MCPServer("memory-mcp", lifespan=_lifespan)
 
 
 # ── Knowledge graph — read ────────────────────────────────────────────────────
@@ -229,4 +229,4 @@ def append_specialist_memory(specialist: str, content: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse")
+    mcp.run(transport="sse", port=PORT)
