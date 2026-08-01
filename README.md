@@ -126,8 +126,9 @@ MCP Aggregator  :8100
     ├── influxdb-mcp  :8003 ──► InfluxDB  :8086
     ├── audit-mcp     :8004 ──► metrics.db  (session_summaries, action_events)
     ├── control-mcp   :8005 ──► Simulator  :8090  (/fault, /setpoint)
-    └── memory-mcp    :8006 ──► LadybugDB (graph) + DuckDB (analytical)
+    └── memory-mcp    :8006 ──► LadybugDB (graph) + DuckDB (analytical + knowledge/RAG)
                                     │       + data/specialist-memory/ (per-agent files)
+                                    │       + data/knowledge-docs/ (facility docs, ingested for RAG)
                                     │       (thin wrapper over the fieldworks-core framework)
                                     ▲
 Simulator ──────────────────────────┤  publishes to MQTT + OPC-UA simultaneously
@@ -471,6 +472,15 @@ Requires at least two diagnostic sessions with a non-normal finding to demonstra
 4. In the panel footer, ask: *"Has RawWater_01 had this kind of problem before?"*
 5. To inspect the full equipment history, ask: *"What is the incident history for the intake pumps?"* — the AI calls `get_equipment_history` which queries LadybugDB directly
 
+### Knowledge / RAG demo
+
+Uses the example docs shipped in `data/knowledge-docs/` — no setup required.
+
+1. Click the **RawWater_01** node (or switch to **Multi** mode) and ask: *"What's the maximum sustained flow rate for the intake pumps, and what happens if we exceed it?"*
+2. The specialist calls `memory__query_knowledge`, retrieves the relevant excerpt from `pump-operating-limits.md`, and answers with the actual documented limit (250 L/min) and cavitation risk — not an invented number
+3. Ask a question that spans two docs, e.g. *"What should I check before restarting a UV reactor after maintenance?"* — the answer should draw on the lockout-tagout note in `clarifier-uv-manual-excerpt.md`
+4. Drop your own `.md`/`.txt`/`.pdf` file into `data/knowledge-docs/` and call `ingest_knowledge_docs()` (or restart `memory-mcp`) to pick it up without re-ingesting the existing docs
+
 ### Historian long-horizon demo
 
 Requires memory-mcp running and at least one DuckDB sync cycle completed (wait up to `DUCKDB_SYNC_INTERVAL`, default 1 hour after first start, or set `DUCKDB_SYNC_INTERVAL=60` for a faster first sync).
@@ -627,11 +637,12 @@ The Reactive pill in the header starts and stops the monitor and Deadband loop a
 | Store | What it holds | Where it lives |
 |---|---|---|
 | **LadybugDB** | Knowledge graph — topology, past incidents, observations, operator decision patterns | `data/ladybugdb/fieldworks.db` |
-| **DuckDB** | Analytical layer — 90-day rolling window synced from InfluxDB for long-horizon correlations | `data/duckdb/analytical.duckdb` |
+| **DuckDB (analytical)** | Analytical layer — 90-day rolling window synced from InfluxDB for long-horizon correlations | `data/duckdb/analytical.duckdb` |
+| **DuckDB (knowledge)** | Chunked, embedded facility documentation for RAG — see [Knowledge documents](#knowledge-documents-rag) below | `data/duckdb/knowledge.duckdb` |
 | **Specialist memory files** | Per-specialist markdown — key findings, confidence notes, cross-session anomaly patterns | `data/specialist-memory/<name>.md` |
 | **InfluxDB** | Raw sensor time series (already running) | InfluxDB :8086 |
 
-All three `data/` subdirectories are gitignored and created automatically on first start.
+`data/ladybugdb/`, `data/duckdb/`, and `data/specialist-memory/` are gitignored and created automatically on first start. `data/knowledge-docs/` is the exception — it's committed source content (the facility docs themselves), not generated state.
 
 ### What happens per session
 
@@ -645,7 +656,15 @@ All three `data/` subdirectories are gitignored and created automatically on fir
 
 ### Graph schema
 
-`ladybugdb/schema.cypher` defines the full property graph: `Facility → ProcessArea → Equipment → EquipmentType → Attribute / FaultMode`, with dynamic layers for `Incident`, `Observation`, and `OperatorDecision`. The database is seeded from this file on first start. Run `memory-mcp/seed_validation.py` to validate the seeding against a temp database before starting the full stack.
+`fieldworks.memory`'s `schema.cypher` (ships as package data inside fieldworks-core) defines the full property graph: `Facility → ProcessArea → Equipment → EquipmentType → Attribute / FaultMode`, with dynamic layers for `Incident`, `Observation`, and `OperatorDecision`. `memory-mcp` seeds the static layer from `topology.yaml` on first boot (`fieldworks.topology.seed_topology`) — it checks for an empty graph, so it's a no-op on subsequent restarts.
+
+### Knowledge documents (RAG)
+
+Drop facility documentation — equipment manuals, maintenance procedures, operating limits, text-layer P&IDs — into `data/knowledge-docs/` as `.md`, `.txt`, or `.pdf` files. `memory-mcp` ingests the directory on every boot: each file is chunked, embedded locally (`fastembed`, no API key), and stored in `data/duckdb/knowledge.duckdb`. A content hash per file means unchanged docs are skipped on restart — only new or edited files get re-embedded.
+
+Every specialist has the `memory__query_knowledge` tool available, so a mid-diagnosis question like *"what's the operating limit for this pump?"* is answered from the ingested docs rather than the specialist inventing an answer. Two example docs (`pump-operating-limits.md`, `clarifier-uv-manual-excerpt.md`) ship in the repo so this works out of the box.
+
+v1 scope: text and text-layer PDFs only — scanned/image-only PDFs and CAD/image-format P&IDs aren't parsed (no OCR). An unsupported or unparseable file is skipped, not a hard failure for the rest of the directory.
 
 ### Graceful degradation
 
@@ -666,6 +685,8 @@ All three memory calls in `multi_agent_loop.py` are wrapped in `try/except`. If 
 | `run_correlation(sql)` | SELECT against DuckDB analytical layer |
 | `get_specialist_memory(specialist)` | Read accumulated markdown memory for a specialist |
 | `append_specialist_memory(specialist, content)` | Append a timestamped entry to specialist memory |
+| `query_knowledge(query, equipment_id="", top_k=5)` | Semantic search over ingested facility documentation |
+| `ingest_knowledge_docs()` | Manually trigger a re-scan of `data/knowledge-docs/` |
 
 ---
 
@@ -687,9 +708,11 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `CONTEXT_WINDOW_TOKENS` | `200000` | Context window size for budget warnings |
 | `MEMORY_MCP_PORT` | `8006` | memory-mcp SSE port |
 | `LADYBUG_DB_PATH` | `../data/ladybugdb/fieldworks.db` | LadybugDB database directory |
-| `DUCKDB_PATH` | `../data/duckdb/analytical.duckdb` | DuckDB file |
+| `DUCKDB_PATH` | `../data/duckdb/analytical.duckdb` | DuckDB analytical file |
 | `SPECIALIST_MEMORY_DIR` | `../data/specialist-memory` | Per-specialist markdown files |
 | `DUCKDB_SYNC_INTERVAL` | `3600` | Seconds between InfluxDB → DuckDB syncs |
+| `KNOWLEDGE_DUCKDB_PATH` | `../data/duckdb/knowledge.duckdb` | DuckDB knowledge/RAG file (separate from `DUCKDB_PATH`) |
+| `KNOWLEDGE_DOCS_DIR` | `../data/knowledge-docs` | Directory of facility docs (`.md`/`.txt`/`.pdf`) ingested on every `memory-mcp` boot |
 | `AUDIT_KEY` | _(empty)_ | Base64-encoded 32-byte AES key for audit log encryption. Unset = plaintext (dev only). |
 | `AUDIT_LOG_PATH` | `chat-ui/audit.jsonl` | Override the audit log file path. |
 | `REACTIVE_ENABLED` | `0` | Set to `1` to auto-start reactive monitoring on backend launch. Can also be toggled from the UI. |
@@ -707,8 +730,8 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 ```
 waterworks-ai/
 ├── topology.yaml           Plant topology — equipment types, instances, fault modes, process areas
-├── ladybugdb/
-│   └── schema.cypher       LadybugDB property graph schema + waterworks seed data
+│                             (LadybugDB's schema.cypher ships inside fieldworks-core as package data
+│                             since the M8 port — no local ladybugdb/ directory in this repo anymore)
 ├── simulator/              Dual MQTT+OPC-UA WTP simulator with fault injection
 │   ├── simulator.py        Entrypoint — asyncio loop, paho MQTT, asyncua, HTTP control plane
 │   ├── topology.py         Loader/validator for topology.yaml
@@ -718,17 +741,14 @@ waterworks-ai/
 ├── influxdb-mcp/           FastMCP server :8003 — write_point, query, list_measurements
 ├── audit-mcp/              FastMCP server :8004 — session/action history query tools
 ├── control-mcp/            FastMCP server :8005 — propose_action, set_setpoint, clear_fault
-├── memory-mcp/             FastMCP server :8006 — knowledge graph, analytical, specialist memory
-│   ├── server.py           FastMCP entrypoint and tool definitions
-│   ├── graph.py            LadybugDB layer — auto-seeds from schema.cypher, read/write tools
-│   ├── analytical.py       DuckDB layer — InfluxDB sync loop + correlation queries
-│   ├── specialist_mem.py   File-based per-specialist memory (read at start, append at end)
-│   ├── requirements.txt
-│   └── seed_validation.py  Validates schema seeding against a temp database
+├── memory-mcp/             Thin MCPServer wrapper around fieldworks.memory (:8006)
+│   ├── server.py           Instantiates GraphClient/AnalyticalClient/KnowledgeClient/SpecialistMemory
+│   │                         from fieldworks-core; tool definitions; lifespan seed/ingest hooks
+│   ├── topology.py         Loader for topology.yaml (memory-mcp layer)
+│   └── requirements.txt
 ├── chat-ui/                Starlette/SSE backend + Vue 3 frontend
 │   ├── backend.py          Routes: /api/chat, /api/health, /api/fault, /api/action/respond
 │   ├── topology.py         Loader for topology.yaml (chat-ui layer)
-│   ├── topology_prompts.py Builds specialist and orchestrator system prompts from topology.yaml
 │   ├── claude_loop.py      Claude API streaming loop — MCP tools, propose_action intercept
 │   ├── multi_agent_loop.py Fan-out to specialist agents + orchestrator; memory injection + recording
 │   ├── monitor.py          AnomalyMonitor — MQTT watcher, sustained-violation detection, ISA-18.2 severity
@@ -752,10 +772,11 @@ waterworks-ai/
 │                             mqtt/opcua entries are stdio — the aggregator spawns the
 │                             fieldworks-adapters mqtt-mcp/opcua-mcp binaries itself
 │                             (installed via cargo, see Prerequisites; not vendored here)
-├── data/                   Gitignored runtime data
-│   ├── ladybugdb/          LadybugDB database files (auto-created on first start)
-│   ├── duckdb/             DuckDB analytical database (auto-created on first start)
-│   └── specialist-memory/  Per-specialist markdown memory files (auto-created on first start)
+├── data/
+│   ├── ladybugdb/          Gitignored — LadybugDB database files (auto-created on first start)
+│   ├── duckdb/             Gitignored — analytical.duckdb + knowledge.duckdb (auto-created on first start)
+│   ├── specialist-memory/  Gitignored — per-specialist markdown memory files (auto-created on first start)
+│   └── knowledge-docs/     Committed — facility docs (.md/.txt/.pdf) ingested by memory-mcp for RAG
 ├── docker/
 │   ├── mosquitto/          mosquitto.conf (anonymous, persistence on)
 │   └── grafana/            Provisioned InfluxDB datasource and dashboards
