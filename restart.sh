@@ -14,7 +14,9 @@ set -e
 cd "$(dirname "$0")"
 
 SERVICE="$1"
-SERVICES="simulator bridge mqtt-mcp opcua-mcp influxdb-mcp audit-mcp control-mcp memory-mcp topology-builder aggregator chat-ui frontend"
+# mqtt-mcp/opcua-mcp aren't standalone services — the aggregator spawns them itself
+# as stdio subprocesses (see backends.json). Restarting "aggregator" restarts them too.
+SERVICES="simulator bridge influxdb-mcp audit-mcp control-mcp memory-mcp topology-builder aggregator chat-ui frontend"
 
 if [[ -z "$SERVICE" ]]; then
     echo "Usage: $0 <service>"
@@ -62,14 +64,15 @@ start_one() {
 case "$SERVICE" in
     simulator)        start_one simulator        simulator              "uv run python simulator.py" ;;
     bridge)           start_one bridge            mqtt-influx-bridge    "uv run python bridge.py" ;;
-    mqtt-mcp)         start_one mqtt-mcp          mcp-servers/mqtt-mcp  "uv run python server.py" ;;
-    opcua-mcp)        start_one opcua-mcp         mcp-servers/opcua-mcp "uv run python server.py" ;;
     influxdb-mcp)     start_one influxdb-mcp      influxdb-mcp          "uv run python server.py" ;;
     audit-mcp)        start_one audit-mcp         audit-mcp             "uv run python server.py" ;;
     control-mcp)      start_one control-mcp       control-mcp           "uv run python server.py" ;;
     memory-mcp)       start_one memory-mcp        memory-mcp            "uv run python server.py" ;;
     topology-builder) start_one topology-builder  topology-builder      "uv run python server.py" ;;
-    aggregator)       start_one aggregator        mcp-aggregator/server "uv run python server.py" ;;
+    # BACKENDS_FILE must be set explicitly — the aggregator's own default
+    # (backends.json relative to its cwd) resolves to the submodule's bundled
+    # example, not this repo's real config. Matches start.sh.
+    aggregator)       start_one aggregator        mcp-aggregator/server "BACKENDS_FILE=../backends.json uv run python server.py" ;;
     chat-ui)          start_one chat-ui           chat-ui               "uv run python backend.py" ;;
     frontend)         start_one frontend          chat-ui/frontend      "npm run dev" ;;
     *)
