@@ -39,6 +39,10 @@ ORCHESTRATOR_MODEL = "claude-sonnet-4-6"
 _MQTT_PREFIXES = ("mqtt__",)
 _INFLUXDB_PREFIXES = ("influxdb__",)
 
+# Knowledge/RAG retrieval is equipment-scoped the same way specialists are
+# equipment-scoped, so every specialist gets it — not just Historian.
+_KNOWLEDGE_TOOL_PREFIXES = ("memory__query_knowledge",)
+
 # Historian is a fixed cross-cutting agent, not generated from topology (it isn't
 # scoped to a process area) — fieldworks.agents.build_specialists() only builds
 # one specialist per process area, so Historian is defined here directly.
@@ -51,7 +55,9 @@ _MEMORY_READ_TOOLS = (
     "memory__get_writable_attributes",
     "memory__get_specialist_memory",
 )
-_HISTORIAN_TOOL_PREFIXES = _INFLUXDB_PREFIXES + _MEMORY_READ_TOOLS
+_HISTORIAN_TOOL_PREFIXES = (
+    _INFLUXDB_PREFIXES + _MEMORY_READ_TOOLS + _KNOWLEDGE_TOOL_PREFIXES
+)
 
 _HISTORIAN_SYSTEM = """You are the Historian diagnostic specialist for a water treatment plant.
 
@@ -157,7 +163,9 @@ def _build_specialists(topology) -> list[dict]:
                 "name": area.id,
                 "label": area.name,
                 "unit_names": [i.name for i in instances],
-                "tool_prefixes": _MQTT_PREFIXES + _INFLUXDB_PREFIXES,
+                "tool_prefixes": (
+                    _MQTT_PREFIXES + _INFLUXDB_PREFIXES + _KNOWLEDGE_TOOL_PREFIXES
+                ),
                 "system": build_specialist_prompt(area.id, topology),
             }
         )

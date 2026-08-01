@@ -12,9 +12,17 @@ Environment:
   INFLUXDB_URL / INFLUXDB_TOKEN / INFLUXDB_ORG / INFLUXDB_BUCKET
   TOPOLOGY_FILE         path to topology.yaml (default: repo root) — used to
                         auto-seed LadybugDB's static layer on first boot
+  KNOWLEDGE_DUCKDB_PATH path to the knowledge/RAG DuckDB file (separate from
+                        DUCKDB_PATH — own file, sidesteps verifying DuckDB's
+                        multi-connection-per-file behavior under concurrent
+                        writes from two clients)
+  KNOWLEDGE_DOCS_DIR    directory of facility docs (.md/.txt/.pdf) to ingest
+                        on every boot; unchanged files are skipped via
+                        content-hash comparison
 """
 
 import asyncio
+import dataclasses
 import json
 import os
 from contextlib import asynccontextmanager
@@ -31,8 +39,11 @@ import topology as _topo_loader
 from fieldworks.memory import (
     AnalyticalClient,
     AnalyticalConfig,
+    FastEmbedProvider,
     GraphClient,
     GraphConfig,
+    KnowledgeClient,
+    KnowledgeConfig,
     SpecialistMemory,
     aggregate_specialist_query,
 )
@@ -62,6 +73,17 @@ analytical = AnalyticalClient(
 specialist_mem = SpecialistMemory(
     os.environ.get("SPECIALIST_MEMORY_DIR", "../data/specialist-memory")
 )
+knowledge = KnowledgeClient(
+    KnowledgeConfig(
+        db_path=os.environ.get(
+            "KNOWLEDGE_DUCKDB_PATH", "../data/duckdb/knowledge.duckdb"
+        ),
+        chunks_table="wtp_knowledge_chunks",
+        files_table="wtp_knowledge_files",
+    ),
+    embedding_provider=FastEmbedProvider(),
+)
+KNOWLEDGE_DOCS_DIR = os.environ.get("KNOWLEDGE_DOCS_DIR", "../data/knowledge-docs")
 
 
 def _dump(obj) -> str:
@@ -84,9 +106,22 @@ def _maybe_seed_from_topology() -> None:
     print(f"[memory-mcp] seeded from topology.yaml: {counts}")
 
 
+def _maybe_ingest_knowledge_docs() -> None:
+    """Runs every boot (unlike _maybe_seed_from_topology's one-shot gate) —
+    content-hash comparison inside ingest_directory makes it a no-op for
+    unchanged files, so this is how docs added/edited between restarts get
+    picked up.
+    """
+    if not Path(KNOWLEDGE_DOCS_DIR).exists():
+        return
+    result = knowledge.ingest_directory(KNOWLEDGE_DOCS_DIR)
+    print(f"[memory-mcp] knowledge ingest: {result}")
+
+
 @asynccontextmanager
 async def _lifespan(server: MCPServer) -> AsyncIterator[None]:
     _maybe_seed_from_topology()
+    _maybe_ingest_knowledge_docs()
     asyncio.create_task(analytical.sync_loop())  # warms DuckDB on first iteration
     yield
 
@@ -210,6 +245,25 @@ def seed_discovered_topology(
 def run_correlation(sql: str) -> str:
     """SELECT query against DuckDB analytical layer. For long-horizon multi-equipment correlations."""
     return _dump(analytical.run_correlation(sql))
+
+
+# ── Knowledge / RAG ────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def query_knowledge(query: str, equipment_id: str = "", top_k: int = 5) -> str:
+    """Semantic search over ingested facility documentation (manuals, procedures,
+    operating limits, text-layer P&IDs). equipment_id scopes results to docs
+    tagged for that equipment instance; "" searches all ingested docs."""
+    excerpts = knowledge.query(query, equipment_id=equipment_id or None, top_k=top_k)
+    return _dump([dataclasses.asdict(e) for e in excerpts])
+
+
+@mcp.tool()
+def ingest_knowledge_docs() -> str:
+    """Manually trigger a re-scan of the knowledge docs directory. Unchanged
+    files (by content hash) are skipped; new or edited files are re-embedded."""
+    return _dump(dataclasses.asdict(knowledge.ingest_directory(KNOWLEDGE_DOCS_DIR)))
 
 
 # ── Specialist memory ─────────────────────────────────────────────────────────

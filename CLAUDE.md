@@ -57,7 +57,7 @@ simulator/          simulator.py (entrypoint), generators.py, faults.py, instanc
 influxdb-mcp/       MCPServer: write_point, query, list_measurements
 audit-mcp/          MCPServer: list_incidents, get_session_summary, query_history, query_by_equipment
 control-mcp/        MCPServer: propose_action (intercepted), set_setpoint, clear_fault
-memory-mcp/         MCPServer: LadybugDB graph + DuckDB analytical queries
+memory-mcp/         MCPServer: LadybugDB graph + DuckDB analytical/knowledge (RAG) queries
 topology-builder/   MCPServer: MQTT/OPC-UA discovery, inference, LadybugDB seeding
 mqtt-influx-bridge/ Paho subscriber → batched InfluxDB writes
 chat-ui/            backend.py, claude_loop.py, multi_agent_loop.py, openai_loop.py,
@@ -68,7 +68,9 @@ mcp-aggregator/     git submodule (server/) + backends.json
                     mqtt/opcua entries are stdio — aggregator spawns the fieldworks-adapters
                     mqtt-mcp/opcua-mcp binaries itself (cargo-installed, not vendored here)
 topology.yaml       single source of truth: process units, fault modes, specialist scopes, alarm limits
-data/               gitignored — ladybugdb/, duckdb/, specialist-memory/
+data/               ladybugdb/, duckdb/, specialist-memory/ are gitignored (generated
+                    state); knowledge-docs/ is committed source content — facility
+                    docs ingested by memory-mcp's KnowledgeClient
 ```
 
 ## Key architecture decisions
@@ -158,10 +160,33 @@ Do not edit files in `chat-ui/static/` directly — they are overwritten on ever
 
 Phases 0–13 complete. Phase 12 replaced the vanilla HTML/JS frontend with a Vue 3 + Vite + Pinia app (topology graph, streaming panels, reactive alarms, multi-agent mode, approval flow). Phase 13: insight categories.
 
-**M8 — fieldworks-core port (v2.0.0):** rebuilt as the framework's reference implementation. topology.yaml migrated to the fieldworks-core spec schema; chat-ui/simulator/memory-mcp/topology-builder now depend on fieldworks-core instead of containing their own copies of that logic. See the note at the top of this file. Phase 14 (knowledge memory / RAG) is next.
+**M8 — fieldworks-core port (v2.0.0):** rebuilt as the framework's reference implementation. topology.yaml migrated to the fieldworks-core spec schema; chat-ui/simulator/memory-mcp/topology-builder now depend on fieldworks-core instead of containing their own copies of that logic. See the note at the top of this file.
+
+**M9 / Phase 14 — knowledge memory / RAG (fieldworks-core v1.1.0):** `memory-mcp` now wraps `fieldworks.memory.KnowledgeClient` (DuckDB + VSS, local `fastembed` embeddings by default) alongside the existing graph/analytical clients. Facility docs (`.md`/`.txt`/`.pdf`) dropped into `data/knowledge-docs/` are ingested on every `memory-mcp` boot (content-hash change detection skips unchanged files) and exposed via the `memory__query_knowledge` tool, available to every specialist. Example docs (`pump-operating-limits.md`, `clarifier-uv-manual-excerpt.md`) ship in the repo so the demo has something to retrieve out of the box.
 
 ## What not to touch
 
 - `simulator/simulator.py` main loop — stable, don't refactor without a reason
 - `mcp-aggregator/server/` — this is a submodule; changes belong upstream
 - `backends.json` lives in `mcp-aggregator/` (not the submodule `server/` directory)
+
+## Smoke-testing services touches real data by default — redirect paths first
+
+`memory-mcp/server.py` (and any script importing it) defaults its DB paths to
+real repo state: `LADYBUG_DB_PATH`, `DUCKDB_PATH`, `KNOWLEDGE_DUCKDB_PATH`,
+`SPECIALIST_MEMORY_DIR`, `KNOWLEDGE_DOCS_DIR` all resolve to `../data/...`
+relative to `memory-mcp/` — i.e. the actual `waterworks-ai/data/` directory,
+not a throwaway path. Importing `server` module-level, or calling
+`_maybe_seed_from_topology()` / `_maybe_ingest_knowledge_docs()` /
+`AnalyticalClient.sync_loop()` directly, writes into that real data the
+moment the module loads or the lifespan runs — there is no dry-run mode.
+
+Before running `server.py` or importing it for any ad-hoc check, override
+every path env var to a scratch directory first (e.g. `LADYBUG_DB_PATH`,
+`DUCKDB_PATH`, `KNOWLEDGE_DUCKDB_PATH` set to paths under `/tmp` or a
+scratchpad). Never `rm -rf` anything under `data/` as "cleanup" without
+first confirming the paths involved are ones you pointed at yourself — the
+static LadybugDB layer and the DuckDB analytical cache both self-heal
+(reseed from `topology.yaml`, resync from InfluxDB), but LadybugDB's
+*dynamic* layer — recorded `Incident`/`Observation`/`OperatorDecision` nodes
+from real sessions — has no other source and does not come back.

@@ -14,8 +14,13 @@ chat-ui/audit.*.jsonl
 chat-ui/metrics.db
 roadmap.md
 
-# Data directories (LadybugDB, DuckDB, specialist memory) — root only
-/data/
+# Data directories (LadybugDB, DuckDB, specialist memory) — root only.
+# knowledge-docs/ is source content (example facility docs shipped with the
+# repo), not generated state, so it's excepted back in. A parent-directory
+# exclude (/data/) can't be undone by negating paths beneath it, hence /data/*
+# here instead of /data/.
+/data/*
+!/data/knowledge-docs/
 
 # Log files
 chat-ui/logs/
