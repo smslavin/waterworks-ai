@@ -222,12 +222,32 @@ Use these when the operator asks about pending reviews, saved insights, or the i
 queue. Do NOT use audit__list_incidents or audit__query_history for this — those query
 diagnostic sessions, not the insight review queue."""
 
+_SUMMARY_FORMAT = """
+
+── Synthesis output format ─────────────────────────────────────────────────────
+START your synthesis with this block, before any detailed breakdown — the
+specialist findings are already in front of you, so lead with the conclusion
+rather than building up to it:
+SUMMARY:
+Status: Normal | Anomaly Detected | Fault Detected
+Overview: [one or two plain-language sentences]
+Key points:
+- [bullet points — omit the list entirely if there is nothing notable]
+
+Detailed reasoning, tables, and recommendations belong after this block, not
+before it — the block must never be pushed to the end where it risks being cut
+off by the response length limit.
+
+Omit this block for a simple conversational follow-up that isn't really a status
+overview of the area or plant."""
+
 _topology = _load_topology()
 SPECIALISTS = _build_specialists(_topology)
 _ORCHESTRATOR_SYSTEM = (
     _fw_build_orchestrator_system(_fw_build_specialists(_topology), _topology)
     + _HISTORIAN_MENTION
     + _CONTROL_ACTION_GUIDANCE
+    + _SUMMARY_FORMAT
 )
 
 _FINDINGS_FORMAT = """
@@ -574,7 +594,7 @@ async def _run_cascade_only(
         while True:
             orch_kwargs: dict = dict(
                 model=ORCHESTRATOR_MODEL,
-                max_tokens=2048,
+                max_tokens=4096,
                 system=cache_system(_ORCHESTRATOR_SYSTEM),
                 messages=orch_conv,
             )
@@ -788,7 +808,7 @@ async def run_multi_agent(
         while True:
             orch_kwargs: dict = dict(
                 model=ORCHESTRATOR_MODEL,
-                max_tokens=2048,
+                max_tokens=4096,
                 system=cache_system(_ORCHESTRATOR_SYSTEM),
                 messages=orch_conv,
             )

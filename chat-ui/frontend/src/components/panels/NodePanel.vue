@@ -120,6 +120,7 @@ function sendFollowUp() {
   const text = followUpText.value.trim()
   if (!text || isStreaming.value) return
   followUpText.value = ''
+  analysisExpanded.value = false
   const messages: Message[] = [
     ...conversationLog.value,
     { role: 'assistant', content: content.value },

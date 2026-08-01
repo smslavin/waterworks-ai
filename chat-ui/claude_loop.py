@@ -272,8 +272,22 @@ Confidence: 0.0–1.0
 Key observations:
 - [bullet points]
 
-Omit this block for general conversation, plant-wide overviews, or follow-up
-questions that do not constitute a fresh equipment diagnosis."""
+When answering an area-wide or plant-wide status query (not a single piece of
+equipment), START your response with this block instead, before any detailed
+breakdown — you already have everything you read from tools this turn, so lead
+with the conclusion rather than building up to it:
+SUMMARY:
+Status: Normal | Anomaly Detected | Fault Detected
+Overview: [one or two plain-language sentences]
+Key points:
+- [bullet points — omit the list entirely if there is nothing notable]
+
+Detailed reasoning, tables, and recommendations belong after this block, not
+before it — the block must never be pushed to the end where it risks being cut
+off by the response length limit.
+
+Omit both blocks for general conversation or follow-up questions that do not
+constitute a fresh equipment diagnosis or a status overview."""
 
 
 async def run_chat(
