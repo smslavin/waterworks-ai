@@ -69,7 +69,7 @@ start_service "chat-ui"          "chat-ui"            "uv run python backend.py"
 start_service "frontend"         "chat-ui/frontend"   "npm run dev"
 
 echo ""
-echo "All services running. Chat UI (legacy) → http://localhost:8000  |  Vue UI → http://localhost:5173"
+echo "All services running. Chat UI (legacy) → http://localhost:8080  |  Vue UI → http://localhost:5173"
 echo "Logs: logs/<service>.log  |  Ctrl-C to stop everything."
 echo ""
 

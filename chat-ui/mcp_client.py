@@ -33,7 +33,13 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
                     {
                         "name": t.name,
                         "description": t.description or "",
-                        "inputSchema": t.inputSchema,
+                        # Attribute name has drifted across mcp SDK versions
+                        # (inputSchema pre-2.0, input_schema from 2.0 on) —
+                        # this repo's installed version varies per service
+                        # venv depending on when each was last (re)created,
+                        # so accept either rather than pin to one.
+                        "inputSchema": getattr(t, "inputSchema", None)
+                        or getattr(t, "input_schema", None),
                     }
                     for t in result.tools
                 ]

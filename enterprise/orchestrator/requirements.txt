@@ -1,0 +1,8 @@
+anthropic>=0.40.0
+mcp>=2.0
+starlette
+uvicorn
+sse-starlette
+python-dotenv
+httpx
+pyyaml

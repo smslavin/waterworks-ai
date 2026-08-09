@@ -29,14 +29,14 @@ cd mcp-aggregator/server && uv run python server.py
 cd chat-ui           && uv run python backend.py
 ```
 
-Chat UI: http://localhost:8000  
+Chat UI: http://localhost:8080  
 Dashboard overview: open `dashboard.html` in browser.
 
 ## Port map
 
 | Service | Port |
 |---|---|
-| Chat UI | 8000 |
+| Chat UI | 8080 |
 | mqtt-mcp / opcua-mcp | none — stdio, spawned by the aggregator |
 | influxdb-mcp | 8003 |
 | audit-mcp | 8004 |
@@ -49,6 +49,13 @@ Dashboard overview: open `dashboard.html` in browser.
 | Mosquitto MQTT | 1883 |
 | InfluxDB | 8086 |
 | Grafana | 3000 |
+| diagnose_plant_mcp (enterprise, M10) | 8200 |
+| Enterprise orchestrator (M10) | 8020 |
+
+M10 multi-plant: every port above except the enterprise layer is per-plant —
+a second plant runs a full second checkout with its own `.env` overriding
+each one (see `enterprise.yaml`, `plant_registry.py`). The enterprise layer
+itself runs once, shared across every plant it's configured to reach.
 
 ## Repo structure
 
@@ -68,6 +75,18 @@ mcp-aggregator/     git submodule (server/) + backends.json
                     mqtt/opcua entries are stdio — aggregator spawns the fieldworks-adapters
                     mqtt-mcp/opcua-mcp binaries itself (cargo-installed, not vendored here)
 topology.yaml       single source of truth: process units, fault modes, specialist scopes, alarm limits
+enterprise.yaml     M10: regions -> sites (site_id, topology_file, chat_ui_url) — read by
+                    enterprise/plant_registry.py, not by any single plant's own process
+enterprise/         M10 multi-plant layer — shared across every plant, not per-checkout:
+                    plant_registry.py            site_id -> chat_ui_url lookup
+                    diagnose_plant_mcp/server.py MCPServer: diagnose_plant(site_id, query) —
+                                                  thin HTTP client of each plant's own
+                                                  chat-ui /api/chat, no aggregator/MQTT/
+                                                  InfluxDB access of its own
+                    orchestrator/                Starlette app + Cascade-shaped loop whose
+                                                  only tool is diagnose_plant
+                    start.sh/stop.sh/restart.sh  separate from each plant checkout's own —
+                                                  run once, not per plant
 data/               ladybugdb/, duckdb/, specialist-memory/ are gitignored (generated
                     state); knowledge-docs/ is committed source content — facility
                     docs ingested by memory-mcp's KnowledgeClient

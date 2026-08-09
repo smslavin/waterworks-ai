@@ -30,7 +30,10 @@ influxdb-mcp/logs/
 audit-mcp/logs/
 control-mcp/logs/
 memory-mcp/logs/
+enterprise/diagnose_plant_mcp/logs/
 
 # start.sh output
 /logs/
 /.pids/
+enterprise/logs/
+enterprise/.pids/
