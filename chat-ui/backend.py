@@ -929,7 +929,7 @@ app = Starlette(routes=routes, lifespan=lifespan)
 if __name__ == "__main__":
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="0.0.0.0",  # nosec B104
         port=int(os.environ.get("CHAT_UI_PORT", 8080)),
         log_level="info",
-    )  # nosec B104
+    )
