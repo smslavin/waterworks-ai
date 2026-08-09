@@ -15,6 +15,10 @@ _DB_PATH = os.environ.get(
     "METRICS_DB_PATH",
     os.path.join(os.path.dirname(__file__), "metrics.db"),
 )
+# Each plant is a fully independent process group (see M10 Phase 0) — site_id is
+# sourced from this env var at write time, not read from topology.yaml, so it
+# stays correct even if topology.yaml is swapped without restarting the process.
+_SITE_ID = os.environ.get("SITE_ID", "wtp")
 _lock = threading.Lock()
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,19 @@ def _conn() -> sqlite3.Connection:
     return c
 
 
+def _add_column_if_missing(
+    c: sqlite3.Connection, table: str, column: str, ddl: str
+) -> None:
+    """CREATE TABLE IF NOT EXISTS doesn't retroactively add columns to a table
+    that already exists from before this column was introduced — ALTER TABLE
+    is the only way to migrate a pre-existing metrics.db in place."""
+    cols = {
+        row["name"] for row in c.execute(f"PRAGMA table_info({table})")
+    }  # nosec B608
+    if column not in cols:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")  # nosec B608
+
+
 def _init_db() -> None:
     with _lock, _conn() as c:
         c.executescript("""
@@ -89,7 +106,8 @@ def _init_db() -> None:
                 diagnosis     TEXT,
                 status        TEXT,
                 confidence    REAL,
-                mode          TEXT
+                mode          TEXT,
+                site_id       TEXT    NOT NULL DEFAULT 'wtp'
             );
             CREATE TABLE IF NOT EXISTS action_events (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,9 +119,16 @@ def _init_db() -> None:
                 description  TEXT,
                 operator_id  TEXT    NOT NULL DEFAULT 'operator_01',
                 decision     TEXT,
-                outcome      TEXT    DEFAULT 'pending'
+                outcome      TEXT    DEFAULT 'pending',
+                site_id      TEXT    NOT NULL DEFAULT 'wtp'
             );
         """)
+        _add_column_if_missing(
+            c, "session_summaries", "site_id", "site_id TEXT NOT NULL DEFAULT 'wtp'"
+        )
+        _add_column_if_missing(
+            c, "action_events", "site_id", "site_id TEXT NOT NULL DEFAULT 'wtp'"
+        )
         c.commit()
 
 
@@ -124,8 +149,8 @@ def log_session_summary(
         with _lock, _conn() as c:
             c.execute(
                 """INSERT OR REPLACE INTO session_summaries
-                   (ts, session_id, user_question, equipment, diagnosis, status, confidence, mode)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (ts, session_id, user_question, equipment, diagnosis, status, confidence, mode, site_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     session_id,
@@ -135,6 +160,7 @@ def log_session_summary(
                     status,
                     confidence,
                     mode,
+                    _SITE_ID,
                 ),
             )
             c.commit()
@@ -158,8 +184,8 @@ def log_action_event(
             c.execute(
                 """INSERT INTO action_events
                    (ts, session_id, action_type, target, value, description,
-                    operator_id, decision, outcome)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    operator_id, decision, outcome, site_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     session_id,
@@ -170,6 +196,7 @@ def log_action_event(
                     operator_id,
                     decision,
                     outcome,
+                    _SITE_ID,
                 ),
             )
             c.commit()
