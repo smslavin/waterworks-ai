@@ -122,7 +122,14 @@ function selectSite(site: Site) {
   // chat-ui origin, not an in-app API repoint — deliberately, to avoid
   // opening CORS between plant origins on a system with an actuation path
   // (control-mcp setpoints). See plan_m10_enterprise_multiplant.md.
-  if (site.chatUiUrl) window.location.href = site.chatUiUrl
+  if (!site.chatUiUrl) return
+  // Carry UI-preference toggles across the navigation as query params —
+  // App.vue reads them on mount. Deliberately not URL-encoding arbitrary
+  // state: just the two flags that don't survive a fresh page load.
+  const url = new URL(site.chatUiUrl)
+  if (ui.multiAgent) url.searchParams.set('multiAgent', '1')
+  if (ui.reactiveOn) url.searchParams.set('reactive', '1')
+  window.location.href = url.toString()
 }
 </script>
 

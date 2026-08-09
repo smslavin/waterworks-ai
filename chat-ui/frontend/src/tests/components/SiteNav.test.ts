@@ -110,7 +110,35 @@ describe('SiteNav', () => {
     const rows = Array.from(container.querySelectorAll('.site-row'))
     const eastside = rows.find(r => r.textContent?.includes('Eastside'))
     await fireEvent.click(eastside!)
-    expect(stubLocation.href).toBe('http://localhost:8010')
+    expect(stubLocation.href).toBe('http://localhost:8010/')
+  })
+
+  it('carries multiAgent and reactive toggles as query params on the navigation', async () => {
+    const stubLocation = { href: '' }
+    vi.stubGlobal('location', stubLocation)
+    const { container, ui } = renderNav(true)
+    ui.multiAgent = true
+    ui.reactiveOn = true
+    await flushPromises()
+    const rows = Array.from(container.querySelectorAll('.site-row'))
+    const eastside = rows.find(r => r.textContent?.includes('Eastside'))
+    await fireEvent.click(eastside!)
+    const url = new URL(stubLocation.href)
+    expect(url.searchParams.get('multiAgent')).toBe('1')
+    expect(url.searchParams.get('reactive')).toBe('1')
+  })
+
+  it('does not carry toggles that are off', async () => {
+    const stubLocation = { href: '' }
+    vi.stubGlobal('location', stubLocation)
+    const { container } = renderNav(true)
+    await flushPromises()
+    const rows = Array.from(container.querySelectorAll('.site-row'))
+    const eastside = rows.find(r => r.textContent?.includes('Eastside'))
+    await fireEvent.click(eastside!)
+    const url = new URL(stubLocation.href)
+    expect(url.searchParams.has('multiAgent')).toBe(false)
+    expect(url.searchParams.has('reactive')).toBe(false)
   })
 
   it('appears after siteNavOpen becomes true', async () => {

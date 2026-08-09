@@ -22,6 +22,15 @@ const topo = useTopologyStore()
 const alarm = useAlarmStore()
 usePanelDismiss()
 
+// Carry UI-preference toggles across a cross-plant SiteNav navigation (see
+// SiteNav.vue's selectSite) — read synchronously, during setup rather than
+// onMounted, so child components (StatusBar -> useReactive) see the correct
+// ui.multiAgent from their own mount, not one tick later.
+const _carryParams = new URLSearchParams(window.location.search)
+if (_carryParams.get('multiAgent') === '1' || _carryParams.get('reactive') === '1') {
+  ui.multiAgent = true // reactive requires multi-agent
+}
+
 onMounted(async () => {
   try {
     const resp = await fetch('/api/site')
@@ -30,6 +39,24 @@ onMounted(async () => {
       ui.setActiveSite(site.site_name, site.region_name)
     }
   } catch { /* backend not running — keep ui.ts defaults */ }
+
+  if (_carryParams.get('reactive') === '1') {
+    try {
+      const resp = await fetch('/api/reactive/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enable: true }),
+      })
+      const data = await resp.json() as { enabled: boolean }
+      ui.reactiveOn = data.enabled
+    } catch { /* backend unreachable — leave default */ }
+  }
+
+  if (_carryParams.has('multiAgent') || _carryParams.has('reactive')) {
+    // Drop the carry-over params so a manual refresh doesn't re-force these
+    // toggles after the operator has since changed them.
+    window.history.replaceState({}, '', window.location.pathname)
+  }
 
   try {
     const resp = await fetch('/api/fault/status')
