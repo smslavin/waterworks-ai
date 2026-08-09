@@ -737,7 +737,14 @@ async def events_endpoint(request: Request):
 
 
 def _reactive_params() -> tuple[str, str, str]:
-    broker_url = os.environ.get("MQTT_BROKER_URL", "localhost:1883")
+    # MQTT_BROKER_URL is host-only everywhere else in this codebase (simulator.py,
+    # bridge.py, monitor.py), paired with a separate MQTT_BROKER_PORT — build the
+    # combined "host:port" string AnomalyMonitor expects from those two, rather than
+    # relying on a port encoded into MQTT_BROKER_URL itself (nothing else sets it
+    # that way, so it silently fell back to the hardcoded 1883 default).
+    host = os.environ.get("MQTT_BROKER_URL", "localhost")
+    port = os.environ.get("MQTT_BROKER_PORT", "1883")
+    broker_url = f"{host}:{port}"
     aggregator_url = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
     model = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
     return broker_url, aggregator_url, model
@@ -749,12 +756,12 @@ async def _connect_mqtt_adapter() -> None:
     call mqtt__* tools assuming a live connection, so establish one here, once,
     before serving any requests. Bounded retry absorbs the aggregator/mosquitto
     startup-ordering race in start.sh (no health-check gating between services)."""
-    broker_url = os.environ.get("MQTT_BROKER_URL", "localhost:1883")
-    host, _, port = broker_url.partition(":")
+    host = os.environ.get("MQTT_BROKER_URL", "localhost")
+    port = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
     for attempt in range(1, 6):
         result = await mcp_client.call_mcp_tool(
             "mqtt__connect",
-            {"host": host, "port": int(port or 1883)},
+            {"host": host, "port": port},
             MCP_AGGREGATOR_URL,
         )
         if not result.startswith("Error calling"):
@@ -920,4 +927,9 @@ routes = [
 app = Starlette(routes=routes, lifespan=lifespan)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")  # nosec B104
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("CHAT_UI_PORT", 8080)),
+        log_level="info",
+    )  # nosec B104

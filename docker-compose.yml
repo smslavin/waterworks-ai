@@ -3,7 +3,7 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     ports:
-      - "1883:1883"
+      - "${MOSQUITTO_PORT:-1883}:1883"
     volumes:
       - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
@@ -13,7 +13,7 @@ services:
   influxdb:
     image: influxdb:2.7
     ports:
-      - "8086:8086"
+      - "${INFLUXDB_HOST_PORT:-8086}:8086"
     volumes:
       - influxdb-data:/var/lib/influxdb2
     environment:
@@ -28,7 +28,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro

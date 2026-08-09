@@ -1,4 +1,5 @@
-"""MQTT anomaly monitor. Watches Plant/WTP/# against topology normal ranges.
+"""MQTT anomaly monitor. Watches PLANT_TOPIC_ROOT/# (default Plant/WTP/#) against
+topology normal ranges.
 
 Severity comes from LadybugDB via memory-mcp's get_severity_for_attribute
 tool (fieldworks-core#6/#7) rather than static topology.yaml alarm_lo/
@@ -9,6 +10,7 @@ per-message, so the synchronous _on_message callback never needs to await.
 import asyncio
 import json
 import logging
+import os
 import time
 
 import paho.mqtt.client as mqtt
@@ -17,6 +19,8 @@ from mcp_client import call_mcp_tool
 from topology import load as _load_topology
 
 logger = logging.getLogger(__name__)
+
+PLANT_TOPIC_ROOT = os.environ.get("PLANT_TOPIC_ROOT", "Plant/WTP")
 
 _topology = _load_topology()
 _window: dict[tuple, dict] = {}
@@ -106,7 +110,7 @@ class AnomalyMonitor:
         self._client.on_message = self._on_message
 
     def _on_connect(self, client, userdata, flags, rc):
-        client.subscribe("Plant/WTP/#")
+        client.subscribe(f"{PLANT_TOPIC_ROOT}/#")
         logger.info("Anomaly monitor connected to MQTT broker")
 
     def _on_message(self, client, userdata, msg):

@@ -16,10 +16,13 @@ import os
 import uuid
 from pathlib import Path
 
+from dotenv import load_dotenv
 from mcp.server import MCPServer
 
 from discovery import discover_mqtt_topics, discover_opcua_nodes
 from fieldworks.topology_builder.inference import infer_topology, load_template
+
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 

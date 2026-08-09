@@ -321,4 +321,9 @@ def resolve_review(review_id: str, resolution: str, resolver_note: str = "") -> 
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse", port=int(os.environ.get("FASTMCP_PORT", 8004)))
+    mcp.run(
+        transport="sse",
+        port=int(
+            os.environ.get("AUDIT_MCP_PORT", os.environ.get("FASTMCP_PORT", 8004))
+        ),
+    )

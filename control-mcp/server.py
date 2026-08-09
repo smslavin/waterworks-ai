@@ -123,4 +123,9 @@ def clear_fault(target: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse", port=int(os.environ.get("FASTMCP_PORT", 8005)))
+    mcp.run(
+        transport="sse",
+        port=int(
+            os.environ.get("CONTROL_MCP_PORT", os.environ.get("FASTMCP_PORT", 8005))
+        ),
+    )

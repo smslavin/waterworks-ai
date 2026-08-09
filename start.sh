@@ -5,6 +5,15 @@
 set -e
 cd "$(dirname "$0")"
 
+# mcp-aggregator/server ships its own bundled .env (AGGREGATOR_PORT=8100, for the
+# submodule's standalone mock/testing use) — python-dotenv's load_dotenv() finds
+# that one first walking up from the aggregator's cwd and never reaches this
+# checkout's real root .env, since it doesn't override already-set vars. Read the
+# real value here and pass it explicitly so a second checkout (M10 multi-plant)
+# with a different AGGREGATOR_PORT isn't silently shadowed back to 8100.
+AGGREGATOR_PORT="$(grep -E '^AGGREGATOR_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2)"
+AGGREGATOR_PORT="${AGGREGATOR_PORT:-8100}"
+
 mkdir -p logs .pids
 echo $$ > .pids/start.pid
 
@@ -52,10 +61,10 @@ sleep 2  # give the backend MCP servers above a head start — aggregator discov
          # when discovery runs is silently skipped for the rest of the process
 
 # aggregator spawns mqtt-mcp/opcua-mcp itself as stdio subprocesses (see backends.json) —
-# no separate start_service entries for them. BACKENDS_FILE must be set explicitly:
-# the aggregator's own default (backends.json relative to its cwd) resolves to the
-# submodule's bundled example, not this repo's real config.
-start_service "aggregator" "mcp-aggregator/server" "BACKENDS_FILE=../backends.json uv run python server.py"
+# no separate start_service entries for them. BACKENDS_FILE and AGGREGATOR_PORT must
+# be set explicitly: the aggregator's own defaults resolve to the submodule's bundled
+# example config, not this checkout's real one.
+start_service "aggregator" "mcp-aggregator/server" "BACKENDS_FILE=../backends.json AGGREGATOR_PORT=${AGGREGATOR_PORT} uv run python server.py"
 start_service "chat-ui"          "chat-ui"            "uv run python backend.py"
 start_service "frontend"         "chat-ui/frontend"   "npm run dev"
 

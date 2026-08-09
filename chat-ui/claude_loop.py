@@ -31,6 +31,7 @@ _INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
 _INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
 _INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
 _INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
+_PLANT_TOPIC_ROOT = os.environ.get("PLANT_TOPIC_ROOT", "Plant/WTP")
 
 _process_state_cache: tuple[float, str] | None = None
 _PROCESS_STATE_TTL = 60.0
@@ -186,6 +187,7 @@ def build_system_prompt(process_units: str, alarm_history: str) -> str:
     return _SYSTEM_PROMPT_BASE.format(
         process_units=process_units,
         alarm_history=alarm_history,
+        mqtt_topic_root=_PLANT_TOPIC_ROOT,
     )
 
 
@@ -211,7 +213,7 @@ Attributes by unit type:
   UV      Intensity (%), Running (bool), LampHours
 
 ── Data access ────────────────────────────────────────────────────────────────
-MQTT topic root : Plant/WTP/<Type>/<Instance>/<Attribute>
+MQTT topic root : {mqtt_topic_root}/<Type>/<Instance>/<Attribute>
 OPC-UA endpoint : opc.tcp://localhost:4840/waterworks  (call connect_server first)
 InfluxDB        : call list_measurements to discover available data
 

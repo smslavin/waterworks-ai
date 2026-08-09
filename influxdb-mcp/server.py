@@ -202,4 +202,9 @@ def query(flux_query: str, org: str = "") -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="sse", port=int(os.environ.get("FASTMCP_PORT", 8003)))
+    mcp.run(
+        transport="sse",
+        port=int(
+            os.environ.get("INFLUXDB_MCP_PORT", os.environ.get("FASTMCP_PORT", 8003))
+        ),
+    )

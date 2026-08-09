@@ -12,6 +12,7 @@ Environment variables
 ---------------------
 MQTT_BROKER_URL     Broker hostname          (default: localhost)
 MQTT_BROKER_PORT    Broker port              (default: 1883)
+PLANT_TOPIC_ROOT    MQTT topic root prefix   (default: Plant/WTP)
 OPCUA_PORT          OPC-UA server port       (default: 4840)
 CONTROL_PORT        HTTP control plane port  (default: 8090)
 PUBLISH_INTERVAL    Seconds between ticks    (default: 2.0)
@@ -40,7 +41,7 @@ OPCUA_PORT = int(os.environ.get("OPCUA_PORT", 4840))
 CONTROL_PORT = int(os.environ.get("CONTROL_PORT", 8090))
 INTERVAL = float(os.environ.get("PUBLISH_INTERVAL", 2.0))
 
-MQTT_ROOT = "Plant/WTP"
+MQTT_ROOT = os.environ.get("PLANT_TOPIC_ROOT", "Plant/WTP")
 OPCUA_NS_URI = "urn:waterworks-ai:simulator"
 
 _log_dir = os.path.join(os.path.dirname(__file__), "logs")
@@ -211,7 +212,7 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
 
         fault_registry[target].set_mode(mode)
         mqtt_client.publish(
-            "Plant/WTP/Events/FaultInjected",
+            f"{MQTT_ROOT}/Events/FaultInjected",
             json.dumps({"target": target, "mode": mode.value}),
         )
         logger.info("Fault: %s → %s", target, mode.value)

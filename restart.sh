@@ -12,6 +12,16 @@
 
 set -e
 cd "$(dirname "$0")"
+ROOT="$(pwd)"
+
+# mcp-aggregator/server ships its own bundled .env (AGGREGATOR_PORT=8100, for the
+# submodule's standalone mock/testing use) — python-dotenv's load_dotenv() finds
+# that one first walking up from the aggregator's cwd and never reaches this
+# checkout's real root .env, since it doesn't override already-set vars. Read the
+# real value here and pass it explicitly so a second checkout (M10 multi-plant)
+# with a different AGGREGATOR_PORT isn't silently shadowed back to 8100.
+AGGREGATOR_PORT="$(grep -E '^AGGREGATOR_PORT=' .env 2>/dev/null | tail -1 | cut -d= -f2)"
+AGGREGATOR_PORT="${AGGREGATOR_PORT:-8100}"
 
 SERVICE="$1"
 # mqtt-mcp/opcua-mcp aren't standalone services — the aggregator spawns them itself
@@ -39,13 +49,21 @@ fi
 
 # Fallback: pkill any matching process not covered by the PID file
 # (catches services started manually outside of start.sh / restart.sh)
+#
+# Patterns are anchored on $ROOT (this checkout's absolute path) rather than
+# a bare "python simulator.py"-style argv match. uv run's own argv is
+# identical text across every checkout (cwd isn't part of argv), and its
+# child python process's argv only carries an absolute path via its venv
+# interpreter (.venv/bin/python3 ...) — so an unanchored pattern kills the
+# same-named service in every other checkout too, not just this one. Matters
+# once a second waterworks-ai checkout (M10 multi-plant) runs side by side.
 case "$SERVICE" in
-    chat-ui)          pkill -f "python backend.py"    2>/dev/null || true ;;
-    simulator)        pkill -f "python simulator.py"  2>/dev/null || true ;;
-    aggregator)       pkill -P "$(pgrep -f 'mcp-aggregator/server' | head -1)" 2>/dev/null || true; kill "$(pgrep -f 'mcp-aggregator/server/.venv')" 2>/dev/null || true ;;
-    audit-mcp)        pkill -f "audit-mcp/server.py"  2>/dev/null || true ;;
-    control-mcp)      pkill -f "control-mcp/server.py" 2>/dev/null || true ;;
-    memory-mcp)       pkill -f "memory-mcp/server.py" 2>/dev/null || true ;;
+    chat-ui)          pkill -f "${ROOT}/chat-ui/.venv"    2>/dev/null || true ;;
+    simulator)        pkill -f "${ROOT}/simulator/.venv"  2>/dev/null || true ;;
+    aggregator)       pkill -P "$(pgrep -f "${ROOT}/mcp-aggregator/server" | head -1)" 2>/dev/null || true; kill "$(pgrep -f "${ROOT}/mcp-aggregator/server/.venv")" 2>/dev/null || true ;;
+    audit-mcp)        pkill -f "${ROOT}/audit-mcp/.venv"  2>/dev/null || true ;;
+    control-mcp)      pkill -f "${ROOT}/control-mcp/.venv" 2>/dev/null || true ;;
+    memory-mcp)       pkill -f "${ROOT}/memory-mcp/.venv" 2>/dev/null || true ;;
 esac
 sleep 0.5
 
@@ -69,10 +87,10 @@ case "$SERVICE" in
     control-mcp)      start_one control-mcp       control-mcp           "uv run python server.py" ;;
     memory-mcp)       start_one memory-mcp        memory-mcp            "uv run python server.py" ;;
     topology-builder) start_one topology-builder  topology-builder      "uv run python server.py" ;;
-    # BACKENDS_FILE must be set explicitly — the aggregator's own default
-    # (backends.json relative to its cwd) resolves to the submodule's bundled
-    # example, not this repo's real config. Matches start.sh.
-    aggregator)       start_one aggregator        mcp-aggregator/server "BACKENDS_FILE=../backends.json uv run python server.py" ;;
+    # BACKENDS_FILE and AGGREGATOR_PORT must be set explicitly — the aggregator's
+    # own defaults resolve to the submodule's bundled example config, not this
+    # checkout's real one. Matches start.sh.
+    aggregator)       start_one aggregator        mcp-aggregator/server "BACKENDS_FILE=../backends.json AGGREGATOR_PORT=${AGGREGATOR_PORT} uv run python server.py" ;;
     chat-ui)          start_one chat-ui           chat-ui               "uv run python backend.py" ;;
     frontend)         start_one frontend          chat-ui/frontend      "npm run dev" ;;
     *)

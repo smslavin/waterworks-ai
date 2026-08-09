@@ -25,7 +25,8 @@ load_dotenv()
 
 MQTT_HOST = os.environ.get("MQTT_BROKER_URL", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
-MQTT_TOPIC = "Plant/WTP/#"
+PLANT_TOPIC_ROOT = os.environ.get("PLANT_TOPIC_ROOT", "Plant/WTP")
+MQTT_TOPIC = f"{PLANT_TOPIC_ROOT}/#"
 INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
 INFLUXDB_TOKEN = os.environ.get("INFLUXDB_TOKEN", "")
 INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
