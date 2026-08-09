@@ -35,7 +35,9 @@ test('site nav opens and shows regions', async ({ page }) => {
   await page.goto('/')
   await page.locator('.globe-btn').click()
   await expect(page.locator('.site-nav')).toBeVisible()
-  // Back button drills up to region list
+  // No backend/enterprise layer in this environment (dev server only, see
+  // playwright config) — SiteNav falls back to just this plant. Back button
+  // drills up to region list: one region (this plant's own).
   await page.locator('.site-nav-back').click()
-  await expect(page.locator('.site-row')).toHaveCount(2) // Metro Region + Valley Region
+  await expect(page.locator('.site-row')).toHaveCount(1)
 })
