@@ -260,9 +260,14 @@ Key observations:
 
 _SPECIALIST_TOOL_GUIDANCE = """
 ── Tool selection ─────────────────────────────────────────────────────────────
-MQTT: For your initial read of all current values, call get_full_topic_tree once
-— it returns the full plant snapshot in a single call. Do NOT call read_topic_value
-repeatedly for an initial survey; use it only for targeted follow-up reads.
+MQTT: For your initial read of current values, call mqtt__scan once with no
+arguments (default pattern "#") — it returns every live topic and its current
+value in a single call. Do NOT guess a tag_id and call mqtt__read_tag first —
+topic paths are full MQTT paths, not "<Instance>/<Attribute>", so a guessed
+tag_id will time out. Use mqtt__read_tag only for a cheap targeted follow-up
+once you already have the exact topic string from a scan or discover_tags
+call. Do NOT call mqtt__get_topic_tree — it's for topology onboarding, not
+runtime queries, and is intentionally expensive.
 
 InfluxDB: Available measurements are wtp_process and wtp_fault_events.
 Do NOT call list_measurements — use these directly.

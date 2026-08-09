@@ -87,36 +87,28 @@ async def _fetch_fault_history() -> str:
         return ""
 
 
-def _parse_topic_tree(raw: str) -> dict[str, dict[str, list[str]]]:
-    """Parse get_full_topic_tree output into {type: {running: [...], stopped: [...]}}."""
-    current_type: str | None = None
-    current_instance: str | None = None
+def _parse_scan_entries(raw: str) -> dict[str, dict[str, list[str]]]:
+    """Parse mqtt__scan's {"entries": [{"topic": ..., "last_value": ...}]} into
+    {type: {running: [...], stopped: [...]}}. Topic paths are
+    <PLANT_TOPIC_ROOT>/<Type>/<Instance>/<Attribute> — PLANT_TOPIC_ROOT can
+    itself contain "/" (e.g. "Plant/WTP2"), so pull the last 3 segments
+    rather than stripping a fixed-depth prefix."""
     units: dict[str, dict[str, list[str]]] = {}
+    try:
+        entries = json.loads(raw).get("entries", [])
+    except Exception:
+        return units
 
-    for line in raw.splitlines():
-        stripped = line.lstrip()
-        if not stripped or stripped.startswith("["):
+    for entry in entries:
+        topic = entry.get("topic", "")
+        parts = topic.split("/")
+        if len(parts) < 3 or parts[-1] != "Running":
             continue
-        depth = (len(line) - len(stripped)) // 2
-        key, _, val = stripped.partition(" = ")
-        val = val.strip() if val else None
-
-        if depth == 2:
-            current_type = key
-            current_instance = None
-            if current_type not in units:
-                units[current_type] = {"running": [], "stopped": []}
-        elif depth == 3 and current_type:
-            current_instance = key
-        elif (
-            depth == 4
-            and current_type
-            and current_instance
-            and key == "Running"
-            and val is not None
-        ):
-            bucket = "running" if val.lower() in ("true", "1") else "stopped"
-            units[current_type][bucket].append(current_instance)
+        type_, instance = parts[-3], parts[-2]
+        if type_ not in units:
+            units[type_] = {"running": [], "stopped": []}
+        bucket = "running" if entry.get("last_value") else "stopped"
+        units[type_][bucket].append(instance)
 
     return units
 
@@ -165,10 +157,10 @@ async def _fetch_process_state() -> str:
         return _process_state_cache[1]
     try:
         raw = await asyncio.wait_for(
-            call_mcp_tool("mqtt__get_full_topic_tree", {}),
+            call_mcp_tool("mqtt__scan", {}),
             timeout=10.0,
         )
-        parsed = _parse_topic_tree(raw)
+        parsed = _parse_scan_entries(raw)
         _unit_running = {
             name: True for data in parsed.values() for name in data["running"]
         }
@@ -214,7 +206,7 @@ Attributes by unit type:
 
 ── Data access ────────────────────────────────────────────────────────────────
 MQTT topic root : {mqtt_topic_root}/<Type>/<Instance>/<Attribute>
-OPC-UA endpoint : opc.tcp://localhost:4840/waterworks  (call connect_server first)
+OPC-UA endpoint : opc.tcp://localhost:4840/waterworks  (call connect first)
 InfluxDB        : call list_measurements to discover available data
 
 ── Diagnostic approach ────────────────────────────────────────────────────────
@@ -224,11 +216,17 @@ InfluxDB        : call list_measurements to discover available data
 4. Query InfluxDB for historical context when current readings alone are ambiguous
 
 ── Tool selection ─────────────────────────────────────────────────────────────
-For broad queries (health overview, all pumps, full plant): use get_full_topic_tree()
-— it returns every live value in one call. Do NOT call read_topic_value repeatedly
-for a plant-wide snapshot; that is wasteful and slow.
+For broad queries (health overview, all pumps, full plant): use scan() with no
+arguments — it returns every live topic and its current value in one call.
+Do NOT guess a topic path and call read_tag first; topic paths are full MQTT
+paths (see "Data access" above), not "<Instance>/<Attribute>", so a guessed
+path will time out.
 
-For targeted queries (one unit, one attribute): use read_topic_value(topic_path).
+For targeted queries (one unit, one attribute), once you already know the
+exact topic path from a scan: use read_tag(topic_path).
+
+Do NOT call get_topic_tree — it's for topology onboarding, not runtime
+queries, and is intentionally expensive.
 
 Always cite specific values and timestamps (e.g. "Flow is 12.4 L/min at 14:32:05").
 Do not assert a value without first reading it from a tool.
