@@ -1,9 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { render, fireEvent, cleanup } from '@testing-library/vue'
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import SiteNav from '@/components/statusbar/SiteNav.vue'
 import { useUIStore } from '@/stores/ui'
+
+const DIRECTORY = {
+  wtp: { name: 'Waterworks', region: 'Metro Region', chat_ui_url: 'http://localhost:8080' },
+  wtp2: { name: 'Eastside', region: 'Metro Region', chat_ui_url: 'http://localhost:8010' },
+}
+
+function mockSitesFetch(directory: Record<string, unknown> = DIRECTORY) {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => directory,
+  }))
+}
 
 function renderNav(siteNavOpen = false) {
   const pinia = createPinia()
@@ -18,8 +31,11 @@ function renderNav(siteNavOpen = false) {
 }
 
 describe('SiteNav', () => {
-  beforeEach(() => { setActivePinia(createPinia()) })
-  afterEach(() => cleanup())
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockSitesFetch()
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
   it('is hidden when siteNavOpen is false', () => {
     const { container } = renderNav(false)
@@ -31,23 +47,42 @@ describe('SiteNav', () => {
     expect(container.querySelector('.site-nav')).toBeTruthy()
   })
 
-  it('renders sites in the active region', () => {
+  it('shows this plant even before the directory fetch resolves', () => {
     const { container } = renderNav(true)
-    // Opens in site-list view for the active region (Metro Region: Waterworks, Eastside, Northgate)
-    expect(container.querySelectorAll('.site-row')).toHaveLength(3)
+    const rows = container.querySelectorAll('.site-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.textContent).toContain('Waterworks')
+  })
+
+  it('renders sites from the fetched directory once loaded', async () => {
+    const { container } = renderNav(true)
+    await flushPromises()
+    expect(container.querySelectorAll('.site-row')).toHaveLength(2)
+    expect(container.textContent).toContain('Eastside')
+  })
+
+  it('marks the active site as current', async () => {
+    const { container } = renderNav(true)
+    await flushPromises()
+    const rows = Array.from(container.querySelectorAll('.site-row'))
+    const current = rows.find(r => r.textContent?.includes('Waterworks'))
+    expect(current?.classList).toContain('current')
+  })
+
+  it('falls back to just this plant when the directory fetch fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('enterprise layer down')))
+    const { container } = renderNav(true)
+    await flushPromises()
+    expect(container.querySelectorAll('.site-row')).toHaveLength(1)
+    expect(container.querySelector('.site-nav-empty')).toBeTruthy()
   })
 
   it('shows region list when back button is clicked', async () => {
     const { container } = renderNav(true)
+    await flushPromises()
     await fireEvent.click(container.querySelector('.site-nav-back')!)
-    // 2 regions: Metro Region + Valley Region
-    expect(container.querySelectorAll('.site-row')).toHaveLength(2)
-  })
-
-  it('marks Waterworks as current site', () => {
-    const { container } = renderNav(true)
-    const rows = container.querySelectorAll('.site-row')
-    expect(rows[0]!.classList).toContain('current')
+    // One region present (Metro Region) since both fetched sites share it
+    expect(container.querySelectorAll('.site-row')).toHaveLength(1)
   })
 
   it('close button sets siteNavOpen to false', async () => {
@@ -56,13 +91,26 @@ describe('SiteNav', () => {
     expect(ui.siteNavOpen).toBe(false)
   })
 
-  it('shows correct area status dots for Waterworks', () => {
+  it('clicking the current site just closes the nav, without navigating', async () => {
+    const { container, ui } = renderNav(true)
+    await flushPromises()
+    const rows = Array.from(container.querySelectorAll('.site-row'))
+    const current = rows.find(r => r.textContent?.includes('Waterworks'))
+    await fireEvent.click(current!)
+    expect(ui.siteNavOpen).toBe(false)
+  })
+
+  it('clicking a different live site navigates the browser there', async () => {
+    // jsdom throws on direct assignment to window.location.href; stub the
+    // whole global instead — only .href is read by SiteNav.
+    const stubLocation = { href: '' }
+    vi.stubGlobal('location', stubLocation)
     const { container } = renderNav(true)
-    const waterworksRow = container.querySelector('.site-row.current')
-    const dots = waterworksRow?.querySelectorAll('.site-area-dot')
-    expect(dots?.[0]?.classList).toContain('crit')
-    expect(dots?.[1]?.classList).toContain('warn')
-    expect(dots?.[2]?.classList).toContain('crit')
+    await flushPromises()
+    const rows = Array.from(container.querySelectorAll('.site-row'))
+    const eastside = rows.find(r => r.textContent?.includes('Eastside'))
+    await fireEvent.click(eastside!)
+    expect(stubLocation.href).toBe('http://localhost:8010')
   })
 
   it('appears after siteNavOpen becomes true', async () => {

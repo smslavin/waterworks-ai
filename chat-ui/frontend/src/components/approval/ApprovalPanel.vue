@@ -29,6 +29,10 @@ async function deny() {
     >
       <div class="approval-header">
         <span class="approval-badge">Pending Approval</span>
+        <!-- Always this plant's own site — an operator with multiple plants
+             open in different tabs needs this to confirm which plant's
+             control-mcp a setpoint change actually targets. See M10 Phase 4. -->
+        <span class="approval-site">{{ ui.activeSite }}</span>
         <button class="approval-close" @click="ui.approvalOpen = false">✕</button>
       </div>
 
@@ -85,6 +89,15 @@ async function deny() {
   letter-spacing: 0.08em;
   color: #a855f7;
   animation: approval-pill-pulse 2s ease-in-out infinite;
+}
+
+.approval-site {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text2);
+  white-space: nowrap;
+  margin-left: auto;
+  margin-right: 8px;
 }
 
 .approval-close {

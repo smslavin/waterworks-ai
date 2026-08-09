@@ -59,6 +59,18 @@ describe('ApprovalPanel', () => {
     expect(container.querySelector('.approval-impact')?.textContent).toContain('Intake flow will decrease')
   })
 
+  it('shows the active site, so an operator with multiple plants open knows which one this is', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const ui = useUIStore()
+    const approvals = useApprovalStore()
+    ui.setActiveSite('Eastside', 'Metro Region')
+    approvals.push(MOCK)
+    ui.approvalOpen = true
+    const { container } = render(ApprovalPanel, { global: { plugins: [pinia] } })
+    expect(container.querySelector('.approval-site')?.textContent).toBe('Eastside')
+  })
+
   describe('approve', () => {
     it('removes the approval from the queue', async () => {
       const { container, approvals } = renderPanel(true)

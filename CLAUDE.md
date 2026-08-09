@@ -57,6 +57,20 @@ a second plant runs a full second checkout with its own `.env` overriding
 each one (see `enterprise.yaml`, `plant_registry.py`). The enterprise layer
 itself runs once, shared across every plant it's configured to reach.
 
+**M10 Phase 4 — SiteNav wiring**: `chat-ui/backend.py` exposes `GET /api/site`
+(this plant's own `SITE_ID`/`SITE_NAME`/`REGION_NAME`) and `GET /api/sites`
+(server-side proxy of the enterprise orchestrator's `/api/sites`, so the
+orchestrator's URL stays backend config, not a second CORS surface). The
+frontend's `SiteNav.vue` uses these to seed `stores/ui.ts`'s `activeSite`/
+`activeRegion` and to list real cross-plant sites. **Switching sites is a
+full browser navigation** to the target plant's own `chat_ui_url`, not an
+in-app API repoint — deliberately, to avoid opening CORS between plant
+origins on a system with an actuation path (`control-mcp`'s `set_setpoint`).
+Only this plant's own area-status dots in `SiteNav.vue` are real (sourced
+from `stores/topology.ts`); other plants show no dots (no live cross-plant
+health fetch exists yet). Live in-app switching (the CORS-based version) is
+deferred — see smslavin/waterworks-ai#7.
+
 ## Repo structure
 
 ```

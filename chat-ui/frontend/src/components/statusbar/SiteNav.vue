@@ -2,32 +2,69 @@
 import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useUIStore } from '@/stores/ui'
+import { useTopologyStore, AREA_ORDER, type AlarmState } from '@/stores/topology'
 
 const ui = useUIStore()
+const topo = useTopologyStore()
 const { activeRegion, activeSite } = storeToRefs(ui)
 
 type AreaStatus = 'ok' | 'warn' | 'crit'
 interface SiteArea { label: string; status: AreaStatus }
-interface Site { name: string; areas: SiteArea[] }
+interface Site { name: string; chatUiUrl: string | null; areas: SiteArea[] }
 interface Region { name: string; sites: Site[] }
 
-const ENTERPRISE: Region[] = [
-  {
-    name: 'Metro Region',
-    sites: [
-      { name: 'Waterworks', areas: [{ label: 'Intake', status: 'crit' }, { label: 'Treatment', status: 'warn' }, { label: 'Distribution', status: 'crit' }] },
-      { name: 'Eastside',   areas: [{ label: 'Intake', status: 'ok' },  { label: 'Treatment', status: 'ok' },  { label: 'Distribution', status: 'ok' }] },
-      { name: 'Northgate',  areas: [{ label: 'Intake', status: 'ok' },  { label: 'Treatment', status: 'warn' }, { label: 'Distribution', status: 'ok' }] },
-    ],
-  },
-  {
-    name: 'Valley Region',
-    sites: [
-      { name: 'Riverfront', areas: [{ label: 'Intake', status: 'ok' }, { label: 'Treatment', status: 'ok' }, { label: 'Distribution', status: 'ok' }] },
-      { name: 'Creekside',  areas: [{ label: 'Intake', status: 'ok' }, { label: 'Treatment', status: 'ok' }, { label: 'Distribution', status: 'warn' }] },
-    ],
-  },
-]
+interface DirectorySite {
+  name: string
+  region: string
+  chat_ui_url: string
+}
+
+// Populated from GET /api/sites (a proxy of the enterprise orchestrator's
+// own /api/sites — see chat-ui/backend.py's sites_endpoint). Empty when the
+// enterprise layer isn't running; this plant is always injected below so the
+// popover is never empty even then.
+const directory = ref<Record<string, DirectorySite>>({})
+const loaded = ref(false)
+
+function alarmToStatus(state: AlarmState): AreaStatus {
+  if (state === 'critical' || state === 'pending-approval') return 'crit'
+  if (state === 'warning') return 'warn'
+  return 'ok'
+}
+
+// Only this plant's own area status is real (sourced from the already-loaded
+// topology/alarm state) — other plants' live health isn't fetched by Phase 4
+// (deferred, see plan_m10_enterprise_multiplant.md's Phase 4 follow-up note).
+const ownAreas = computed<SiteArea[]>(() =>
+  AREA_ORDER.filter(a => topo.nodesByArea[a]?.length).map(area => ({
+    label: area,
+    status: (topo.nodesByArea[area] ?? []).reduce<AreaStatus>((worst, n) => {
+      const s = alarmToStatus(n.alarmState)
+      if (worst === 'crit' || s === 'crit') return s === 'crit' ? 'crit' : worst
+      return s === 'warn' || worst === 'warn' ? 'warn' : 'ok'
+    }, 'ok'),
+  }))
+)
+
+const regions = computed<Region[]>(() => {
+  const byRegion = new Map<string, Site[]>()
+
+  function addSite(regionName: string, site: Site) {
+    const list = byRegion.get(regionName) ?? []
+    if (!list.some(s => s.name === site.name)) list.push(site)
+    byRegion.set(regionName, list)
+  }
+
+  // Always include this plant first, with real area status.
+  addSite(activeRegion.value, { name: activeSite.value, chatUiUrl: null, areas: ownAreas.value })
+
+  for (const site of Object.values(directory.value)) {
+    if (site.name === activeSite.value) continue // already added above, with real status
+    addSite(site.region, { name: site.name, chatUiUrl: site.chat_ui_url, areas: [] })
+  }
+
+  return Array.from(byRegion.entries()).map(([name, sites]) => ({ name, sites }))
+})
 
 function worstStatus(statuses: AreaStatus[]): AreaStatus {
   if (statuses.includes('crit')) return 'crit'
@@ -47,24 +84,46 @@ const viewingRegionOverride = ref<string | null>(null)
 const viewingRegion = computed(() => viewingRegionOverride.value ?? activeRegion.value)
 
 const sitesInRegion = computed(() =>
-  ENTERPRISE.find(r => r.name === viewingRegion.value)?.sites ?? []
+  regions.value.find(r => r.name === viewingRegion.value)?.sites ?? []
 )
 
-// Reset to the current site's region every time the nav opens
+async function loadDirectory() {
+  try {
+    const resp = await fetch('/api/sites')
+    if (resp.ok) directory.value = await resp.json()
+  } catch { /* enterprise layer unreachable — just show this plant */ }
+  loaded.value = true
+}
+
+// Reset to the current site's region every time the nav opens, and refresh
+// the directory (cheap read, keeps a newly-registered plant from requiring
+// a page reload to appear). `immediate: true` because the nav can already be
+// open at mount time (e.g. a hot-reload or test render) — a plain watcher
+// only fires on change, so it would never fetch in that case.
 watch(() => ui.siteNavOpen, (open) => {
   if (open) {
     navLevel.value = 'site'
     viewingRegionOverride.value = null
+    loadDirectory()
   }
-})
+}, { immediate: true })
 
 function drillToRegion(regionName: string) {
   viewingRegionOverride.value = regionName
   navLevel.value = 'site'
 }
 
-const LIVE_SITES = new Set(['Waterworks'])
-const isLive = (name: string) => LIVE_SITES.has(name)
+function selectSite(site: Site) {
+  if (site.name === activeSite.value) {
+    ui.siteNavOpen = false
+    return
+  }
+  // Cross-plant switching is a full browser navigation to that plant's own
+  // chat-ui origin, not an in-app API repoint — deliberately, to avoid
+  // opening CORS between plant origins on a system with an actuation path
+  // (control-mcp setpoints). See plan_m10_enterprise_multiplant.md.
+  if (site.chatUiUrl) window.location.href = site.chatUiUrl
+}
 </script>
 
 <template>
@@ -94,7 +153,7 @@ const isLive = (name: string) => LIVE_SITES.has(name)
       <!-- Body: region list -->
       <div v-if="navLevel === 'region'" class="site-nav-body">
         <button
-          v-for="region in ENTERPRISE"
+          v-for="region in regions"
           :key="region.name"
           class="site-row"
           :class="{ current: region.name === activeRegion }"
@@ -117,14 +176,12 @@ const isLive = (name: string) => LIVE_SITES.has(name)
           v-for="site in sitesInRegion"
           :key="site.name"
           class="site-row"
-          :class="{ current: site.name === activeSite, offline: !isLive(site.name) }"
-          :disabled="!isLive(site.name)"
-          @click="ui.setActiveSite(site.name, viewingRegion)"
+          :class="{ current: site.name === activeSite }"
+          @click="selectSite(site)"
         >
           <span class="site-indicator" :class="{ current: site.name === activeSite }" />
           <span class="site-name">{{ site.name }}</span>
-          <span v-if="!isLive(site.name)" class="site-offline-badge">offline</span>
-          <div v-else class="site-area-dots">
+          <div class="site-area-dots">
             <span
               v-for="area in site.areas"
               :key="area.label"
@@ -134,6 +191,9 @@ const isLive = (name: string) => LIVE_SITES.has(name)
             />
           </div>
         </button>
+        <div v-if="loaded && sitesInRegion.length <= 1" class="site-nav-empty">
+          No other sites reachable — check the enterprise layer is running.
+        </div>
       </div>
     </div>
   </Transition>
@@ -226,20 +286,11 @@ const isLive = (name: string) => LIVE_SITES.has(name)
   background: var(--color-bg3);
 }
 
-.site-row.offline {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.site-offline-badge {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.site-nav-empty {
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--color-text2);
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  padding: 1px 5px;
 }
 
 .site-row.current {

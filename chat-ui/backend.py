@@ -9,6 +9,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
+from urllib.parse import urlparse
 
 _log_dir = os.path.join(os.path.dirname(__file__), "logs")
 os.makedirs(_log_dir, exist_ok=True)
@@ -63,6 +64,19 @@ SIMULATOR_CONTROL = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:80
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 _METRICS_DB = os.environ.get(
     "METRICS_DB_PATH", os.path.join(os.path.dirname(__file__), "metrics.db")
+)
+
+# M10 Phase 4: this plant's own identity + where to find the enterprise
+# directory. SITE_NAME/REGION_NAME match enterprise.yaml's `name` fields for
+# this site_id by convention (same pattern as SITE_ID matching
+# facility.site_id — see session_store.py) — not parsed out of enterprise.yaml,
+# since that file only lives in one plant's checkout (see enterprise.yaml's
+# own header comment) and every other plant needs these too.
+SITE_ID = os.environ.get("SITE_ID", "wtp")
+SITE_NAME = os.environ.get("SITE_NAME", "Waterworks")
+REGION_NAME = os.environ.get("REGION_NAME", "Metro Region")
+ENTERPRISE_ORCHESTRATOR_URL = os.environ.get(
+    "ENTERPRISE_ORCHESTRATOR_URL", "http://localhost:8020"
 )
 
 _topology = _topo_loader.load()
@@ -138,6 +152,13 @@ async def models_endpoint(request: Request):
     return JSONResponse({"cloud": cloud, "local": local})
 
 
+def _port_from_url(url: str, default: int) -> int:
+    try:
+        return urlparse(url).port or default
+    except Exception:
+        return default
+
+
 async def health_endpoint(request: Request):
     async def tcp_ok(host: str, port: int) -> bool:
         try:
@@ -150,14 +171,17 @@ async def health_endpoint(request: Request):
         except Exception:
             return False
 
+    # Ports read from the same env vars each service actually binds to (see
+    # M10 Phase 0) — previously hardcoded to wtp1's defaults, which silently
+    # reported wtp1's port status under wtp2's own /api/health.
     results = await asyncio.gather(
-        tcp_ok("localhost", 8100),  # aggregator
-        tcp_ok("localhost", 8086),  # influxdb
-        tcp_ok("localhost", 1883),  # mqtt
-        tcp_ok("localhost", 8090),  # simulator control
-        tcp_ok("localhost", 8004),  # audit-mcp
-        tcp_ok("localhost", 8005),  # control-mcp
-        tcp_ok("localhost", 8006),  # memory-mcp
+        tcp_ok("localhost", _port_from_url(MCP_AGGREGATOR_URL, 8100)),
+        tcp_ok("localhost", int(os.environ.get("INFLUXDB_HOST_PORT", 8086))),
+        tcp_ok("localhost", int(os.environ.get("MQTT_BROKER_PORT", 1883))),
+        tcp_ok("localhost", _port_from_url(SIMULATOR_CONTROL, 8090)),
+        tcp_ok("localhost", int(os.environ.get("AUDIT_MCP_PORT", 8004))),
+        tcp_ok("localhost", int(os.environ.get("CONTROL_MCP_PORT", 8005))),
+        tcp_ok("localhost", int(os.environ.get("MEMORY_MCP_PORT", 8006))),
     )
     keys = (
         "aggregator",
@@ -169,6 +193,34 @@ async def health_endpoint(request: Request):
         "memory_mcp",
     )
     return JSONResponse({k: "ok" if v else "error" for k, v in zip(keys, results)})
+
+
+async def site_endpoint(request: Request):
+    """This plant's own identity, for the frontend to seed activeSite/
+    activeRegion instead of SiteNav.vue's old hardcoded 'Waterworks' default."""
+    return JSONResponse(
+        {"site_id": SITE_ID, "site_name": SITE_NAME, "region_name": REGION_NAME}
+    )
+
+
+async def sites_endpoint(request: Request):
+    """Proxy to the enterprise orchestrator's /api/sites (itself a thin read
+    of enterprise.yaml — see enterprise/orchestrator/backend.py). Proxied
+    rather than fetched directly by the browser so the orchestrator's URL
+    stays server-side config, not a second CORS surface. Empty dict (not an
+    error status) when the enterprise layer isn't running — SiteNav.vue falls
+    back to showing just this plant."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
+                f"{ENTERPRISE_ORCHESTRATOR_URL}/api/sites", timeout=3.0
+            )
+            resp.raise_for_status()
+            return JSONResponse(resp.json())
+    except Exception:
+        return JSONResponse({})
 
 
 async def chat_endpoint(request: Request):
@@ -904,6 +956,8 @@ routes = [
     Route("/", index),
     Route("/api/models", models_endpoint),
     Route("/api/health", health_endpoint),
+    Route("/api/site", site_endpoint),
+    Route("/api/sites", sites_endpoint),
     Route("/api/chat", chat_endpoint, methods=["POST"]),
     Route("/api/action/respond", action_respond_endpoint, methods=["POST"]),
     Route("/api/fault", fault_endpoint, methods=["POST"]),

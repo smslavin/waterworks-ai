@@ -24,6 +24,14 @@ usePanelDismiss()
 
 onMounted(async () => {
   try {
+    const resp = await fetch('/api/site')
+    if (resp.ok) {
+      const site = await resp.json() as { site_id: string; site_name: string; region_name: string }
+      ui.setActiveSite(site.site_name, site.region_name)
+    }
+  } catch { /* backend not running — keep ui.ts defaults */ }
+
+  try {
     const resp = await fetch('/api/fault/status')
     if (resp.ok) {
       const status = await resp.json() as Record<string, string>
