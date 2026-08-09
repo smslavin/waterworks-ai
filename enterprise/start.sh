@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Start the enterprise layer (diagnose_plant_mcp + orchestrator).
+# Start the enterprise layer (diagnose_plant_mcp + query_history_mcp +
+# orchestrator).
 # Reads enterprise.yaml at repo root — expects the plants it lists to already
-# be running (their chat-ui URLs). Logs go to logs/<service>.log.
+# be running (their chat-ui/aggregator URLs). Logs go to logs/<service>.log.
 
 set -e
 cd "$(dirname "$0")"
@@ -34,6 +35,7 @@ start_service() {
 
 echo "Starting enterprise services..."
 start_service "diagnose-plant-mcp" "diagnose_plant_mcp" "uv run python server.py"
+start_service "query-history-mcp" "query_history_mcp" "uv run python server.py"
 sleep 1  # give diagnose_plant_mcp a head start before the orchestrator's first list_mcp_tools()
 start_service "enterprise-orchestrator" "orchestrator" "uv run python backend.py"
 

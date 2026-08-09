@@ -1,0 +1,4 @@
+mcp[cli]>=2.0
+python-dotenv
+httpx
+pyyaml

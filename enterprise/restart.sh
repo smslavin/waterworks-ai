@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 ROOT="$(pwd)"
 
 SERVICE="$1"
-SERVICES="diagnose-plant-mcp enterprise-orchestrator"
+SERVICES="diagnose-plant-mcp query-history-mcp enterprise-orchestrator"
 
 if [[ -z "$SERVICE" ]]; then
     echo "Usage: $0 <service>"
@@ -30,6 +30,7 @@ fi
 # same-named service — see waterworks-ai/restart.sh for the full rationale.
 case "$SERVICE" in
     diagnose-plant-mcp)      pkill -f "${ROOT}/diagnose_plant_mcp/.venv" 2>/dev/null || true ;;
+    query-history-mcp)       pkill -f "${ROOT}/query_history_mcp/.venv" 2>/dev/null || true ;;
     enterprise-orchestrator) pkill -f "${ROOT}/orchestrator/.venv"       2>/dev/null || true ;;
 esac
 sleep 0.5
@@ -46,6 +47,7 @@ start_one() {
 
 case "$SERVICE" in
     diagnose-plant-mcp)      start_one diagnose-plant-mcp      diagnose_plant_mcp "uv run python server.py" ;;
+    query-history-mcp)       start_one query-history-mcp       query_history_mcp  "uv run python server.py" ;;
     enterprise-orchestrator) start_one enterprise-orchestrator orchestrator       "uv run python backend.py" ;;
     *)
         echo "Unknown service: $SERVICE"

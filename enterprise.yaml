@@ -1,3 +1,7 @@
+# aggregator_url is used only by query_history_mcp (M10 Phase 3) to call each
+# plant's own audit-mcp directly — audit/history data isn't raw sensor/control
+# access, so it doesn't need diagnose_plant_mcp's (Phase 2) chat-ui-only
+# guarantee. diagnose_plant_mcp never reads this field.
 enterprise:
   name: "Metro Water Authority"
 regions:
@@ -8,10 +12,12 @@ regions:
         name: "Waterworks"
         topology_file: topology.yaml
         chat_ui_url: http://localhost:8080
+        aggregator_url: http://localhost:8100/sse
       - site_id: wtp2
         name: "Eastside"
         topology_file: topology-wtp2.yaml
         chat_ui_url: http://localhost:8010
+        aggregator_url: http://localhost:8110/sse
   - id: valley
     name: "Valley Region"
     sites: []

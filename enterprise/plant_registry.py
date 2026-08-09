@@ -20,9 +20,13 @@ def _resolve_path(path: str | Path | None = None) -> Path:
 
 
 def load_sites(path: str | Path | None = None) -> dict[str, dict]:
-    """Return {site_id: {name, region, topology_file, chat_ui_url}}, flattened
-    across every region in enterprise.yaml. Sites without a chat_ui_url (e.g.
-    a region listed with no sites yet) are skipped."""
+    """Return {site_id: {name, region, topology_file, chat_ui_url,
+    aggregator_url}}, flattened across every region in enterprise.yaml. Sites
+    without a chat_ui_url (e.g. a region listed with no sites yet) are
+    skipped. aggregator_url may be absent (only query_history_mcp needs it —
+    see enterprise.yaml's header comment for why that's a deliberate, scoped
+    exception to diagnose_plant_mcp's chat-ui-only guarantee, not a general
+    relaxation of it)."""
     with open(_resolve_path(path)) as f:
         data = yaml.safe_load(f) or {}
 
@@ -38,6 +42,7 @@ def load_sites(path: str | Path | None = None) -> dict[str, dict]:
                 "region": region.get("name", region.get("id", "")),
                 "topology_file": site.get("topology_file"),
                 "chat_ui_url": chat_ui_url,
+                "aggregator_url": site.get("aggregator_url"),
             }
     return sites
 
