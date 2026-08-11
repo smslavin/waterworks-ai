@@ -123,10 +123,19 @@ function selectSite(site: Site) {
   // opening CORS between plant origins on a system with an actuation path
   // (control-mcp setpoints). See plan_m10_enterprise_multiplant.md.
   if (!site.chatUiUrl) return
+  // enterprise.yaml's chat_ui_url is written as http://localhost:<port> —
+  // correct for the backend-to-backend calls that also read it (orchestrator,
+  // diagnose_plant_mcp), which run on the same host as every plant. But this
+  // is a *browser* navigation: if the browser isn't on that host (e.g. it's
+  // on the VMware host machine, reaching the VM at 192.168.x.x), "localhost"
+  // resolves to the browser's own machine instead, which has nothing on that
+  // port — swap in whatever host got us to *this* page instead of trusting
+  // chat_ui_url's host verbatim (its port is still per-plant and correct).
+  const url = new URL(site.chatUiUrl)
+  url.hostname = window.location.hostname
   // Carry UI-preference toggles across the navigation as query params —
   // App.vue reads them on mount. Deliberately not URL-encoding arbitrary
   // state: just the two flags that don't survive a fresh page load.
-  const url = new URL(site.chatUiUrl)
   if (ui.multiAgent) url.searchParams.set('multiAgent', '1')
   if (ui.reactiveOn) url.searchParams.set('reactive', '1')
   window.location.href = url.toString()

@@ -102,8 +102,10 @@ describe('SiteNav', () => {
 
   it('clicking a different live site navigates the browser there', async () => {
     // jsdom throws on direct assignment to window.location.href; stub the
-    // whole global instead — only .href is read by SiteNav.
-    const stubLocation = { href: '' }
+    // whole global instead. hostname: 'localhost' matches chat_ui_url's own
+    // host, so the rewrite in selectSite() is a no-op for this test — see
+    // the dedicated host-rewrite test below for the case where it isn't.
+    const stubLocation = { href: '', hostname: 'localhost' }
     vi.stubGlobal('location', stubLocation)
     const { container } = renderNav(true)
     await flushPromises()
@@ -114,7 +116,7 @@ describe('SiteNav', () => {
   })
 
   it('carries multiAgent and reactive toggles as query params on the navigation', async () => {
-    const stubLocation = { href: '' }
+    const stubLocation = { href: '', hostname: 'localhost' }
     vi.stubGlobal('location', stubLocation)
     const { container, ui } = renderNav(true)
     ui.multiAgent = true
@@ -129,7 +131,7 @@ describe('SiteNav', () => {
   })
 
   it('does not carry toggles that are off', async () => {
-    const stubLocation = { href: '' }
+    const stubLocation = { href: '', hostname: 'localhost' }
     vi.stubGlobal('location', stubLocation)
     const { container } = renderNav(true)
     await flushPromises()
@@ -139,6 +141,23 @@ describe('SiteNav', () => {
     const url = new URL(stubLocation.href)
     expect(url.searchParams.has('multiAgent')).toBe(false)
     expect(url.searchParams.has('reactive')).toBe(false)
+  })
+
+  it('rewrites the target host to match how the browser reached this page, not chat_ui_url literally', async () => {
+    // e.g. the whole stack running in a VM, reached from a browser on the
+    // host machine via the VM's LAN IP — chat_ui_url is written as
+    // localhost (correct for same-host backend-to-backend calls) but that
+    // resolves to the browser's own machine, not the VM, if trusted as-is.
+    const stubLocation = { href: '', hostname: '192.168.80.137' }
+    vi.stubGlobal('location', stubLocation)
+    const { container } = renderNav(true)
+    await flushPromises()
+    const rows = Array.from(container.querySelectorAll('.site-row'))
+    const eastside = rows.find(r => r.textContent?.includes('Eastside'))
+    await fireEvent.click(eastside!)
+    const url = new URL(stubLocation.href)
+    expect(url.hostname).toBe('192.168.80.137')
+    expect(url.port).toBe('8010')
   })
 
   it('appears after siteNavOpen becomes true', async () => {
