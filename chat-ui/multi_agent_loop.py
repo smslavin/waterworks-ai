@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 
 TOOL_RESULT_MAX_CHARS = 8_000
 
+# Hard cap on tool-calling rounds per specialist. Without this, a specialist's
+# while-True loop only ends when the model itself decides to stop — nothing
+# bounds how many rounds it takes. With 4 specialists per plant and no cap,
+# one specialist doing several rounds of investigation (each a real Claude
+# round-trip) can push a single plant's diagnose_plant call past the
+# enterprise orchestrator's 240s per-plant timeout on its own. This forces
+# an early FINDINGS extraction instead, same fallback already used when the
+# model ends its turn without ever emitting one.
+SPECIALIST_MAX_ROUNDS = 4
+
 SPECIALIST_MODEL = "claude-haiku-4-5-20251001"
 ORCHESTRATOR_MODEL = "claude-sonnet-4-6"
 
@@ -294,6 +304,37 @@ def _parse_findings(text: str) -> tuple[str, float]:
     return status, confidence
 
 
+async def _ensure_findings(
+    client: anthropic.AsyncAnthropic, model: str, full_text: str, name: str
+) -> str:
+    """Force a FINDINGS block onto full_text if it doesn't already have one —
+    shared by both the natural end-of-turn case and the max-rounds cutoff."""
+    if _FINDINGS_RE.search(full_text):
+        return full_text
+    try:
+        extr = await client.messages.create(
+            model=model,
+            max_tokens=256,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Based on this diagnostic analysis, complete the FINDINGS block.\n"
+                        f"Required format:\nFINDINGS:\nStatus: <Normal|Anomaly Detected|Fault Detected>\n"
+                        f"Confidence: <0.0-1.0>\nKey observations:\n- <bullet>\n\n"
+                        f"Analysis:\n{full_text[-800:]}"
+                    ),
+                },
+                {"role": "assistant", "content": "FINDINGS:\nStatus:"},
+            ],
+        )
+        if extr.content:
+            full_text += "\nFINDINGS:\nStatus:" + extr.content[0].text
+    except Exception as exc:
+        logger.warning("FINDINGS extraction failed for %s: %s", name, exc)
+    return full_text
+
+
 def _filter_tools(all_tools: list[dict], prefixes: tuple[str, ...]) -> list[dict]:
     return [t for t in all_tools if any(t["name"].startswith(p) for p in prefixes)]
 
@@ -359,7 +400,9 @@ async def _run_specialist(
     await queue.put({"type": "specialist_start", "specialist": name})
 
     try:
+        round_num = 0
         while True:
+            round_num += 1
             kwargs: dict = dict(
                 model=SPECIALIST_MODEL,
                 max_tokens=8192,
@@ -387,30 +430,20 @@ async def _run_specialist(
             cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
 
             if final.stop_reason == "end_turn":
-                if not _FINDINGS_RE.search(full_text):
-                    try:
-                        extr = await client.messages.create(
-                            model=SPECIALIST_MODEL,
-                            max_tokens=256,
-                            messages=[
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        f"Based on this diagnostic analysis, complete the FINDINGS block.\n"
-                                        f"Required format:\nFINDINGS:\nStatus: <Normal|Anomaly Detected|Fault Detected>\n"
-                                        f"Confidence: <0.0-1.0>\nKey observations:\n- <bullet>\n\n"
-                                        f"Analysis:\n{full_text[-800:]}"
-                                    ),
-                                },
-                                {"role": "assistant", "content": "FINDINGS:\nStatus:"},
-                            ],
-                        )
-                        if extr.content:
-                            full_text += "\nFINDINGS:\nStatus:" + extr.content[0].text
-                    except Exception as exc:
-                        logger.warning(
-                            "FINDINGS extraction failed for %s: %s", name, exc
-                        )
+                full_text = await _ensure_findings(
+                    client, SPECIALIST_MODEL, full_text, name
+                )
+                break
+
+            if final.stop_reason == "tool_use" and round_num >= SPECIALIST_MAX_ROUNDS:
+                logger.warning(
+                    "Specialist %s hit SPECIALIST_MAX_ROUNDS (%d) — forcing conclusion",
+                    name,
+                    SPECIALIST_MAX_ROUNDS,
+                )
+                full_text = await _ensure_findings(
+                    client, SPECIALIST_MODEL, full_text, name
+                )
                 break
 
             if final.stop_reason == "tool_use":
