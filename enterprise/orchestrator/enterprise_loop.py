@@ -7,6 +7,7 @@ aggregator, MQTT, or InfluxDB directly — diagnose_plant is the only tool it
 has access to, structurally, not just by prompt instruction.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -134,18 +135,33 @@ async def run_chat(
                             }
                         )
 
-                tool_results = []
-                for block in final.content:
-                    if block.type != "tool_use":
-                        continue
-                    args = dict(block.input)
+                tool_use_blocks = [b for b in final.content if b.type == "tool_use"]
+                for block in tool_use_blocks:
                     yield json.dumps(
-                        {"type": "tool_call", "tool": block.name, "args": args}
+                        {
+                            "type": "tool_call",
+                            "tool": block.name,
+                            "args": dict(block.input),
+                        }
                     )
 
-                    result = await call_mcp_tool(
-                        block.name, args, DIAGNOSE_PLANT_MCP_URL
+                # Each diagnose_plant call is its own full agentic round-trip to a
+                # plant's own diagnostic loop — the slow part. When the model asks
+                # about multiple plants in one turn, run them concurrently instead
+                # of one at a time (same pattern multi_agent_loop.py already uses
+                # for its own specialist fan-out) — total wait becomes the slowest
+                # plant checked, not the sum of every plant checked.
+                results = await asyncio.gather(
+                    *(
+                        call_mcp_tool(
+                            block.name, dict(block.input), DIAGNOSE_PLANT_MCP_URL
+                        )
+                        for block in tool_use_blocks
                     )
+                )
+
+                tool_results = []
+                for block, result in zip(tool_use_blocks, results):
                     if len(result) > TOOL_RESULT_MAX_CHARS:
                         result = result[:TOOL_RESULT_MAX_CHARS] + "... [truncated]"
 
