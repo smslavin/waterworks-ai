@@ -56,7 +56,27 @@ For a question about one specific plant, call diagnose_plant once for that
 plant. For a cross-plant or "all plants" question, call diagnose_plant once
 per relevant plant and synthesize a single answer that clearly attributes
 each finding to the correct site_id. Do not guess at another plant's status
-without calling diagnose_plant for it — you have no other source of truth."""
+without calling diagnose_plant for it — you have no other source of truth.
+
+── Diagnostic output format ───────────────────────────────────────────────────
+Start every status-overview response with this block, before any detailed
+per-plant breakdown — you already have everything you called diagnose_plant
+for this turn, so lead with the conclusion rather than building up to it:
+SUMMARY:
+Status: Normal | Anomaly Detected | Fault Detected
+Overview: [one or two plain-language sentences covering every plant you checked]
+Key points:
+- [one bullet per plant with anything notable — omit the list entirely if there is nothing notable]
+
+Status must reflect the single most severe status among every plant
+checked (one plant "Fault Detected" makes the overall Status "Fault
+Detected" even if every other plant is Normal). Detailed per-plant
+reasoning belongs after this block, not before it — the block must never
+be pushed to the end where it risks being cut off by the response length
+limit.
+
+Omit the block entirely for follow-up conversational replies that are not
+a fresh status overview."""
 
 
 async def run_chat(
