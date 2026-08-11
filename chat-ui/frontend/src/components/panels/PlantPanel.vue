@@ -87,8 +87,15 @@ interface PlantSummary {
 // residual ** would be.
 const SUMMARY_RE = /SUMMARY:\s*\n\*{0,2}Status:\*{0,2}\s*([^\n]+?)\*{0,2}\n\*{0,2}Overview:\*{0,2}\s*([^\n]+?)\*{0,2}\n(?:\n?\*{0,2}Key points:\*{0,2}\s*\n([\s\S]+?))?(?:\n\n|$)/i
 
+// Deliberately not gated on streamDone — the model is instructed to lead
+// with SUMMARY before the detailed breakdown, so this pattern is usually
+// fully matchable within seconds of the model starting to write (right
+// after any tool calls resolve), well before the whole response finishes.
+// Matching as soon as it's parseable means the panel goes straight from
+// skeleton to summary card like every other panel, instead of showing the
+// raw response mid-stream and then visibly collapsing into the card once
+// done.
 const summaryMatch = computed(() => {
-  if (!streamDone.value) return null
   return content.value.match(SUMMARY_RE)
 })
 
@@ -181,18 +188,22 @@ function sendFollowUp() {
     </div>
     <SpecialistBadges :stream-key="KEY" />
     <div class="panel-scroll">
-      <!-- Analyzing skeleton — only until the first token arrives. Region/
-           Enterprise turns fan out across multiple plants and can take
-           minutes; once text starts streaming in, show it live instead of
-           a static skeleton for the whole duration. -->
-      <div v-if="isStreaming && !content" class="panel-analyzing">
+      <!-- Analyzing skeleton — shown until a SUMMARY block is parseable, not
+           until the whole response finishes. Region/Enterprise turns fan
+           out across multiple plants and can take minutes, but the model
+           leads with SUMMARY before the detailed breakdown, so this
+           usually resolves within seconds of the model starting to write
+           (right after any tool calls resolve) — the panel goes straight
+           to the card, same as every other panel, never showing the raw
+           in-progress response. -->
+      <div v-if="isStreaming && !summary" class="panel-analyzing">
         <div class="skeleton-line" style="width: 82%" />
         <div class="skeleton-line" style="width: 67%" />
         <div class="skeleton-line" style="width: 91%" />
         <div class="skeleton-line" style="width: 55%" />
       </div>
 
-      <!-- Summary card: shown when stream done and SUMMARY parsed -->
+      <!-- Summary card: shown as soon as SUMMARY is parseable, streaming or not -->
       <template v-else-if="summary">
         <div class="summary-card" :class="summaryClass">
           <div class="summary-header">
