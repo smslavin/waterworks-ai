@@ -19,6 +19,7 @@ ENTERPRISE_FILE  Path to enterprise.yaml (default: ../enterprise.yaml)
 FASTMCP_PORT     Port to bind             (default: 8200)
 """
 
+import asyncio
 import json
 import logging
 import logging.handlers
@@ -57,6 +58,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 mcp = MCPServer("diagnose-plant-mcp")
+
+# A plant's own multi-agent diagnostic loop can legitimately take a couple
+# minutes (several sequential specialist/tool-calling turns) — generous, but
+# still a hard ceiling. This guards against more than slowness: chat-ui's SSE
+# responses send periodic keep-alive pings (sse_starlette), which keep bytes
+# flowing — and therefore keep httpx's own *read* timeout from ever firing —
+# even if the plant's own loop has actually stalled with no real progress.
+# Only a wall-clock deadline around the whole request catches that case.
+PLANT_TIMEOUT_SECONDS = 240
+
+
+class _PlantSideError(Exception):
+    """A plant's own /api/chat reported an error event on its SSE stream —
+    distinct from httpx.HTTPError (transport-level) or asyncio.TimeoutError
+    (this call's own deadline), so each gets its own message to the caller."""
+
 
 # Matches chat-ui/frontend/src/components/panels/PlantPanel.vue's SUMMARY_RE —
 # same convention, same source text (the plant's own orchestrator synthesis),
@@ -103,9 +120,13 @@ async def diagnose_plant(site_id: str, query: str) -> str:
         return f"Error: unknown site_id '{site_id}'. Known sites: {known}."
 
     chat_ui_url = site["chat_ui_url"]
-    full_text: list[str] = []
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+
+    async def _ask() -> list[str]:
+        full_text: list[str] = []
+        # timeout here is per-read (resets on every chunk, including the
+        # plant's own SSE keep-alive pings) — real deadline enforcement is
+        # the asyncio.wait_for around this whole call, below.
+        async with httpx.AsyncClient(timeout=30.0) as client:
             async with client.stream(
                 "POST",
                 f"{chat_ui_url}/api/chat",
@@ -131,13 +152,30 @@ async def diagnose_plant(site_id: str, query: str) -> str:
                             site_id,
                             event.get("error"),
                         )
-                        return f"Error from plant '{site_id}': {event.get('error')}"
+                        raise _PlantSideError(event.get("error"))
                     elif event_type == "done":
                         # The plant's chat-ui may keep the SSE connection open
                         # after this (EventSourceResponse's own keep-alive
                         # pings), so this loop must stop itself here rather
                         # than waiting for the stream to close on its own.
                         break
+        return full_text
+
+    try:
+        full_text = await asyncio.wait_for(_ask(), timeout=PLANT_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "diagnose_plant(%s) timed out after %ss (%s)",
+            site_id,
+            PLANT_TIMEOUT_SECONDS,
+            chat_ui_url,
+        )
+        return (
+            f"Plant '{site_id}' did not respond within {PLANT_TIMEOUT_SECONDS}s — "
+            "treat its status as unknown, not confirmed normal."
+        )
+    except _PlantSideError as exc:
+        return f"Error from plant '{site_id}': {exc}"
     except httpx.HTTPError as exc:
         logger.warning(
             "diagnose_plant(%s) request to %s failed: %s", site_id, chat_ui_url, exc
