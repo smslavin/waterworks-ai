@@ -10,8 +10,8 @@ export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 
 const PROMPTS: Record<string, string> = {
   plant:      'Provide a high-level status summary of the Waterworks treatment plant. Use available tools to check all process areas (Intake, Treatment, Distribution) and report current status, any alarms, and recommended actions.',
-  region:     'Provide a status summary for the Metro Region. Focus on the Waterworks plant, which has live telemetry, and summarize its current operational status.',
-  enterprise: 'Provide an enterprise-level status overview. Use the Waterworks plant live data to report current operational health.',
+  region:     'Provide a status summary for every plant in the Metro Region. Check each site individually and report current operational status, any alarms, and recommended actions per site.',
+  enterprise: 'Provide an enterprise-wide status overview across every registered plant. Check each site individually and report current operational status, any alarms, and recommended actions per site.',
 }
 
 const ui = useUIStore()
@@ -38,6 +38,14 @@ const titleText = computed(() => {
     enterprise: 'Enterprise',
   }
   return map[crumbLevel.value ?? 'plant'] ?? 'Waterworks'
+})
+
+// Region/Enterprise breadcrumb levels are cross-plant questions — answered by
+// the enterprise orchestrator (diagnose_plant fan-out), never this plant's
+// own single/multi-agent loop, regardless of the Multi-Agent toggle.
+const chatMode = computed<'single' | 'multi' | 'enterprise'>(() => {
+  if (crumbLevel.value === 'region' || crumbLevel.value === 'enterprise') return 'enterprise'
+  return ui.multiAgent ? 'multi' : 'single'
 })
 
 const isStreaming = computed(() => chat.streaming[KEY] ?? false)
@@ -128,7 +136,7 @@ watch(() => ui.activePanel, async (panel, prev) => {
   const msgContent = PROMPTS[crumbLevel.value ?? 'plant'] ?? 'Provide a status summary of the Waterworks treatment plant.'
   const initial: Message = { role: 'user', content: msgContent }
   conversationLog.value = [initial]
-  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })
+  stream(KEY, [initial], { mode: chatMode.value })
 })
 
 function sendFollowUp() {
@@ -142,7 +150,7 @@ function sendFollowUp() {
     { role: 'user', content: text },
   ]
   conversationLog.value = messages
-  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single' })
+  stream(KEY, messages, { mode: chatMode.value })
 }
 </script>
 

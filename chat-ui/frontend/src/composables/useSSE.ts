@@ -9,7 +9,7 @@ export interface SSEMessage {
 }
 
 export interface SSEOptions {
-  mode?: 'single' | 'multi'
+  mode?: 'single' | 'multi' | 'enterprise'
   scope?: string
 }
 

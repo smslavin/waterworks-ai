@@ -250,6 +250,34 @@ async def chat_endpoint(request: Request):
 
         return EventSourceResponse(generate_multi())
 
+    if mode == "enterprise":
+        # Cross-plant question (Region/Enterprise breadcrumb level) — proxy to
+        # the enterprise orchestrator's own /api/chat rather than answering
+        # locally, same rationale as sites_endpoint's proxy: the orchestrator's
+        # URL stays server-side config, not a second CORS surface for the
+        # browser. See enterprise/orchestrator/enterprise_loop.py for the
+        # diagnose_plant fan-out this triggers.
+        import httpx
+
+        async def generate_enterprise():
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(120.0, connect=5.0)
+                ) as http:
+                    async with http.stream(
+                        "POST",
+                        f"{ENTERPRISE_ORCHESTRATOR_URL}/api/chat",
+                        json={"messages": messages},
+                    ) as resp:
+                        async for line in resp.aiter_lines():
+                            if line.startswith("data:"):
+                                yield {"data": line[len("data:") :].strip()}
+            except Exception as exc:
+                logger.exception("Enterprise chat proxy error")
+                yield {"data": json.dumps({"type": "error", "error": str(exc)})}
+
+        return EventSourceResponse(generate_enterprise())
+
     provider = _resolve_provider(model)
     run_fn = _LOOP_MODULES[provider["loop"]].run_chat
     api_key = (
