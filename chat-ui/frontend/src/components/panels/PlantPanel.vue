@@ -172,8 +172,11 @@ function sendFollowUp() {
     </div>
     <SpecialistBadges :stream-key="KEY" />
     <div class="panel-scroll">
-      <!-- Analyzing skeleton while streaming -->
-      <div v-if="isStreaming" class="panel-analyzing">
+      <!-- Analyzing skeleton — only until the first token arrives. Region/
+           Enterprise turns fan out across multiple plants and can take
+           minutes; once text starts streaming in, show it live instead of
+           a static skeleton for the whole duration. -->
+      <div v-if="isStreaming && !content" class="panel-analyzing">
         <div class="skeleton-line" style="width: 82%" />
         <div class="skeleton-line" style="width: 67%" />
         <div class="skeleton-line" style="width: 91%" />
