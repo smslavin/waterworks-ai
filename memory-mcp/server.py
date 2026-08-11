@@ -118,11 +118,27 @@ def _maybe_ingest_knowledge_docs() -> None:
     print(f"[memory-mcp] knowledge ingest: {result}")
 
 
+_startup_done = False
+
+
 @asynccontextmanager
 async def _lifespan(server: MCPServer) -> AsyncIterator[None]:
-    _maybe_seed_from_topology()
-    _maybe_ingest_knowledge_docs()
-    asyncio.create_task(analytical.sync_loop())  # warms DuckDB on first iteration
+    # mcp SDK's Server.run() enters this context manager once per SSE session,
+    # not once per process — see mcp/server/lowlevel/server.py's run(): `async
+    # with self.lifespan(self) as lifespan_context` lives inside the method
+    # handle_sse() calls on every new connection. This codebase opens a fresh
+    # SSE session per tool call (see mcp_client.py), so without this guard,
+    # every single tool call re-ran the knowledge ingest and spawned another
+    # analytical.sync_loop() background task that's never cancelled — an
+    # unbounded task leak where dozens of concurrent syncs end up fighting
+    # over DuckDB's single-writer lock, degrading everything to a crawl after
+    # enough uptime. Only the first invocation should actually do this work.
+    global _startup_done
+    if not _startup_done:
+        _startup_done = True
+        _maybe_seed_from_topology()
+        _maybe_ingest_knowledge_docs()
+        asyncio.create_task(analytical.sync_loop())  # warms DuckDB on first iteration
     yield
 
 
