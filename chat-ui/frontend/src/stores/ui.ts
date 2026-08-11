@@ -20,6 +20,10 @@ export const useUIStore = defineStore('ui', () => {
   // Active site / region (nav hierarchy: enterprise > region > site)
   const activeSite = ref('Waterworks')
   const activeRegion = ref('Metro Region')
+  // GRAFANA_PORT varies per plant (docker-compose host port) — seeded from
+  // GET /api/site alongside activeSite/activeRegion. See IconStrip.vue's
+  // openGrafana() for why the host portion is never read from here.
+  const grafanaPort = ref(3000)
 
   // Overlays
   const siteNavOpen = ref(false)
@@ -114,6 +118,7 @@ export const useUIStore = defineStore('ui', () => {
     configMode,
     activeSite,
     activeRegion,
+    grafanaPort,
     activeNodeId,
     activeArea,
     activePanel,

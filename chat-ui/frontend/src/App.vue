@@ -35,8 +35,14 @@ onMounted(async () => {
   try {
     const resp = await fetch('/api/site')
     if (resp.ok) {
-      const site = await resp.json() as { site_id: string; site_name: string; region_name: string }
+      const site = await resp.json() as {
+        site_id: string
+        site_name: string
+        region_name: string
+        grafana_port: number
+      }
       ui.setActiveSite(site.site_name, site.region_name)
+      ui.grafanaPort = site.grafana_port
     }
   } catch { /* backend not running — keep ui.ts defaults */ }
 

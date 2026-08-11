@@ -75,6 +75,7 @@ _METRICS_DB = os.environ.get(
 SITE_ID = os.environ.get("SITE_ID", "wtp")
 SITE_NAME = os.environ.get("SITE_NAME", "Waterworks")
 REGION_NAME = os.environ.get("REGION_NAME", "Metro Region")
+GRAFANA_PORT = int(os.environ.get("GRAFANA_PORT", "3000"))
 ENTERPRISE_ORCHESTRATOR_URL = os.environ.get(
     "ENTERPRISE_ORCHESTRATOR_URL", "http://localhost:8020"
 )
@@ -197,9 +198,18 @@ async def health_endpoint(request: Request):
 
 async def site_endpoint(request: Request):
     """This plant's own identity, for the frontend to seed activeSite/
-    activeRegion instead of SiteNav.vue's old hardcoded 'Waterworks' default."""
+    activeRegion instead of SiteNav.vue's old hardcoded 'Waterworks' default.
+    grafana_port travels the same way — GRAFANA_PORT varies per plant
+    (docker-compose host port), and the frontend only knows how the browser
+    actually reached this page (window.location.hostname), not this
+    process's own env, so the port has to come from here."""
     return JSONResponse(
-        {"site_id": SITE_ID, "site_name": SITE_NAME, "region_name": REGION_NAME}
+        {
+            "site_id": SITE_ID,
+            "site_name": SITE_NAME,
+            "region_name": REGION_NAME,
+            "grafana_port": GRAFANA_PORT,
+        }
     )
 
 

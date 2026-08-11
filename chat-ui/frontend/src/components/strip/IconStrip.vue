@@ -37,7 +37,15 @@ function openMetrics() {
 }
 
 function openGrafana() {
-  window.open('http://localhost:3000', '_blank', 'noopener')
+  // Same fix as SiteNav.vue's selectSite(): localhost is only correct if
+  // the browser is on the same host as this plant's own services — reach
+  // Grafana the same way the browser reached this page instead. Port is
+  // per-plant (docker-compose host port), seeded from GET /api/site.
+  window.open(
+    `http://${window.location.hostname}:${ui.grafanaPort}`,
+    '_blank',
+    'noopener'
+  )
 }
 
 const confirmingClear = ref(false)
