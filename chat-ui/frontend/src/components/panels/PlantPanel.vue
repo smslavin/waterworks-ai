@@ -76,7 +76,16 @@ interface PlantSummary {
 // analysis" still needs to show everything else, not go blank. Excising just
 // the matched span (wherever it lands) rather than assuming a fixed position
 // keeps that working either way.
-const SUMMARY_RE = /SUMMARY:\s*\nStatus:\s*([^\n]+)\nOverview:\s*([^\n]+)\n(?:Key points:\n([\s\S]+?))?(?:\n\n|$)/i
+//
+// \*{0,2} around each label tolerates the model bolding "Status:"/"Overview:"/
+// "Key points:" (observed in practice — it isn't consistent about this), and
+// the lazy value capture + trailing \*{0,2} strips a bolded value's closing
+// ** without swallowing it into the next line. The optional \n? before "Key
+// points:" tolerates an extra blank line before it, also observed in
+// practice. Without these, a match failure silently falls through to the
+// raw full-text branch instead of the summary card — worse than a stray
+// residual ** would be.
+const SUMMARY_RE = /SUMMARY:\s*\n\*{0,2}Status:\*{0,2}\s*([^\n]+?)\*{0,2}\n\*{0,2}Overview:\*{0,2}\s*([^\n]+?)\*{0,2}\n(?:\n?\*{0,2}Key points:\*{0,2}\s*\n([\s\S]+?))?(?:\n\n|$)/i
 
 const summaryMatch = computed(() => {
   if (!streamDone.value) return null
