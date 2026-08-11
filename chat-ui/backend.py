@@ -53,9 +53,12 @@ import claude_loop
 import control
 import metrics
 import mcp_client
+import monitor as _monitor_mod
 import multi_agent_loop
 import openai_loop
 import reactive_loop as _reactive_loop
+import session_store
+import status_heartbeat
 import topology as _topo_loader
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -211,6 +214,17 @@ async def site_endpoint(request: Request):
             "grafana_port": GRAFANA_PORT,
         }
     )
+
+
+async def plant_status_endpoint(request: Request):
+    """status_heartbeat.py's persisted rollup — a plain DB read, no LLM call,
+    for enterprise-level overview questions. See diagnose_plant_mcp's
+    get_plant_status tool, which proxies this per plant. Empty object (not
+    an error status) if the heartbeat hasn't produced a first reading yet
+    (e.g. right after startup, before its first tick) — callers should
+    treat that the same as "unknown", not "down"."""
+    status = session_store.get_plant_status()
+    return JSONResponse(status or {})
 
 
 async def sites_endpoint(request: Request):
@@ -794,8 +808,9 @@ async def reactive_toggle_endpoint(request: Request):
     if enable:
         if _reactive_loop.is_running():
             return JSONResponse({"enabled": True, "changed": False})
-        broker_url, aggregator_url, model = _reactive_params()
-        _reactive_loop.start(broker_url, aggregator_url, model, broadcast_alert)
+        monitor = await _ensure_monitor_started()
+        _, aggregator_url, model = _reactive_params()
+        _reactive_loop.start(monitor, aggregator_url, model, broadcast_alert)
         logger.info("Reactive mode enabled via UI")
         return JSONResponse({"enabled": True, "changed": True})
     else:
@@ -824,6 +839,31 @@ async def events_endpoint(request: Request):
                 _alert_subs.remove(q)
 
     return EventSourceResponse(_gen())
+
+
+_monitor: "_monitor_mod.AnomalyMonitor | None" = None
+
+
+async def _ensure_monitor_started() -> "_monitor_mod.AnomalyMonitor":
+    """The AnomalyMonitor (MQTT threshold tracking, no LLM) runs
+    unconditionally from chat-ui boot — independent of REACTIVE_ENABLED,
+    which now only gates the escalation consumer (Deadband + Cascade) built
+    on top of it. status_heartbeat.py reads its _window directly for a
+    free, always-fresh status level; reactive_loop attaches to its
+    .events() stream only when toggled on. Idempotent — safe to call from
+    both lifespan and the reactive toggle endpoint."""
+    global _monitor
+    if _monitor is not None:
+        return _monitor
+    broker_url, aggregator_url, _ = _reactive_params()
+    _monitor = _monitor_mod.AnomalyMonitor(
+        broker_url=broker_url,
+        aggregator_url=aggregator_url,
+        min_duration=_reactive_loop.MIN_DURATION,
+    )
+    await _monitor.start()
+    logger.info("Anomaly monitor started (broker=%s)", broker_url)
+    return _monitor
 
 
 def _reactive_params() -> tuple[str, str, str]:
@@ -868,10 +908,16 @@ async def _connect_mqtt_adapter() -> None:
 async def lifespan(app):
     asyncio.create_task(_connect_mqtt_adapter())
 
+    monitor = await _ensure_monitor_started()
+
     if os.environ.get("REACTIVE_ENABLED", "0") == "1":
-        broker_url, aggregator_url, model = _reactive_params()
-        _reactive_loop.start(broker_url, aggregator_url, model, broadcast_alert)
-        logger.info("Reactive mode auto-started (broker=%s)", broker_url)
+        _, aggregator_url, model = _reactive_params()
+        _reactive_loop.start(monitor, aggregator_url, model, broadcast_alert)
+        logger.info("Reactive mode auto-started")
+
+    if os.environ.get("STATUS_HEARTBEAT_ENABLED", "1") == "1":
+        status_heartbeat.start(monitor)
+
     yield
 
 
@@ -995,6 +1041,7 @@ routes = [
     Route("/api/models", models_endpoint),
     Route("/api/health", health_endpoint),
     Route("/api/site", site_endpoint),
+    Route("/api/plant-status", plant_status_endpoint),
     Route("/api/sites", sites_endpoint),
     Route("/api/chat", chat_endpoint, methods=["POST"]),
     Route("/api/action/respond", action_respond_endpoint, methods=["POST"]),

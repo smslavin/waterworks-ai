@@ -122,6 +122,13 @@ def _init_db() -> None:
                 outcome      TEXT    DEFAULT 'pending',
                 site_id      TEXT    NOT NULL DEFAULT 'wtp'
             );
+            CREATE TABLE IF NOT EXISTS plant_status (
+                site_id              TEXT PRIMARY KEY,
+                status_level         TEXT,
+                level_updated_at     TEXT,
+                narrative            TEXT,
+                narrative_updated_at TEXT
+            );
         """)
         _add_column_if_missing(
             c, "session_summaries", "site_id", "site_id TEXT NOT NULL DEFAULT 'wtp'"
@@ -202,6 +209,47 @@ def log_action_event(
             c.commit()
     except Exception as exc:
         logger.warning("action_event write failed: %s", exc)
+
+
+# ── Plant status (status_heartbeat.py's persisted rollup) ─────────────────────
+
+
+def upsert_plant_status(*, status_level: str, narrative: str) -> None:
+    """status_level and narrative always move together — status_heartbeat.py
+    only calls this when a real check (full diagnosis) just ran, never on a
+    tick that skipped checking. Deliberately not split into a
+    faster-moving "level" update and a slower "narrative" update: monitor.py
+    only tracks numeric threshold excursions, not discrete equipment state
+    (offline/running flags), so a level derived from it alone can say
+    Normal while a full diagnosis's narrative says Fault Detected — an
+    earlier version of this function had exactly that split and produced
+    that mismatch. status_level here is always extracted from the same
+    narrative it's stored with, so the two can never disagree."""
+    try:
+        with _lock, _conn() as c:
+            now = datetime.now(timezone.utc).isoformat()
+            c.execute(
+                """INSERT INTO plant_status
+                   (site_id, status_level, level_updated_at, narrative, narrative_updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(site_id) DO UPDATE SET
+                     status_level = excluded.status_level,
+                     level_updated_at = excluded.level_updated_at,
+                     narrative = excluded.narrative,
+                     narrative_updated_at = excluded.narrative_updated_at""",
+                (_SITE_ID, status_level, now, narrative, now),
+            )
+            c.commit()
+    except Exception as exc:
+        logger.warning("plant_status write failed: %s", exc)
+
+
+def get_plant_status() -> dict | None:
+    with _lock, _conn() as c:
+        row = c.execute(
+            "SELECT * FROM plant_status WHERE site_id = ?", (_SITE_ID,)
+        ).fetchone()
+        return dict(row) if row else None
 
 
 # ── Read functions (used by audit page + audit-mcp) ───────────────────────────

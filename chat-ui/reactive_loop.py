@@ -22,7 +22,6 @@ _MAX_CONCURRENT = 2  # max simultaneous Deadband+Cascade runs
 _active: set[str] = set()
 _cooldown_until: dict[str, float] = {}
 _task: asyncio.Task | None = None
-_monitor: AnomalyMonitor | None = None
 
 
 def is_running() -> bool:
@@ -30,17 +29,14 @@ def is_running() -> bool:
 
 
 def stop() -> None:
-    global _task, _monitor
+    """Stops only the escalation consumer (Deadband + Cascade routing) —
+    the shared AnomalyMonitor itself is owned and started once at chat-ui
+    boot (see backend.py's lifespan), not by this module, and keeps running
+    regardless of whether reactive is toggled on or off."""
+    global _task
     if _task and not _task.done():
         _task.cancel()
     _task = None
-    if _monitor:
-        try:
-            _monitor._client.loop_stop()
-            _monitor._client.disconnect()
-        except Exception:
-            pass
-    _monitor = None
 
 
 def _can_trigger(instance_id: str) -> bool:
@@ -215,21 +211,12 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
         )
 
 
-async def _run(broker_url: str, aggregator_url: str, model: str, broadcast_fn):
-    global _monitor
+async def _run(monitor: AnomalyMonitor, aggregator_url: str, model: str, broadcast_fn):
     try:
-        _monitor = AnomalyMonitor(
-            broker_url=broker_url,
-            aggregator_url=aggregator_url,
-            min_duration=MIN_DURATION,
-        )
-        await _monitor.start()
         logger.info(
-            "Reactive loop started (broker=%s min_duration=%.0fs)",
-            broker_url,
-            MIN_DURATION,
+            "Reactive escalation consumer attached (min_duration=%.0fs)", MIN_DURATION
         )
-        async for anomaly in _monitor.events():
+        async for anomaly in monitor.events():
             if _can_trigger(anomaly["instance_id"]):
                 asyncio.create_task(
                     _handle_anomaly(anomaly, aggregator_url, model, broadcast_fn)
@@ -241,11 +228,15 @@ async def _run(broker_url: str, aggregator_url: str, model: str, broadcast_fn):
 
 
 def start(
-    broker_url: str, aggregator_url: str, model: str, broadcast_fn
+    monitor: AnomalyMonitor, aggregator_url: str, model: str, broadcast_fn
 ) -> asyncio.Task:
-    """Create and register the reactive loop task. Returns the task."""
+    """Attach the escalation consumer (Deadband + Cascade routing) to an
+    already-running AnomalyMonitor's .events() stream. The monitor itself
+    (threshold tracking, no LLM) is started once, unconditionally, at
+    chat-ui boot — this only starts/stops the expensive escalation half,
+    gated behind REACTIVE_ENABLED."""
     global _task
     if is_running():
         return _task
-    _task = asyncio.create_task(_run(broker_url, aggregator_url, model, broadcast_fn))
+    _task = asyncio.create_task(_run(monitor, aggregator_url, model, broadcast_fn))
     return _task

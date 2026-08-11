@@ -90,6 +90,25 @@ async def _populate_severities(aggregator_url: str) -> None:
                 )
 
 
+def current_status_level() -> str:
+    """Worst-of severity across everything currently in _window (out of
+    range), in the Normal/Anomaly Detected/Fault Detected vocabulary used
+    everywhere else (session_summaries.status, specialist FINDINGS) rather
+    than monitor's own raw warning/critical labels — so status_heartbeat.py
+    can compare this directly against a specialist-generated status without
+    a separate mapping step. This is the raw threshold read, not Deadband's
+    verified verdict (see reactive_loop.py) — cheap and always-on by design,
+    so it can be more sensitive to noise than an escalation trigger would
+    be; the narrative half of the heartbeat still goes through a real
+    diagnosis, which accounts for that.
+    """
+    if not _window:
+        return "Normal"
+    if any(v.get("severity") == "critical" for v in _window.values()):
+        return "Fault Detected"
+    return "Anomaly Detected"
+
+
 class AnomalyMonitor:
     def __init__(
         self, broker_url: str, aggregator_url: str, min_duration: float = 30.0
@@ -101,7 +120,15 @@ class AnomalyMonitor:
         self._port = int(port)
         self._aggregator_url = aggregator_url
         self._min_duration = min_duration
-        self._queue: asyncio.Queue = asyncio.Queue()
+        # Bounded: this monitor now runs unconditionally (see backend.py's
+        # lifespan), independent of whether anything is consuming .events()
+        # (only the reactive escalation task does, gated behind
+        # REACTIVE_ENABLED). current_status_level() reads _window directly,
+        # not this queue, so dropping on overflow when there's no active
+        # consumer is safe — it only means a stale escalation-worthy anomaly
+        # from before reactive was turned on doesn't get replayed, which is
+        # the desired behavior anyway.
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=200)
         self._loop = None
         # paho 2.x requires CallbackAPIVersion
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
@@ -181,9 +208,15 @@ class AnomalyMonitor:
                     "duration_seconds": elapsed,
                 }
                 if self._loop:
-                    self._loop.call_soon_threadsafe(self._queue.put_nowait, anomaly)
+                    self._loop.call_soon_threadsafe(self._enqueue, anomaly)
         except Exception as e:
             logger.debug("monitor parse error: %s", e)
+
+    def _enqueue(self, anomaly: dict) -> None:
+        try:
+            self._queue.put_nowait(anomaly)
+        except asyncio.QueueFull:
+            pass  # no active consumer draining .events() right now — see __init__
 
     async def start(self):
         self._loop = asyncio.get_event_loop()
