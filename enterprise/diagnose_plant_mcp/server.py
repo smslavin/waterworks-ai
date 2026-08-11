@@ -188,5 +188,51 @@ async def diagnose_plant(site_id: str, query: str) -> str:
     return f"[{site_id}] " + _extract_summary(response_text)
 
 
+@mcp.tool()
+async def get_plant_status(site_id: str) -> str:
+    """Get one plant's last-known status — a pre-computed rollup refreshed
+    periodically in the background (see status_heartbeat.py on each
+    plant's own chat-ui), not a live diagnosis. Near-instant: this is a
+    plain database read on the plant's side, not a fresh multi-agent
+    run. Use this for overview/status questions ("what's the status of
+    X", "is everything okay across the enterprise"). Use diagnose_plant
+    instead when the question calls for genuine drill-down into a
+    specific issue, since that runs a fresh live diagnosis — this can be
+    up to roughly an hour stale (bounded by STATUS_HEARTBEAT_MAX_STALE_TICKS
+    on that plant), whereas diagnose_plant is always current but slow.
+
+    Args:
+        site_id: Plant identifier from enterprise.yaml, e.g. "wtp" or "wtp2".
+    """
+    site = get_site(site_id)
+    if site is None:
+        known = ", ".join(sorted(load_sites().keys())) or "(none registered)"
+        return f"Error: unknown site_id '{site_id}'. Known sites: {known}."
+
+    chat_ui_url = site["chat_ui_url"]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{chat_ui_url}/api/plant-status")
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "get_plant_status(%s) request to %s failed: %s", site_id, chat_ui_url, exc
+        )
+        return f"Error reaching plant '{site_id}' at {chat_ui_url}: {exc}"
+
+    if not data or not data.get("narrative"):
+        return (
+            f"Plant '{site_id}' has no status check recorded yet — its "
+            "status heartbeat may not have completed a first check, or is "
+            "disabled for this plant. Try diagnose_plant for a live answer."
+        )
+
+    return (
+        f"[{site_id}] Status: {data['status_level']} "
+        f"(as of {data['narrative_updated_at']})\n{data['narrative']}"
+    )
+
+
 if __name__ == "__main__":
     mcp.run(transport="sse", port=int(os.environ.get("FASTMCP_PORT", 8200)))
