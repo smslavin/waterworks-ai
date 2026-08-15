@@ -2,6 +2,7 @@ import { onUnmounted } from 'vue'
 import { useChatStore } from '@/stores/chat'
 import { useUIStore } from '@/stores/ui'
 import { useApprovalStore, type BackendActionProposal } from '@/stores/approval'
+import { useTopologyStore } from '@/stores/topology'
 
 export interface SSEMessage {
   role: 'user' | 'assistant'
@@ -17,6 +18,7 @@ export function useSSE() {
   const chat = useChatStore()
   const ui = useUIStore()
   const approval = useApprovalStore()
+  const topo = useTopologyStore()
   const controllers: Record<string, AbortController> = {}
 
   async function stream(key: string, messages: SSEMessage[], opts: SSEOptions = {}) {
@@ -74,6 +76,9 @@ export function useSSE() {
               chat.updateSpecialist(key, evt.specialist as string, { status: 'running', confidence: null, done: false })
             } else if (evt.type === 'specialist_done') {
               chat.updateSpecialist(key, evt.specialist as string, { status: evt.status as string, confidence: evt.confidence as number, done: true })
+              if ((opts.mode ?? 'single') === 'multi') {
+                topo.applySpecialistFindings(evt.specialist as string, evt.status as string)
+              }
             } else if (evt.type === 'done') {
               if (evt.input_tokens !== undefined) {
                 chat.setInputTokens(key, evt.input_tokens as number)
