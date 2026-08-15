@@ -31,6 +31,16 @@ export interface TopologyEdge {
 
 export const AREA_ORDER = ['Intake', 'Treatment', 'Distribution'] as const
 
+/** Mirrors the backend's own status aggregation (multi_agent_loop.py's
+ * overall_status logic): fuzzy substring match, Fault takes precedence over
+ * Anomaly. Returns null for Unknown/Error — those shouldn't touch alarmState. */
+export function alarmStateFromFindingsStatus(status: string): AlarmState | null {
+  if (status === 'Unknown' || status === 'Error') return null
+  if (status.includes('Fault')) return 'critical'
+  if (status.includes('Anomaly')) return 'warning'
+  return 'normal'
+}
+
 const INITIAL_NODES: TopologyNode[] = [
   { id: 'RawWater_01',      area: 'Intake',       specialist: 'Intake',       equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
   { id: 'RawWater_02',      area: 'Intake',       specialist: 'Intake',       equipmentType: 'pump',        confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0 },
@@ -84,6 +94,15 @@ export const useTopologyStore = defineStore('topology', () => {
     if (node) node.alarmState = state
   }
 
+  function applySpecialistFindings(specialist: string, status: string) {
+    const state = alarmStateFromFindingsStatus(status)
+    if (state === null) return
+    const target = specialist.toLowerCase()
+    for (const node of nodes.value) {
+      if (node.specialist.toLowerCase() === target) node.alarmState = state
+    }
+  }
+
   async function loadInsightCategories() {
     try {
       const res = await fetch('/api/insight/categories')
@@ -111,5 +130,5 @@ export const useTopologyStore = defineStore('topology', () => {
     }
   }
 
-  return { nodes, edges, nodesByArea, areas, insightCategories, nodeById, setAlarmState, loadInsightCategories, saveInsight }
+  return { nodes, edges, nodesByArea, areas, insightCategories, nodeById, setAlarmState, applySpecialistFindings, loadInsightCategories, saveInsight }
 })
