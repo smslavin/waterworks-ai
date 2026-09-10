@@ -56,9 +56,7 @@ def _grant_key(session_id: str, tool_name: str, args: dict) -> str:
         return float(v) if isinstance(v, int) and not isinstance(v, bool) else v
 
     normalized = {k: _norm(v) for k, v in args.items()}
-    digest = hashlib.sha256(
-        json.dumps(normalized, sort_keys=True).encode()
-    ).hexdigest()
+    digest = hashlib.sha256(json.dumps(normalized, sort_keys=True).encode()).hexdigest()
     return f"{session_id}:{tool_name}:{digest}"
 
 

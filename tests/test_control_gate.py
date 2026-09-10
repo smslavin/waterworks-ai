@@ -27,8 +27,13 @@ def _clean_control_state():
     control._grants.clear()
 
 
-def _propose(session_id="s1", action_type="setpoint_adjustment", target="Chlorine_01",
-             attribute="FlowRate", value="2.8"):
+def _propose(
+    session_id="s1",
+    action_type="setpoint_adjustment",
+    target="Chlorine_01",
+    attribute="FlowRate",
+    value="2.8",
+):
     action_id = "a1"
     control.register(
         action_id,
@@ -45,8 +50,11 @@ def _propose(session_id="s1", action_type="setpoint_adjustment", target="Chlorin
 
 def test_execution_refused_without_any_proposal():
     assert (
-        control.consume_grant("s1", "control__set_setpoint",
-                               {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8})
+        control.consume_grant(
+            "s1",
+            "control__set_setpoint",
+            {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8},
+        )
         is False
     )
 
@@ -56,7 +64,8 @@ def test_approval_grants_matching_execution_call():
     assert control.resolve(action_id, "approved") is True
 
     granted = control.consume_grant(
-        "s1", "control__set_setpoint",
+        "s1",
+        "control__set_setpoint",
         {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8},
     )
     assert granted is True
@@ -77,7 +86,8 @@ def test_denial_grants_nothing():
 
     assert (
         control.consume_grant(
-            "s1", "control__set_setpoint",
+            "s1",
+            "control__set_setpoint",
             {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8},
         )
         is False
@@ -90,7 +100,8 @@ def test_mismatched_target_is_refused():
 
     assert (
         control.consume_grant(
-            "s1", "control__set_setpoint",
+            "s1",
+            "control__set_setpoint",
             {"target": "RawWater_01", "attribute": "FlowRate", "value": 2.8},
         )
         is False
@@ -103,7 +114,8 @@ def test_mismatched_value_is_refused():
 
     assert (
         control.consume_grant(
-            "s1", "control__set_setpoint",
+            "s1",
+            "control__set_setpoint",
             {"target": "Chlorine_01", "attribute": "FlowRate", "value": 9.9},
         )
         is False
@@ -124,18 +136,23 @@ def test_int_and_float_value_are_equivalent():
     control.resolve(action_id, "approved")
 
     granted = control.consume_grant(
-        "s1", "control__set_setpoint",
+        "s1",
+        "control__set_setpoint",
         {"target": "Chlorine_01", "attribute": "FlowRate", "value": 3},
     )
     assert granted is True
 
 
 def test_fault_clear_payload_has_no_attribute_or_value():
-    action_id = _propose(action_type="fault_clear", target="RawWater_01",
-                          attribute="", value="")
+    action_id = _propose(
+        action_type="fault_clear", target="RawWater_01", attribute="", value=""
+    )
     control.resolve(action_id, "approved")
 
-    assert control.consume_grant("s1", "control__clear_fault", {"target": "RawWater_01"}) is True
+    assert (
+        control.consume_grant("s1", "control__clear_fault", {"target": "RawWater_01"})
+        is True
+    )
 
 
 def test_unparseable_setpoint_value_grants_nothing():
@@ -144,7 +161,8 @@ def test_unparseable_setpoint_value_grants_nothing():
 
     assert (
         control.consume_grant(
-            "s1", "control__set_setpoint",
+            "s1",
+            "control__set_setpoint",
             {"target": "Chlorine_01", "attribute": "FlowRate", "value": "not-a-number"},
         )
         is False

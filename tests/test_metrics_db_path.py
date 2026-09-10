@@ -53,7 +53,9 @@ def test_falls_back_to_local_default_when_unset(monkeypatch, reload_metrics):
     assert metrics._DB_PATH == expected
 
 
-def test_log_turn_actually_opens_db_at_env_var_path(tmp_path, monkeypatch, reload_metrics):
+def test_log_turn_actually_opens_db_at_env_var_path(
+    tmp_path, monkeypatch, reload_metrics
+):
     """End-to-end: with METRICS_DB_PATH set, a real log_turn() call must
     create/write the `turns` table at that path, not the hardcoded default."""
     scratch_db = tmp_path / "plant2_metrics.db"
