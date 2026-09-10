@@ -21,7 +21,10 @@ INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 logger = logging.getLogger(__name__)
 
 _influx_client: InfluxDBClient | None = None
-_DB_PATH = os.path.join(os.path.dirname(__file__), "metrics.db")
+_DB_PATH = os.environ.get(
+    "METRICS_DB_PATH",
+    os.path.join(os.path.dirname(__file__), "metrics.db"),
+)
 _lock = threading.Lock()
 
 
