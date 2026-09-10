@@ -35,9 +35,12 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
                         "description": t.description or "",
                         # Attribute name has drifted across mcp SDK versions
                         # (inputSchema pre-2.0, input_schema from 2.0 on) —
-                        # this repo's installed version varies per service
-                        # venv depending on when each was last (re)created,
-                        # so accept either rather than pin to one.
+                        # this repo now pins its own mcp version via
+                        # chat-ui/uv.lock, so a single checkout no longer
+                        # drifts on its own. Kept as a fallback anyway: an
+                        # older .venv predating the lock, or a future
+                        # `uv lock --upgrade` across a major mcp bump, can
+                        # still land on either attribute name.
                         "inputSchema": getattr(t, "inputSchema", None)
                         or getattr(t, "input_schema", None),
                     }

@@ -1,0 +1,13 @@
+[project]
+name = "diagnose-plant-mcp"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=2.0",
+    "python-dotenv",
+    "httpx",
+    "pyyaml",
+]
+
+[tool.uv]
+package = false
