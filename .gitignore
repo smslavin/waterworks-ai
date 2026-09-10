@@ -32,6 +32,7 @@ control-mcp/logs/
 memory-mcp/logs/
 enterprise/diagnose_plant_mcp/logs/
 enterprise/query_history_mcp/logs/
+enterprise/orchestrator/logs/
 
 # start.sh output
 /logs/

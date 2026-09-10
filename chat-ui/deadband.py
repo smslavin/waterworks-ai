@@ -165,6 +165,10 @@ async def run_deadband(
     start = time.monotonic()
     total_input = total_output = tool_call_count = 0
 
+    # Hard cap on tool-calling rounds so a stuck Deadband call can't hang the
+    # reactive pipeline indefinitely — same rationale as multi_agent_loop's
+    # SPECIALIST_MAX_ROUNDS. Falls through to "max_rounds exceeded" (treated
+    # as SUPPRESS by the caller) rather than escalating on an inconclusive run.
     for _ in range(8):
         resp = await client.messages.create(
             model=DEADBAND_MODEL,
