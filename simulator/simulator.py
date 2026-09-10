@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import logging.handlers
+import math
 import os
 
 import paho.mqtt.client as mqtt
@@ -32,6 +33,7 @@ from dotenv import load_dotenv
 from faults import FaultMode, FaultState, TYPE_FAULT_MODES
 from generators import OscillatingBool
 from instances import INSTANCES
+from topology import load as _load_topology
 
 load_dotenv()
 
@@ -83,6 +85,37 @@ setpoint_overrides: dict[str, dict[str, float]] = {}
 # {instance_id: {attribute: current_ramped_value}}
 _setpoint_ramp: dict[str, dict[str, float]] = {}
 _RAMP_FRACTION = 0.10  # move 10 % of remaining gap each tick → exponential approach
+
+
+# ── Setpoint validation ──────────────────────────────────────────────────────
+# Attribute identity and engineering (alarm) limits for /setpoint validation,
+# built once from topology.yaml — the source of truth for what attributes an
+# instance actually has and what range is safe to write into it. Keyed by the
+# same instance/attribute *names* used on the wire (matches INSTANCES/
+# fault_registry), not topology.yaml's internal ids.
+# {instance_name: {attribute_name: AttributeDef}}
+_ATTRIBUTE_INDEX: dict[str, dict[str, object]] = {}
+_topology = _load_topology()
+for _inst in _topology.equipment_instances:
+    _eq_type = _topology.get_equipment_type(_inst.type_id)
+    _ATTRIBUTE_INDEX[_inst.name] = {attr.name: attr for attr in _eq_type.attributes}
+del _topology, _inst, _eq_type
+
+
+def instance_attributes(target: str) -> dict[str, object]:
+    """Known attribute-name → AttributeDef for a given instance name."""
+    return _ATTRIBUTE_INDEX.get(target, {})
+
+
+def engineering_limits(target: str, attribute: str) -> tuple[float, float] | None:
+    """(lo, hi) engineering/alarm limits for a numeric attribute, from
+    topology.yaml's normal_range. Returns None for non-numeric attributes
+    (e.g. boolean Running) or unknown target/attribute — callers should have
+    already validated the attribute is known before calling this."""
+    attr_def = instance_attributes(target).get(attribute)
+    if attr_def is None or getattr(attr_def, "normal_range", None) is None:
+        return None
+    return attr_def.normal_range.min, attr_def.normal_range.max
 
 
 # ── MQTT ──────────────────────────────────────────────────────────────────────
@@ -162,8 +195,12 @@ async def _build_opcua_server() -> tuple[Server, dict[str, dict[str, any]]]:
 # ── HTTP control plane ────────────────────────────────────────────────────────
 
 
-async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
-    """Start aiohttp server for fault injection. Returns immediately after bind."""
+def _build_control_app(mqtt_client: mqtt.Client) -> web.Application:
+    """Build the aiohttp Application for the HTTP control plane.
+
+    Split out from _start_control_plane so tests can exercise the handlers
+    with aiohttp's TestClient/TestServer without binding a real TCP port.
+    """
 
     async def handle_fault(request: web.Request) -> web.Response:
         target = request.query.get("target", "").strip()
@@ -270,6 +307,42 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
                 text=json.dumps({"error": f"value must be numeric, got '{value_str}'"}),
                 content_type="application/json",
             )
+        if not math.isfinite(value):
+            return web.Response(
+                status=400,
+                text=json.dumps({"error": f"value must be finite, got '{value_str}'"}),
+                content_type="application/json",
+            )
+
+        known_attrs = instance_attributes(target)
+        if attribute not in known_attrs:
+            return web.Response(
+                status=400,
+                text=json.dumps(
+                    {
+                        "error": f"Unknown attribute '{attribute}' for '{target}'",
+                        "known": sorted(known_attrs),
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        limits = engineering_limits(target, attribute)
+        if limits is not None:
+            lo, hi = limits
+            if not lo <= value <= hi:
+                return web.Response(
+                    status=400,
+                    text=json.dumps(
+                        {
+                            "error": (
+                                f"{value} outside engineering limits "
+                                f"[{lo}, {hi}] for {target}.{attribute}"
+                            )
+                        }
+                    ),
+                    content_type="application/json",
+                )
 
         setpoint_overrides.setdefault(target, {})[attribute] = value
         logger.info("Setpoint: %s.%s → %s", target, attribute, value)
@@ -283,6 +356,12 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
     app.router.add_post("/setpoint", handle_setpoint)
     app.router.add_get("/status", handle_status)
     app.router.add_get("/fault-modes", handle_fault_modes)
+    return app
+
+
+async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
+    """Start aiohttp server for fault injection. Returns immediately after bind."""
+    app = _build_control_app(mqtt_client)
 
     runner = web.AppRunner(app)
     await runner.setup()
