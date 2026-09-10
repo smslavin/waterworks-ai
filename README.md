@@ -34,6 +34,7 @@ Everything in this stack is open source. No proprietary historians, SCADA platfo
 - [Context management](#context-management)
 - [Multi-agent diagnostic mode](#multi-agent-diagnostic-mode)
 - [Reactive alarms](#reactive-alarms)
+- [Enterprise / multi-plant mode](#enterprise--multi-plant-mode)
 - [Agent memory](#agent-memory)
 - [Configuration](#configuration)
 - [Project layout](#project-layout)
@@ -138,6 +139,8 @@ MQTT → InfluxDB bridge ─────────────┘  subscribes 
 ```
 
 The simulator runs a configurable fault injection engine. Inject a fault mid-session and ask the AI to diagnose it. It reads live values, correlates anomalies across instruments and explains what it sees. If a corrective action is warranted, it proposes one through the operator approval gate before making any change.
+
+This is the single-plant view. For the full picture — multi-agent fan-out, reactive alarms, memory, and the multi-plant enterprise layer — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -628,6 +631,87 @@ The Reactive pill in the header starts and stops the monitor and Deadband loop a
 
 ---
 
+## Enterprise / multi-plant mode
+
+M10 adds a layer above one or more plant checkouts for cross-plant questions.
+Each plant is a full, independent copy of everything above (its own
+simulator, aggregator, chat-ui, `.env`) — the enterprise layer coordinates
+across them without ever holding a plant's own aggregator/MQTT/InfluxDB
+credentials.
+
+```
+Operator question ("what's the status across the enterprise")
+    │
+    ▼
+Enterprise orchestrator (:8020, Sonnet, Cascade-shaped)
+    │  tools: get_plant_status(site_id), diagnose_plant(site_id, query) — nothing else
+    ▼
+diagnose_plant_mcp (:8200) — thin HTTP proxy, one call per relevant plant
+    │
+    ├── GET  <plant>/api/plant-status   fast path: cached rollup, near-instant,
+    │                                    refreshed by that plant's own status_heartbeat
+    └── POST <plant>/api/chat           slow path: live multi-agent diagnosis
+```
+
+The orchestrator defaults to `get_plant_status` for overview questions and
+only falls back to a live `diagnose_plant` call for genuine drill-down or
+when a plant has no cached status yet — a full cross-plant status check
+this way completes in ~30s instead of minutes, since a live diagnosis is a
+real multi-agent round-trip against that plant's sensors. When it uses the
+fast path it says so, since a cached status can be up to ~1hr stale.
+
+Cross-plant audit history works the same federated way, via a separate
+`query_enterprise_history_mcp` (:8201) that fans a query out to each
+plant's own `audit-mcp` and merges the results — nothing is replicated
+into a central store; each plant's own `metrics.db` stays authoritative
+for its own sessions.
+
+In the chat-ui frontend, `SiteNav` lists every registered site and region.
+Switching sites is a full browser navigation to that plant's own chat-ui
+URL, not an in-app API repoint — deliberately, so no plant's origin ever
+needs to accept cross-origin requests on a system with a live actuation
+path (`control-mcp`'s `set_setpoint`).
+
+### Enabling enterprise mode
+
+Requires at least two plant checkouts running (each with its own `.env`,
+ports offset per instance) and an `enterprise.yaml` listing them:
+
+```yaml
+regions:
+  - name: East
+    sites:
+      - site_id: wtp1
+        name: "Plant 1"
+        chat_ui_url: http://localhost:8080
+        aggregator_url: http://localhost:8100
+      - site_id: wtp2
+        name: "Plant 2"
+        chat_ui_url: http://localhost:8081
+        aggregator_url: http://localhost:8101
+```
+
+```bash
+cd enterprise/diagnose_plant_mcp && uv run python server.py   # :8200
+cd enterprise/query_history_mcp  && uv run python server.py   # :8201
+cd enterprise/orchestrator       && uv run python backend.py  # :8020
+```
+
+### Demo sequence
+
+1. Start two full plant checkouts (second one with an offset `.env`) plus
+   the three enterprise-layer services above
+2. Open the enterprise orchestrator's own UI and ask "what's the status
+   across the enterprise" — expect a fast, per-plant answer citing each
+   plant's last-checked time
+3. Inject a fault on one plant's simulator, then ask again — the fast path
+   won't reflect it until that plant's own heartbeat ticks; ask a
+   drill-down question ("diagnose Plant 2 in detail") to force a live check
+4. From a plant's own chat-ui, use `SiteNav` to jump to the other plant —
+   note the full page navigation, not an in-app swap
+
+---
+
 ## Agent memory
 
 `memory-mcp` (:8006) gives specialists a four-store memory architecture so knowledge accumulates across sessions.
@@ -754,6 +838,7 @@ waterworks-ai/
 │   ├── monitor.py          AnomalyMonitor — MQTT watcher, sustained-violation detection, ISA-18.2 severity
 │   ├── deadband.py         Deadband agent — Haiku signal validator, ESCALATE/SUPPRESS decision
 │   ├── reactive_loop.py    Reactive loop — anomaly queue, Deadband gate, tiered cascade routing
+│   ├── status_heartbeat.py Periodic per-plant status rollup — cached fast path for enterprise mode
 │   ├── openai_loop.py      OpenAI-compatible loop for Ollama
 │   ├── mcp_client.py       MCP aggregator client (per-url tool cache, list/call tools)
 │   ├── session_store.py    session_summaries + action_events tables in metrics.db
@@ -766,6 +851,19 @@ waterworks-ai/
 │   └── static/             Vite build output served by backend (do not edit directly)
 ├── tests/                  Import-level test suite (pytest, no infrastructure required)
 ├── mqtt-influx-bridge/     Subscribes Plant/WTP/# → writes wtp_process to InfluxDB
+├── topology-builder/       FastMCP server :8007 — MQTT/OPC-UA discovery, confidence-scored
+│                             inference, LadybugDB seeding for building a topology.yaml against
+│                             a real (non-simulated) plant. discovery.py talks to MQTT/OPC-UA
+│                             directly, not through the aggregator (discovery predates topology).
+├── enterprise/             M10 multi-plant layer — shared across every plant, run once
+│   ├── plant_registry.py       Loads enterprise.yaml → {site_id: chat_ui_url, ...}
+│   ├── diagnose_plant_mcp/     FastMCP server :8200 — diagnose_plant + get_plant_status,
+│   │                             thin HTTP proxy of each plant's own chat-ui, no direct
+│   │                             aggregator/MQTT/InfluxDB access of its own
+│   ├── query_history_mcp/      FastMCP server :8201 — federated cross-plant audit history
+│   └── orchestrator/           Starlette app + Cascade-shaped loop (:8020); only tool is
+│                                 diagnose_plant/get_plant_status — never a plant's own tools
+├── docs/                   ARCHITECTURE.md (system overview) + demo screenshots
 ├── mcp-aggregator/
 │   ├── server/             Git submodule — aggregator server code (:8100)
 │   └── backends.json       Waterworks endpoint config (BACKENDS_FILE=../backends.json)

@@ -2,6 +2,8 @@
 
 Open source industrial AI demo stack: natural language diagnostics for a simulated water treatment plant using only open source components and public protocols. Reference implementation of the Fieldworks framework.
 
+For the system-level picture (service map, request lifecycle, always-on layers) see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). This file covers decisions, gotchas, and things not to touch.
+
 **Depends on fieldworks-core** (PyPI package, version-pinned per-service in each `requirements.txt`) as of the M8 port (v2.0.0): topology loading, specialist/orchestrator/Deadband prompts, LadybugDB/DuckDB/specialist-memory clients, and topology-builder's inference engine all come from the framework now. No framework logic remains in this repo — only topology.yaml/simulator.yaml config, thin MCP server wrappers, the Starlette backend, and the Vue 3 frontend. **MQTT/OPC-UA adapters** (fieldworks-core#14/#21, 2026-07-19): swapped from the old `mcp-servers/` Python submodule to the Rust `fieldworks-adapters` binaries (`mqtt-mcp`, `opcua-mcp`), installed via `cargo install` and spawned by the aggregator itself as stdio subprocesses (see `mcp-aggregator/backends.json`). The `mcp-servers` submodule is gone — nothing in this repo uses it anymore. `topology-builder/discovery.py`'s crawler still bypasses the aggregator entirely — its own direct paho-mqtt/asyncua clients, not MCP tool calls at all — pending fieldworks-core#22.
 
 ## Starting the stack
@@ -50,6 +52,7 @@ Dashboard overview: open `dashboard.html` in browser.
 | InfluxDB | 8086 |
 | Grafana | 3000 |
 | diagnose_plant_mcp (enterprise, M10) | 8200 |
+| query_history_mcp (enterprise, M10) | 8201 |
 | Enterprise orchestrator (M10) | 8020 |
 
 M10 multi-plant: every port above except the enterprise layer is per-plant —
@@ -70,6 +73,21 @@ Only this plant's own area-status dots in `SiteNav.vue` are real (sourced
 from `stores/topology.ts`); other plants show no dots (no live cross-plant
 health fetch exists yet). Live in-app switching (the CORS-based version) is
 deferred — see smslavin/waterworks-ai#7.
+
+**Fast status path**: `chat-ui/status_heartbeat.py` runs a periodic (default
+15 min) background diagnosis and caches the result via
+`session_store.upsert_plant_status()`, exposed as `GET /api/plant-status`
+and proxied to the enterprise orchestrator as the `get_plant_status(site_id)`
+tool in `diagnose_plant_mcp`. The orchestrator defaults to this fast path for
+overview/status questions and only reaches for the slow live `diagnose_plant`
+path for genuine drill-down — verified live at 28s vs. 1-5+ min for an
+"overall status across the enterprise" question. `status_level` is always
+parsed from the cached narrative itself, never from `monitor.py`'s cheap
+threshold check directly — the threshold check only sees numeric excursions,
+not discrete equipment state, and live testing showed it disagree with a real
+diagnosis. It's used only as a trigger signal for *when* to pay for a real
+check, with `STATUS_HEARTBEAT_MAX_STALE_TICKS` (default 4×15min = 1hr) as a
+backstop for what it can't see at all.
 
 ## Repo structure
 
@@ -93,10 +111,16 @@ enterprise.yaml     M10: regions -> sites (site_id, topology_file, chat_ui_url) 
                     enterprise/plant_registry.py, not by any single plant's own process
 enterprise/         M10 multi-plant layer — shared across every plant, not per-checkout:
                     plant_registry.py            site_id -> chat_ui_url lookup
-                    diagnose_plant_mcp/server.py MCPServer: diagnose_plant(site_id, query) —
-                                                  thin HTTP client of each plant's own
-                                                  chat-ui /api/chat, no aggregator/MQTT/
+                    diagnose_plant_mcp/server.py MCPServer: diagnose_plant(site_id, query) +
+                                                  get_plant_status(site_id) — thin HTTP client
+                                                  of each plant's own chat-ui /api/chat and
+                                                  /api/plant-status, no aggregator/MQTT/
                                                   InfluxDB access of its own
+                    query_history_mcp/server.py  MCPServer: query_enterprise_history(...) —
+                                                  federated read across every plant's own
+                                                  audit-mcp (calls each plant's aggregator
+                                                  directly; audit data doesn't need
+                                                  diagnose_plant_mcp's stricter guarantee)
                     orchestrator/                Starlette app + Cascade-shaped loop whose
                                                   only tool is diagnose_plant
                     start.sh/stop.sh/restart.sh  separate from each plant checkout's own —
@@ -131,9 +155,13 @@ Single aggregator at :8100. Tool isolation enforced by filtering the tool list i
 | Treatment | Haiku | Clarifier_01, UV_01/02, Chlorine_01, Fluoride_01 | mqtt + influxdb |
 | Distribution | Haiku | HighService_01/02, FinishedWater_01 | mqtt + influxdb |
 | Historian | Haiku | (all, historical) | influxdb + memory (DuckDB) |
-| Cascade (orchestrator) | Sonnet | — | no tools |
+| Cascade (orchestrator) | Sonnet | — | control__* + audit__* |
 
 Specialists run in parallel via `asyncio.gather()`. Always fan out to all 4 — no orchestrator dispatch step. Multi-agent mode is disabled until LadybugDB has a committed topology.
+
+Each specialist is capped at `SPECIALIST_MAX_ROUNDS` (4) tool-calling rounds — an unbounded per-specialist loop was the actual cause behind every "slow"/"timeout" report, since `diagnose_plant`'s 240s per-plant timeout sits on top of 4 parallel specialists with no ceiling of their own. Hitting the cap forces the same `_ensure_findings()` fallback used when a specialist ends its turn without a FINDINGS block.
+
+In multi-agent mode, a specialist's `Fault Detected`/`Anomaly Detected` FINDINGS recolor that unit's node on the topology graph (`chat-ui/frontend/src/stores/topology.ts`) — gated on multi-agent mode only, since single-agent has no per-equipment FINDINGS parsing and the enterprise region-proxy path forwards another plant's specialist ids under the same names.
 
 ## FINDINGS block
 
@@ -155,7 +183,7 @@ If the block is missing, `multi_agent_loop.py` makes a cheap follow-up call with
 4. Approve → backend calls execution tool → logs to `action_events`
 5. Deny → backend injects "operator denied: [action]" back to AI → AI responds → logs denial
 
-Denial path has parity with approval path in `action_events`. `propose_action` only works in single-agent mode — orchestrator has no tools.
+Denial path has parity with approval path in `action_events`. `propose_action` works in both single-agent mode (`claude_loop.py`) and multi-agent mode (Cascade, via `multi_agent_loop.py`'s own intercept) — the two intercepts are separate implementations, not shared code; a fix to one (e.g. denial-message wording) does not automatically apply to the other.
 
 ## Audit log
 
