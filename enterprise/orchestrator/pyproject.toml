@@ -1,0 +1,17 @@
+[project]
+name = "enterprise-orchestrator"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.40.0",
+    "mcp>=2.0",
+    "starlette",
+    "uvicorn",
+    "sse-starlette",
+    "python-dotenv",
+    "httpx",
+    "pyyaml",
+]
+
+[tool.uv]
+package = false

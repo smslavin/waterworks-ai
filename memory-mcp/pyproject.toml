@@ -1,0 +1,13 @@
+[project]
+name = "memory-mcp"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]>=2.0",
+    "python-dotenv",
+    "pyyaml",
+    "fieldworks-core[memory,knowledge]>=1.1.0",
+]
+
+[tool.uv]
+package = false
