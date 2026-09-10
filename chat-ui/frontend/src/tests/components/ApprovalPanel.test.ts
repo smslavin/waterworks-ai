@@ -125,11 +125,23 @@ describe('ApprovalPanel', () => {
   })
 
   describe('close button', () => {
-    it('sets approvalOpen to false without resolving the approval', async () => {
+    it('resolves the approval as denied so the backend future does not ride out the timeout', async () => {
       const { container, ui, approvals } = renderPanel(true)
       await fireEvent.click(container.querySelector('.approval-close')!)
+      await flushPromises()
+      expect(approvals.queue).toHaveLength(0)
       expect(ui.approvalOpen).toBe(false)
+    })
+  })
+
+  describe('backend confirmation failure', () => {
+    it('keeps the approval queued and shows an error instead of silently dequeuing it', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom') }))
+      const { container, approvals } = renderPanel(true)
+      await fireEvent.click(container.querySelector('.approve-btn')!)
+      await flushPromises()
       expect(approvals.queue).toHaveLength(1)
+      expect(container.querySelector('.approval-error')?.textContent).toContain('500')
     })
   })
 })

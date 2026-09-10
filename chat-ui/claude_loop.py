@@ -233,16 +233,20 @@ Do not assert a value without first reading it from a tool.
 
 ── Control actions ────────────────────────────────────────────────────────────
 You can propose and execute process control changes using control tools:
-  propose_action(description, action_type, target, value)
+  propose_action(description, action_type, target, attribute, value)
     → Presents the action to the operator for explicit approval.
     → action_type: "setpoint_adjustment" | "fault_clear"
+    → attribute: required for setpoint_adjustment (e.g. "FlowRate"); omit for fault_clear
     → BLOCKS until the operator approves or denies — do not loop on this call.
   set_setpoint(target, attribute, value)   → Adjust a process setpoint
   clear_fault(target)                       → Restore a unit to normal
 
 ALWAYS call propose_action first. Only proceed with set_setpoint or clear_fault
 after the response confirms "Action approved by operator". Never execute a
-control change without prior operator approval in the same session.
+control change without prior operator approval in the same session. The
+execution call MUST use the exact same target/attribute/value you proposed —
+the backend only executes calls that match what was approved and refuses
+anything else, even a rounded or reworded resubmission.
 
 ── Topology builder ───────────────────────────────────────────────────────────
 The topology_builder__ tools discover plant equipment automatically from MQTT topics.
@@ -465,10 +469,20 @@ async def run_chat(
                                 "description": args.get("description", ""),
                                 "action_type": args.get("action_type", ""),
                                 "target": args.get("target", ""),
+                                "attribute": args.get("attribute", ""),
                                 "value": args.get("value", ""),
                             }
                         )
-                        fut = control.register(action_id)
+                        fut = control.register(
+                            action_id,
+                            {
+                                "session_id": session_id,
+                                "action_type": args.get("action_type", ""),
+                                "target": args.get("target", ""),
+                                "attribute": args.get("attribute", ""),
+                                "value": args.get("value", ""),
+                            },
+                        )
                         try:
                             decision = await asyncio.wait_for(
                                 fut, timeout=_ACTION_TIMEOUT
@@ -522,6 +536,25 @@ async def run_chat(
                                 "result": result,
                             }
                         )
+
+                    # ── Gated execution tools ───────────────────────────────────
+                    elif block.name in control.EXECUTION_TOOLS:
+                        if control.consume_grant(session_id, block.name, args):
+                            result = await call_mcp_tool(block.name, args)
+                            if result.startswith("Error"):
+                                error_count += 1
+                        else:
+                            result = (
+                                "Refused: no matching operator approval for this "
+                                "exact action. Call propose_action again and use "
+                                "the exact same target/attribute/value to execute."
+                            )
+                            audit.log(
+                                "unapproved_execution_blocked",
+                                session_id=session_id,
+                                tool=block.name,
+                                args=args,
+                            )
 
                     # ── Normal MCP tool call ────────────────────────────────────
                     else:

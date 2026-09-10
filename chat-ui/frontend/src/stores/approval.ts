@@ -9,6 +9,7 @@ export interface PendingApproval {
   specialist: string
   action: string
   impact: string
+  error?: string
 }
 
 export interface BackendActionProposal {
@@ -17,6 +18,7 @@ export interface BackendActionProposal {
   description: string
   action_type: string
   target: string
+  attribute: string
   value: string
 }
 
@@ -35,12 +37,13 @@ export const useApprovalStore = defineStore('approval', () => {
   function pushFromBackend(event: BackendActionProposal) {
     const topo = useTopologyStore()
     const node = topo.nodeById(event.target)
+    const attributeSuffix = event.attribute ? `.${event.attribute}` : ''
     push({
       id: event.action_id,
       nodeId: event.target,
       specialist: node?.specialist ?? 'System',
       action: event.description,
-      impact: `${event.action_type}: ${event.target} → ${event.value}`,
+      impact: `${event.action_type}: ${event.target}${attributeSuffix} → ${event.value}`,
     })
     const ui = useUIStore()
     ui.approvalOpen = true
@@ -51,7 +54,7 @@ export const useApprovalStore = defineStore('approval', () => {
     if (!item) return
 
     try {
-      await fetch('/api/action/respond', {
+      const res = await fetch('/api/action/respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -59,7 +62,18 @@ export const useApprovalStore = defineStore('approval', () => {
           decision: decision === 'approve' ? 'approved' : 'denied',
         }),
       })
-    } catch { /* backend unreachable — still update UI */ }
+      if (!res.ok) {
+        throw new Error(`${res.status} ${await res.text()}`)
+      }
+    } catch (e) {
+      // Backend didn't confirm the decision — keep the item in the queue and
+      // surface the failure instead of silently dequeuing it. A dropped POST
+      // here previously left the operator believing an action went through
+      // (or was denied) while the backend future stayed pending, un-acted-on,
+      // until it timed out 300s later.
+      item.error = e instanceof Error ? e.message : String(e)
+      return
+    }
 
     queue.value = queue.value.filter(a => a.id !== id)
     const ui = useUIStore()
@@ -69,5 +83,12 @@ export const useApprovalStore = defineStore('approval', () => {
     // the same node, or is silently consumed if the operator has moved elsewhere.
   }
 
-  return { queue, current, hasPending, push, pushFromBackend, resolve }
+  function dismiss(id: string) {
+    // Closing without an explicit choice is treated as a denial so the
+    // backend future resolves immediately instead of riding out the 300s
+    // timeout with the panel gone and no visible pending state.
+    void resolve(id, 'deny')
+  }
+
+  return { queue, current, hasPending, push, pushFromBackend, resolve, dismiss }
 })

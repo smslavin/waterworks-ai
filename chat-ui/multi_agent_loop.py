@@ -215,10 +215,14 @@ Only propose when evidence is strong; do not propose for Normal status or minor
 anomalies.
 
 Tool parameters: description (str), action_type ("setpoint_adjustment"|"fault_clear"),
-target (unit name), value (new value or empty string for fault_clear).
+target (unit name), attribute (required for setpoint_adjustment, e.g. "FlowRate";
+omit for fault_clear), value (new value or empty string for fault_clear).
 
 After the tool confirms operator approval, call control__set_setpoint or
-control__clear_fault to execute. Never execute without prior approval.
+control__clear_fault to execute. Never execute without prior approval. The
+execution call MUST use the exact same target/attribute/value you proposed —
+the backend only executes calls that match what was approved and refuses
+anything else, even a rounded or reworded resubmission.
 
 ── Insight review queue ───────────────────────────────────────────────────────
 Operators save insights during node diagnostics. Those flagged requires_review=true
@@ -661,7 +665,104 @@ async def _run_cascade_only(
             tool_results = []
             for tu in tool_uses:
                 orch_tool_call_count += 1
-                result = await call_mcp_tool(tu.name, dict(tu.input))
+                args = dict(tu.input)
+                audit.log(
+                    "tool_call",
+                    session_id=session_id,
+                    tool=tu.name,
+                    args=args,
+                    specialist="orchestrator",
+                )
+                yield json.dumps({"type": "tool_call", "tool": tu.name, "args": args})
+
+                if tu.name == "control__propose_action":
+                    action_id = str(uuid.uuid4())[:8]
+                    yield json.dumps(
+                        {
+                            "type": "action_proposed",
+                            "action_id": action_id,
+                            "description": args.get("description", ""),
+                            "action_type": args.get("action_type", ""),
+                            "target": args.get("target", ""),
+                            "attribute": args.get("attribute", ""),
+                            "value": args.get("value", ""),
+                        }
+                    )
+                    fut = control.register(
+                        action_id,
+                        {
+                            "session_id": session_id,
+                            "action_type": args.get("action_type", ""),
+                            "target": args.get("target", ""),
+                            "attribute": args.get("attribute", ""),
+                            "value": args.get("value", ""),
+                        },
+                    )
+                    try:
+                        decision = await asyncio.wait_for(fut, timeout=300)
+                    except asyncio.TimeoutError:
+                        decision = "timed_out"
+
+                    session_store.log_action_event(
+                        session_id=session_id,
+                        action_type=args.get("action_type", ""),
+                        target=args.get("target", ""),
+                        value=str(args.get("value", "")),
+                        description=args.get("description", ""),
+                        decision=decision,
+                    )
+                    audit.log(
+                        "action_decision",
+                        session_id=session_id,
+                        action_id=action_id,
+                        decision=decision,
+                    )
+                    yield json.dumps(
+                        {
+                            "type": "action_decision",
+                            "action_id": action_id,
+                            "decision": decision,
+                        }
+                    )
+                    if decision == "approved":
+                        result = (
+                            f"Action approved by operator. Proceed with "
+                            f"{args.get('action_type', '')} on {args.get('target', '')}."
+                        )
+                    else:
+                        result = (
+                            f"Action denied by operator ({decision}). "
+                            f"No changes to {args.get('target', '')}."
+                        )
+                elif tu.name in control.EXECUTION_TOOLS:
+                    if control.consume_grant(session_id, tu.name, args):
+                        result = await call_mcp_tool(tu.name, args)
+                    else:
+                        result = (
+                            "Refused: no matching operator approval for this "
+                            "exact action. Call propose_action again and use "
+                            "the exact same target/attribute/value to execute."
+                        )
+                        audit.log(
+                            "unapproved_execution_blocked",
+                            session_id=session_id,
+                            tool=tu.name,
+                            args=args,
+                            specialist="orchestrator",
+                        )
+                else:
+                    result = await call_mcp_tool(tu.name, args)
+
+                audit.log(
+                    "tool_result",
+                    session_id=session_id,
+                    tool=tu.name,
+                    result=result,
+                    specialist="orchestrator",
+                )
+                yield json.dumps(
+                    {"type": "tool_result", "tool": tu.name, "result": result}
+                )
                 tool_results.append(
                     {"type": "tool_result", "tool_use_id": tu.id, "content": result}
                 )
@@ -922,10 +1023,20 @@ async def run_multi_agent(
                                 "description": args.get("description", ""),
                                 "action_type": args.get("action_type", ""),
                                 "target": args.get("target", ""),
+                                "attribute": args.get("attribute", ""),
                                 "value": args.get("value", ""),
                             }
                         )
-                        fut = control.register(action_id)
+                        fut = control.register(
+                            action_id,
+                            {
+                                "session_id": session_id,
+                                "action_type": args.get("action_type", ""),
+                                "target": args.get("target", ""),
+                                "attribute": args.get("attribute", ""),
+                                "value": args.get("value", ""),
+                            },
+                        )
                         try:
                             decision = await asyncio.wait_for(fut, timeout=300)
                         except asyncio.TimeoutError:
@@ -961,6 +1072,22 @@ async def run_multi_agent(
                             result = (
                                 f"Action denied by operator ({decision}). "
                                 f"No changes to {args.get('target', '')}."
+                            )
+                    elif block.name in control.EXECUTION_TOOLS:
+                        if control.consume_grant(session_id, block.name, args):
+                            result = await call_mcp_tool(block.name, args)
+                        else:
+                            result = (
+                                "Refused: no matching operator approval for this "
+                                "exact action. Call propose_action again and use "
+                                "the exact same target/attribute/value to execute."
+                            )
+                            audit.log(
+                                "unapproved_execution_blocked",
+                                session_id=session_id,
+                                tool=block.name,
+                                args=args,
+                                specialist="orchestrator",
                             )
                     else:
                         result = await call_mcp_tool(block.name, args)
