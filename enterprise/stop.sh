@@ -2,27 +2,25 @@
 # Stop all enterprise services started by start.sh.
 
 cd "$(dirname "$0")"
+source ../scripts/lib/supervise.sh
 
 if [ ! -d .pids ] || [ -z "$(ls .pids/*.pid 2>/dev/null)" ]; then
     echo "No running enterprise services found (.pids/ is empty)."
     exit 0
 fi
 
+# start.pid is handled explicitly below, not by the glob loop — see
+# ../stop.sh for why (same "start" sorts into the middle of the glob, races
+# with start.sh's own EXIT trap" bug applies here too).
 echo "Stopping enterprise services..."
 for pidfile in .pids/*.pid; do
     name=$(basename "$pidfile" .pid)
-    pid=$(cat "$pidfile")
-    if kill "$pid" 2>/dev/null; then
-        echo "  [$name] stopped (pid $pid)"
-    else
-        echo "  [$name] already stopped"
-    fi
-    rm -f "$pidfile"
+    [[ "$name" == "start" ]] && continue
+    supervise_stop "$pidfile" "$name"
 done
 
 if [[ -f .pids/start.pid ]]; then
-    kill "$(cat .pids/start.pid)" 2>/dev/null || true
-    rm -f .pids/start.pid
+    supervise_stop .pids/start.pid start
 fi
 
 echo "Done."

@@ -3,7 +3,9 @@
 # Logs go to logs/<service>.log. Ctrl-C stops everything.
 
 set -e
+set -m  # each backgrounded service gets its own process group — see scripts/lib/supervise.sh
 cd "$(dirname "$0")"
+source scripts/lib/supervise.sh
 
 # mcp-aggregator/server ships its own bundled .env (AGGREGATOR_PORT=8100, for the
 # submodule's standalone mock/testing use) — python-dotenv's load_dotenv() finds
@@ -15,14 +17,15 @@ AGGREGATOR_PORT="$(grep -E '^AGGREGATOR_PORT=' .env 2>/dev/null | tail -1 | cut 
 AGGREGATOR_PORT="${AGGREGATOR_PORT:-8100}"
 
 mkdir -p logs .pids
-echo $$ > .pids/start.pid
+supervise_record_pid $$ .pids/start.pid
 
-PIDS=()
 cleanup() {
     echo ""
     echo "Stopping all services..."
-    for pid in "${PIDS[@]}"; do
-        kill "$pid" 2>/dev/null || true
+    for pid in "${SUPERVISE_PIDS[@]}"; do
+        # Group-kill: reaps wrapper-forked children (uv, npm) too, not just
+        # the recorded PID. See scripts/lib/supervise.sh for why.
+        kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
     done
     rm -f .pids/*.pid
     echo "Done."
@@ -30,14 +33,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 start_service() {
-    local name="$1"
-    local dir="$2"
-    local cmd="$3"
-    (cd "$dir" && eval "$cmd") > "logs/${name}.log" 2>&1 &
-    local pid=$!
-    PIDS+=($pid)
-    echo "$pid" > ".pids/${name}.pid"
-    echo "  [$name] pid $pid — logs/${name}.log"
+    supervise_start "$1" "$2" "$3" ".pids/${1}.pid"
 }
 
 # ── Infrastructure ───────────────────────────────────────────────────────────
