@@ -19,10 +19,10 @@ services:
     environment:
       DOCKER_INFLUXDB_INIT_MODE:     setup
       DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USERNAME:-admin}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-waterworks-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:?Set INFLUXDB_PASSWORD in .env (see .env.example) — no default, do not use a well-known value}
       DOCKER_INFLUXDB_INIT_ORG:      ${INFLUXDB_ORG:-waterworks}
       DOCKER_INFLUXDB_INIT_BUCKET:   ${INFLUXDB_BUCKET:-waterworks}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-waterworks-dev-token}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in .env (see .env.example) — no default, do not use a well-known value}
     restart: unless-stopped
 
   grafana:
@@ -34,12 +34,12 @@ services:
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       GF_SECURITY_ADMIN_USER:          ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD:      ${GRAFANA_PASSWORD:-waterworks}
+      GF_SECURITY_ADMIN_PASSWORD:      ${GRAFANA_PASSWORD:?Set GRAFANA_PASSWORD in .env (see .env.example) — no default, do not use a well-known value}
       GF_AUTH_ANONYMOUS_ENABLED:       "true"
       GF_AUTH_ANONYMOUS_ORG_NAME:      "Main Org."
       GF_AUTH_ANONYMOUS_ORG_ROLE:      "Viewer"
       GF_SECURITY_ALLOW_EMBEDDING:     "true"
-      INFLUXDB_TOKEN:                  ${INFLUXDB_TOKEN:-waterworks-dev-token}
+      INFLUXDB_TOKEN:                  ${INFLUXDB_TOKEN:?Set INFLUXDB_TOKEN in .env (see .env.example) — no default, do not use a well-known value}
       INFLUXDB_ORG:                    ${INFLUXDB_ORG:-waterworks}
       INFLUXDB_BUCKET:                 ${INFLUXDB_BUCKET:-waterworks}
     depends_on:
