@@ -33,7 +33,7 @@ async function deny() {
              open in different tabs needs this to confirm which plant's
              control-mcp a setpoint change actually targets. See M10 Phase 4. -->
         <span class="approval-site">{{ ui.activeSite }}</span>
-        <button class="approval-close" @click="ui.approvalOpen = false">✕</button>
+        <button class="approval-close" @click="approvals.dismiss(approval.id)">✕</button>
       </div>
 
       <div class="approval-body">
@@ -48,6 +48,10 @@ async function deny() {
 
         <div class="approval-impact">
           {{ approval.impact }}
+        </div>
+
+        <div v-if="approval.error" class="approval-error">
+          Decision not confirmed by backend: {{ approval.error }}. Try again.
         </div>
       </div>
 
@@ -154,6 +158,12 @@ async function deny() {
   font-size: 12px;
   color: var(--color-text2);
   line-height: 1.6;
+}
+
+.approval-error {
+  font-size: 11px;
+  color: var(--color-error);
+  line-height: 1.5;
 }
 
 .approval-footer {

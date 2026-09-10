@@ -39,3 +39,9 @@ enterprise/orchestrator/logs/
 /.pids/
 enterprise/logs/
 enterprise/.pids/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/

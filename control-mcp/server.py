@@ -52,20 +52,24 @@ def propose_action(
     description: str,
     action_type: str,
     target: str,
+    attribute: str = "",
     value: str = "",
 ) -> str:
     """Propose a control action requiring operator approval before execution.
 
     The backend intercepts this call and presents it to the operator via an
     approval dialog. This tool BLOCKS until the operator decides.
-    After approval is returned, call the appropriate execution tool
-    (set_setpoint or clear_fault).
+    After approval is returned, call the matching execution tool
+    (set_setpoint or clear_fault) with the EXACT SAME target/attribute/value —
+    the backend only executes calls that match what was approved.
 
     Args:
         description: Plain-language rationale, e.g. "Reduce chlorine dose from
                      3.5 to 2.8 L/h — current reading is elevated vs turbidity trend"
         action_type: "setpoint_adjustment" | "fault_clear"
         target:      Equipment ID (e.g. "Chlorine_01", "RawWater_01")
+        attribute:   Attribute name for setpoint adjustments (e.g. "FlowRate");
+                     omit for fault clears
         value:       New value for setpoint adjustments; omit for fault clears
     """
     # The backend intercepts this before routing through the aggregator.

@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "waterworks_ai",
+  "project_id": "7e66d823-e967-4901-8e98-40ff1c9bae75"
+}
