@@ -11,8 +11,10 @@
 # so the backend's in-memory tool cache (mcp_client._tool_cache) reflects the new tool list.
 
 set -e
+set -m  # each backgrounded service gets its own process group — see scripts/lib/supervise.sh
 cd "$(dirname "$0")"
 ROOT="$(pwd)"
+source scripts/lib/supervise.sh
 
 # mcp-aggregator/server ships its own bundled .env (AGGREGATOR_PORT=8100, for the
 # submodule's standalone mock/testing use) — python-dotenv's load_dotenv() finds
@@ -35,48 +37,25 @@ if [[ -z "$SERVICE" ]]; then
 fi
 
 # ── Kill existing instance ────────────────────────────────────────────────────
+#
+# supervise_stop identity-checks the recorded PID against its process start
+# time before touching it (guards against PID reuse, e.g. after a reboot)
+# and group-kills it (SIGTERM, then SIGKILL after a short grace period) so
+# wrapper-forked children (uv, npm) are reaped too — see
+# scripts/lib/supervise.sh. That makes the old pkill-by-checkout-path
+# fallback below unnecessary: it existed only to catch children the single
+# recorded PID couldn't reach, and it never covered bridge/influxdb-mcp/
+# topology-builder/frontend in the first place.
 
 PID_FILE=".pids/${SERVICE}.pid"
-if [[ -f "$PID_FILE" ]]; then
-    OLD_PID=$(cat "$PID_FILE")
-    if kill -0 "$OLD_PID" 2>/dev/null; then
-        echo "Stopping $SERVICE (pid $OLD_PID)..."
-        kill "$OLD_PID" 2>/dev/null || true
-        sleep 1
-    fi
-    rm -f "$PID_FILE"
-fi
-
-# Fallback: pkill any matching process not covered by the PID file
-# (catches services started manually outside of start.sh / restart.sh)
-#
-# Patterns are anchored on $ROOT (this checkout's absolute path) rather than
-# a bare "python simulator.py"-style argv match. uv run's own argv is
-# identical text across every checkout (cwd isn't part of argv), and its
-# child python process's argv only carries an absolute path via its venv
-# interpreter (.venv/bin/python3 ...) — so an unanchored pattern kills the
-# same-named service in every other checkout too, not just this one. Matters
-# once a second waterworks-ai checkout (M10 multi-plant) runs side by side.
-case "$SERVICE" in
-    chat-ui)          pkill -f "${ROOT}/chat-ui/.venv"    2>/dev/null || true ;;
-    simulator)        pkill -f "${ROOT}/simulator/.venv"  2>/dev/null || true ;;
-    aggregator)       pkill -P "$(pgrep -f "${ROOT}/mcp-aggregator/server" | head -1)" 2>/dev/null || true; kill "$(pgrep -f "${ROOT}/mcp-aggregator/server/.venv")" 2>/dev/null || true ;;
-    audit-mcp)        pkill -f "${ROOT}/audit-mcp/.venv"  2>/dev/null || true ;;
-    control-mcp)      pkill -f "${ROOT}/control-mcp/.venv" 2>/dev/null || true ;;
-    memory-mcp)       pkill -f "${ROOT}/memory-mcp/.venv" 2>/dev/null || true ;;
-esac
-sleep 0.5
+supervise_stop "$PID_FILE" "$SERVICE"
 
 # ── Restart ───────────────────────────────────────────────────────────────────
 
 mkdir -p logs .pids
 
 start_one() {
-    local name="$1" dir="$2" cmd="$3"
-    (cd "$dir" && eval "$cmd") > "logs/${name}.log" 2>&1 &
-    local pid=$!
-    echo "$pid" > ".pids/${name}.pid"
-    echo "  [$name] started — pid $pid — logs/${name}.log"
+    supervise_start "$1" "$2" "$3" ".pids/${1}.pid"
 }
 
 case "$SERVICE" in
