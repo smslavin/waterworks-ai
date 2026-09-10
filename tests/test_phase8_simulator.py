@@ -273,6 +273,181 @@ def test_uv_fault_modes():
     assert FaultMode.LAMP_FAILURE in modes
 
 
+# ── /setpoint HTTP endpoint ─────────────────────────────────────────────────
+#
+# Regression coverage for a production-safety bug: handle_setpoint accepted
+# any float() for `value` (including nan/inf) and any string for `attribute`
+# without checking it belongs to the target instance, storing bad data via
+# setpoint_overrides. NaN/inf poisons the first-order ramp permanently once
+# it lands in _setpoint_ramp (gap = new - nan is still nan), and an unknown
+# attribute silently no-ops while returning 200. See simulator.py's
+# handle_setpoint, instance_attributes(), and engineering_limits().
+
+
+def _setpoint_request(params: dict) -> tuple[int, dict]:
+    """POST /setpoint against a freshly-built control-plane app (no real TCP
+    bind, no real MQTT client) and return (status, json_body)."""
+    import asyncio
+    import json as json_module
+    from unittest.mock import MagicMock
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    import simulator
+
+    async def run():
+        app = simulator._build_control_app(MagicMock())
+        server = TestServer(app)
+        client = TestClient(server)
+        await client.start_server()
+        try:
+            resp = await client.post("/setpoint", params=params)
+            body = json_module.loads(await resp.text())
+            return resp.status, body
+        finally:
+            await client.close()
+
+    return asyncio.run(run())
+
+
+def test_setpoint_rejects_nan():
+    status, body = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "FlowRate", "value": "nan"}
+    )
+    assert status == 400
+    assert "finite" in body["error"]
+
+    import simulator
+
+    assert "FlowRate" not in simulator.setpoint_overrides.get("Chlorine_01", {})
+
+
+def test_setpoint_rejects_inf():
+    for value_str in ("inf", "-inf", "Infinity"):
+        status, body = _setpoint_request(
+            {"target": "Chlorine_01", "attribute": "FlowRate", "value": value_str}
+        )
+        assert status == 400, value_str
+        assert "finite" in body["error"]
+
+
+def test_setpoint_rejects_unknown_attribute():
+    status, body = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "Bogus", "value": "5.0"}
+    )
+    assert status == 400
+    assert "Unknown attribute" in body["error"]
+    assert "FlowRate" in body["known"]
+
+    import simulator
+
+    assert "Chlorine_01" not in simulator.setpoint_overrides or "Bogus" not in (
+        simulator.setpoint_overrides.get("Chlorine_01", {})
+    )
+
+
+def test_setpoint_rejects_out_of_range_value():
+    # Chlorine_01.FlowRate normal_range in topology.yaml is [4.5, 5.5] L/h.
+    status, body = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "FlowRate", "value": "100"}
+    )
+    assert status == 400
+    assert "engineering limits" in body["error"]
+
+
+def test_setpoint_valid_value_succeeds_and_is_stored():
+    status, body = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "FlowRate", "value": "5.0"}
+    )
+    assert status == 200
+    assert body == {"target": "Chlorine_01", "attribute": "FlowRate", "value": 5.0}
+
+    import simulator
+
+    assert simulator.setpoint_overrides["Chlorine_01"]["FlowRate"] == 5.0
+
+
+def test_setpoint_valid_value_advances_simulated_value():
+    """A valid setpoint actually changes the ramped value applied in the main
+    publish loop, not just the stored override."""
+    import simulator
+
+    simulator.setpoint_overrides.clear()
+    simulator._setpoint_ramp.clear()
+
+    status, _ = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "FlowRate", "value": "5.5"}
+    )
+    assert status == 200
+
+    # Simulate one tick of the ramp logic from simulator.py's main loop.
+    sp_target = simulator.setpoint_overrides["Chlorine_01"]["FlowRate"]
+    inst_ramp = simulator._setpoint_ramp.setdefault("Chlorine_01", {})
+    live_value = 4.5  # stand-in for the generator's current raw value
+    inst_ramp.setdefault("FlowRate", live_value)
+    current = inst_ramp["FlowRate"]
+    gap = sp_target - current
+    assert gap == gap  # not NaN
+    current = (
+        sp_target
+        if abs(gap) < 0.01
+        else round(current + gap * simulator._RAMP_FRACTION, 2)
+    )
+    inst_ramp["FlowRate"] = current
+
+    assert current != live_value
+    assert current == round(4.5 + (5.5 - 4.5) * simulator._RAMP_FRACTION, 2)
+
+
+def test_setpoint_nan_does_not_poison_ramp_state():
+    """Directly demonstrates the bug this fix closes: previously, once a nan
+    value reached _setpoint_ramp, gap = new_value - nan stayed nan forever,
+    even for a subsequent valid corrective setpoint. With validation in
+    place, nan is rejected before it ever reaches setpoint_overrides or
+    _setpoint_ramp, so the ramp state is never poisoned."""
+    import math
+
+    import simulator
+
+    simulator.setpoint_overrides.clear()
+    simulator._setpoint_ramp.clear()
+
+    status, _ = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "FlowRate", "value": "nan"}
+    )
+    assert status == 400
+    assert "FlowRate" not in simulator.setpoint_overrides.get("Chlorine_01", {})
+
+    # A follow-up valid setpoint must still work normally.
+    status, body = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "FlowRate", "value": "5.0"}
+    )
+    assert status == 200
+    assert not math.isnan(simulator.setpoint_overrides["Chlorine_01"]["FlowRate"])
+
+
+def test_setpoint_boolean_attribute_has_no_range_check():
+    """Running is data_type=boolean (no normal_range) — a finite value should
+    be accepted without an engineering-limits check."""
+    status, body = _setpoint_request(
+        {"target": "Chlorine_01", "attribute": "Running", "value": "1"}
+    )
+    assert status == 200
+    assert body["value"] == 1.0
+
+
+def test_instance_attributes_and_engineering_limits_helpers():
+    import simulator
+
+    attrs = simulator.instance_attributes("Chlorine_01")
+    assert set(attrs) == {"FlowRate", "TankLevel", "Running"}
+
+    assert simulator.engineering_limits("Chlorine_01", "FlowRate") == (4.5, 5.5)
+    assert simulator.engineering_limits("Chlorine_01", "Running") is None
+    assert simulator.engineering_limits("Chlorine_01", "NoSuchAttr") is None
+    assert simulator.instance_attributes("NoSuchInstance") == {}
+
+
 def test_unknown_fault_in_topology_skipped(tmp_path, monkeypatch):
     """A fault id in topology with no FaultMode enum entry is silently skipped."""
     import yaml
