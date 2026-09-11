@@ -698,18 +698,21 @@ async def _run_cascade_only(
                             "value": args.get("value", ""),
                         },
                     )
-                    try:
-                        decision = await asyncio.wait_for(fut, timeout=300)
-                    except asyncio.TimeoutError:
-                        decision = "timed_out"
-
-                    session_store.log_action_event(
+                    session_store.log_action_proposed(
+                        action_id=action_id,
                         session_id=session_id,
                         action_type=args.get("action_type", ""),
                         target=args.get("target", ""),
                         value=str(args.get("value", "")),
                         description=args.get("description", ""),
-                        decision=decision,
+                    )
+                    try:
+                        decision = await asyncio.wait_for(fut, timeout=300)
+                    except asyncio.TimeoutError:
+                        decision = "timed_out"
+
+                    session_store.log_action_decision(
+                        action_id=action_id, decision=decision
                     )
                     audit.log(
                         "action_decision",
@@ -735,8 +738,17 @@ async def _run_cascade_only(
                             f"No changes to {args.get('target', '')}."
                         )
                 elif tu.name in control.EXECUTION_TOOLS:
-                    if control.consume_grant(session_id, tu.name, args):
+                    granted_action_id = control.consume_grant(session_id, tu.name, args)
+                    if granted_action_id is not None:
                         result = await call_mcp_tool(tu.name, args)
+                        session_store.log_action_outcome(
+                            action_id=granted_action_id,
+                            outcome=(
+                                f"failed: {result[:200]}"
+                                if result.startswith("Error")
+                                else "ok"
+                            ),
+                        )
                     else:
                         result = (
                             "Refused: no matching operator approval for this "
@@ -1037,18 +1049,21 @@ async def run_multi_agent(
                                 "value": args.get("value", ""),
                             },
                         )
-                        try:
-                            decision = await asyncio.wait_for(fut, timeout=300)
-                        except asyncio.TimeoutError:
-                            decision = "timed_out"
-
-                        session_store.log_action_event(
+                        session_store.log_action_proposed(
+                            action_id=action_id,
                             session_id=session_id,
                             action_type=args.get("action_type", ""),
                             target=args.get("target", ""),
                             value=str(args.get("value", "")),
                             description=args.get("description", ""),
-                            decision=decision,
+                        )
+                        try:
+                            decision = await asyncio.wait_for(fut, timeout=300)
+                        except asyncio.TimeoutError:
+                            decision = "timed_out"
+
+                        session_store.log_action_decision(
+                            action_id=action_id, decision=decision
                         )
                         audit.log(
                             "action_decision",
@@ -1074,8 +1089,19 @@ async def run_multi_agent(
                                 f"No changes to {args.get('target', '')}."
                             )
                     elif block.name in control.EXECUTION_TOOLS:
-                        if control.consume_grant(session_id, block.name, args):
+                        granted_action_id = control.consume_grant(
+                            session_id, block.name, args
+                        )
+                        if granted_action_id is not None:
                             result = await call_mcp_tool(block.name, args)
+                            session_store.log_action_outcome(
+                                action_id=granted_action_id,
+                                outcome=(
+                                    f"failed: {result[:200]}"
+                                    if result.startswith("Error")
+                                    else "ok"
+                                ),
+                            )
                         else:
                             result = (
                                 "Refused: no matching operator approval for this "

@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-"""Verify chain integrity of an encrypted audit log, or decrypt for export."""
+"""Verify chain integrity of an encrypted audit log, or decrypt for export.
+
+The hash chain and seq check catch a record edited or removed anywhere
+before the last surviving line — the chain breaks, or (for a tamperer who
+edits content but doesn't renumber seq) seq skips. Neither catches records
+deleted off the *end* of the file with nothing rewritten after them: there's
+nothing left in the file to reference what's missing. Detecting that needs
+an external anchor (a periodic backup, an external append-only witness) —
+out of scope here.
+"""
 
 import argparse
 import base64
 import hashlib
+import hmac
 import json
 import os
 import sys
@@ -23,7 +33,28 @@ def _decode(line: str, key: bytes | None) -> str:
     return line
 
 
-def verify(log_path: str, key: bytes | None, verbose: bool = False) -> bool:
+def _hash_line(line: str, key: bytes | None) -> str:
+    """Must match audit.py's _hash_line exactly: HMAC-SHA256 under the key
+    when one is configured, else a plain (unkeyed) SHA-256."""
+    if key:
+        return hmac.new(key, line.encode(), hashlib.sha256).hexdigest()
+    return hashlib.sha256(line.encode()).hexdigest()
+
+
+def _last_line_hash(log_path: str, key: bytes | None) -> str:
+    with open(log_path, encoding="utf-8") as f:
+        lines = [l.strip() for l in f if l.strip()]
+    if not lines:
+        return ""
+    return _hash_line(lines[-1], key)
+
+
+def verify(
+    log_path: str,
+    key: bytes | None,
+    verbose: bool = False,
+    prev_file: str | None = None,
+) -> bool:
     with open(log_path, encoding="utf-8") as f:
         lines = [l.strip() for l in f if l.strip()]
     if not lines:
@@ -31,29 +62,55 @@ def verify(log_path: str, key: bytes | None, verbose: bool = False) -> bool:
         return True
 
     ok = True
-    prev_hash = ""
+    prev_hash = _last_line_hash(prev_file, key) if prev_file else ""
+    expected_seq: int | None = None
+
     for i, line in enumerate(lines, 1):
         try:
             payload = json.loads(_decode(line, key))
         except Exception as e:
             print(f"  Record {i}: DECRYPT/PARSE ERROR — {e}")
             ok = False
-            prev_hash = hashlib.sha256(line.encode()).hexdigest()
+            prev_hash = _hash_line(line, key)
+            expected_seq = None
             continue
 
         expected = payload.get("prev", "")
+        seq = payload.get("seq")
+
+        if i == 1 and not prev_file and expected:
+            # Nothing in this file can verify record 1's claimed prev without
+            # the archive it rotated from — accept it as given rather than
+            # comparing against "", and chain forward from there. Its mere
+            # presence is itself the signal worth surfacing: a legitimate
+            # from-scratch log has an empty prev on record 1, so a non-empty
+            # one here means this is a continuation, not the complete history.
+            print(
+                f"  Record 1: this log continues from a prior file "
+                f"(prev={expected[:16]}…) rather than starting fresh — pass "
+                f"--prev-file to verify continuity across the rotation, or "
+                f"treat a non-empty prev here as itself suspicious if this "
+                f"is supposed to be the complete history."
+            )
+            prev_hash = expected
+
         if expected != prev_hash:
             print(
-                f"  Record {i} seq={payload.get('seq')}: CHAIN BROKEN "
+                f"  Record {i} seq={seq}: CHAIN BROKEN "
                 f"(expected {prev_hash[:16]}… got {expected[:16]}…)"
             )
             ok = False
-        elif verbose:
+        elif expected_seq is not None and seq != expected_seq:
             print(
-                f"  {i:>5} seq={payload.get('seq')} {payload.get('ts')} {payload.get('event')} ✓"
+                f"  Record {i}: SEQUENCE GAP (expected seq={expected_seq}, got {seq}) "
+                f"— records may have been deleted without breaking the hash chain"
             )
+            ok = False
+        elif verbose:
+            print(f"  {i:>5} seq={seq} {payload.get('ts')} {payload.get('event')} ✓")
 
-        prev_hash = hashlib.sha256(line.encode()).hexdigest()
+        prev_hash = _hash_line(line, key)
+        expected_seq = (seq if isinstance(seq, int) else 0) + 1
 
     status = "✓ chain intact" if ok else "✗ CHAIN BROKEN — possible tampering"
     print(f"{len(lines)} records — {status}")
@@ -80,6 +137,12 @@ def main():
     )
     ap.add_argument("--verbose", "-v", action="store_true")
     ap.add_argument(
+        "--prev-file",
+        help="Archive this log was rotated from (audit.<timestamp>.jsonl) — "
+        "verifies the chain spans the rotation instead of treating record 1's "
+        "prev as unverifiable",
+    )
+    ap.add_argument(
         "--decrypt",
         "-d",
         action="store_true",
@@ -102,7 +165,7 @@ def main():
         decrypt_all(args.log, key)
         return
 
-    sys.exit(0 if verify(args.log, key, args.verbose) else 1)
+    sys.exit(0 if verify(args.log, key, args.verbose, args.prev_file) else 1)
 
 
 if __name__ == "__main__":

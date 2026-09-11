@@ -191,7 +191,11 @@ Approval alone does not execute anything — the grant is what does, and it's bo
 
 ## Audit log
 
-`chat-ui/audit.jsonl` — AES-256-GCM per record + SHA-256 hash chain. Set `AUDIT_KEY` env var (base64 32 bytes). Plaintext fallback if unset. Rotate with `rotate_log()` (never `clear_log()`). Verify with `python audit_verify.py`.
+`chat-ui/audit.jsonl` — AES-256-GCM per record, HMAC-SHA256 hash chain keyed under `AUDIT_KEY` (base64 32 bytes). Unset is allowed (plaintext, dev mode, logs a WARNING); set-but-invalid (bad base64, wrong length, `cryptography` not installed) raises at import rather than silently falling back to plaintext. `AUDIT_REQUIRE_ENCRYPTION=1` refuses to start without a valid key. The first record of every process is `audit_log_opened` naming the active mode.
+
+Rotate with `rotate_log()` (never `clear_log()`) — the new file's first record carries the archived file's final hash as its `prev`, so the chain spans the rotation; `python audit_verify.py <log> --prev-file <archive>` checks it end to end, or without `--prev-file` for a single file (record 1's non-empty `prev` is itself the tell that this isn't a from-scratch complete log). `verify()` also checks `seq` for gaps, catching a record deleted from the middle even if whoever edited the file forgot to re-chain it — deletions off the *end* of a file aren't detectable this way (nothing references what's missing); that needs an external anchor and is out of scope.
+
+`action_events` (per-action compliance rows in `metrics.db`) has parity between the proposal and every later state: `log_action_proposed()` inserts a `pending`/`pending` row before the operator's answer is awaited (not after, which is what `claude_loop.py`/`multi_agent_loop.py` used to do — a restart mid-approval left the proposal with no record at all), `log_action_decision()` updates it once answered (a denial settles `outcome='not_executed'` immediately), and `log_action_outcome()` records the real execution result (`ok` / `failed: <error>`) once the grant from `control.py` is actually consumed. `session_store.recover_abandoned_actions()` runs at `backend.py` startup and sweeps any row still `pending` from a previous process — its in-memory `control.py` Future is gone and will never resolve. There's no `operator_id` column any more — the old `'operator_01'` constant asserted an identity #15's shared-secret token doesn't actually provide; dropped rather than left hardcoded-wrong.
 
 ## Testing
 

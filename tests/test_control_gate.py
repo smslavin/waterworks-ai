@@ -2,7 +2,10 @@
 
 Covers the fix for the approval gate being advisory-only: set_setpoint/
 clear_fault must be refused unless a grant was stamped by an approved
-propose_action with matching session/tool/args.
+propose_action with matching session/tool/args. consume_grant() returns the
+action_id the grant belonged to (or None if refused) so the caller can
+record the execution outcome against the same action_events row the
+proposal and decision were recorded on.
 """
 
 import sys
@@ -55,11 +58,11 @@ def test_execution_refused_without_any_proposal():
             "control__set_setpoint",
             {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8},
         )
-        is False
+        is None
     )
 
 
-def test_approval_grants_matching_execution_call():
+def test_approval_grants_matching_execution_call_and_returns_its_action_id():
     action_id = _propose()
     assert control.resolve(action_id, "approved") is True
 
@@ -68,7 +71,7 @@ def test_approval_grants_matching_execution_call():
         "control__set_setpoint",
         {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8},
     )
-    assert granted is True
+    assert granted == action_id
 
 
 def test_grant_is_single_use():
@@ -76,8 +79,8 @@ def test_grant_is_single_use():
     control.resolve(action_id, "approved")
     args = {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8}
 
-    assert control.consume_grant("s1", "control__set_setpoint", args) is True
-    assert control.consume_grant("s1", "control__set_setpoint", args) is False
+    assert control.consume_grant("s1", "control__set_setpoint", args) == action_id
+    assert control.consume_grant("s1", "control__set_setpoint", args) is None
 
 
 def test_denial_grants_nothing():
@@ -90,7 +93,7 @@ def test_denial_grants_nothing():
             "control__set_setpoint",
             {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8},
         )
-        is False
+        is None
     )
 
 
@@ -104,7 +107,7 @@ def test_mismatched_target_is_refused():
             "control__set_setpoint",
             {"target": "RawWater_01", "attribute": "FlowRate", "value": 2.8},
         )
-        is False
+        is None
     )
 
 
@@ -118,7 +121,7 @@ def test_mismatched_value_is_refused():
             "control__set_setpoint",
             {"target": "Chlorine_01", "attribute": "FlowRate", "value": 9.9},
         )
-        is False
+        is None
     )
 
 
@@ -127,8 +130,8 @@ def test_grant_scoped_to_session():
     control.resolve(action_id, "approved")
 
     args = {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8}
-    assert control.consume_grant("s2", "control__set_setpoint", args) is False
-    assert control.consume_grant("s1", "control__set_setpoint", args) is True
+    assert control.consume_grant("s2", "control__set_setpoint", args) is None
+    assert control.consume_grant("s1", "control__set_setpoint", args) == action_id
 
 
 def test_int_and_float_value_are_equivalent():
@@ -140,7 +143,7 @@ def test_int_and_float_value_are_equivalent():
         "control__set_setpoint",
         {"target": "Chlorine_01", "attribute": "FlowRate", "value": 3},
     )
-    assert granted is True
+    assert granted == action_id
 
 
 def test_fault_clear_payload_has_no_attribute_or_value():
@@ -151,7 +154,7 @@ def test_fault_clear_payload_has_no_attribute_or_value():
 
     assert (
         control.consume_grant("s1", "control__clear_fault", {"target": "RawWater_01"})
-        is True
+        == action_id
     )
 
 
@@ -165,5 +168,5 @@ def test_unparseable_setpoint_value_grants_nothing():
             "control__set_setpoint",
             {"target": "Chlorine_01", "attribute": "FlowRate", "value": "not-a-number"},
         )
-        is False
+        is None
     )
