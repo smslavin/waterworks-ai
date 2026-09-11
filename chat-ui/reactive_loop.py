@@ -23,6 +23,19 @@ _active: set[str] = set()
 _cooldown_until: dict[str, float] = {}
 _task: asyncio.Task | None = None
 
+# Strong references for fire-and-forget _handle_anomaly tasks. asyncio only
+# holds a weak reference to a task once nothing else references it — per
+# CPython's documented caveat, that lets the task be garbage-collected
+# mid-execution with no warning. Losing one here means a critical anomaly
+# silently stops being handled partway through, with _active left holding a
+# stale instance id that blocks that unit from ever re-triggering.
+_bg_tasks: set[asyncio.Task] = set()
+
+# Matches the operator-decision wait in multi_agent_loop.py's propose_action
+# intercept — kept as a local constant purely for the log message below, not
+# a functional dependency on that file.
+_ACTION_APPROVAL_TIMEOUT = 300
+
 
 def is_running() -> bool:
     return _task is not None and not _task.done()
@@ -64,18 +77,54 @@ def _trigger_message(anomaly: dict, deadband_reason: str) -> str:
 
 
 async def _collect_text(gen, broadcast_fn=None) -> str:
-    """Collect 'text' events from run_multi_agent. Forward action_proposed/action_decision via broadcast_fn."""
+    """Collect 'text' events from run_multi_agent. Forward action_proposed/action_decision via broadcast_fn.
+
+    The JSON parse and the broadcast are handled separately and deliberately
+    not folded into one bare except: a malformed event line is an expected,
+    recoverable condition (skip it, keep collecting), but a broadcast failure
+    is not — especially for action_proposed, the only channel that puts an
+    operator's approval dialog on screen. If that raises (a subscriber
+    removed mid-iteration, a full queue) and gets swallowed, the anomaly
+    proceeds straight into Cascade's up-to-300s wait for a decision nobody
+    was ever asked for, silently occupying one of only _MAX_CONCURRENT
+    cascade slots before recording as timed_out with no trace anywhere.
+    """
     chunks = []
     async for line in gen:
         try:
             evt = json.loads(line)
-            t = evt.get("type")
-            if t == "text":
-                chunks.append(evt["text"])
-            elif t in ("action_proposed", "action_decision") and broadcast_fn:
-                broadcast_fn(evt)
-        except Exception:
-            pass
+        except json.JSONDecodeError:
+            logger.warning(
+                "reactive: could not parse cascade event line: %r", line[:500]
+            )
+            continue
+
+        t = evt.get("type")
+        if t == "text":
+            chunks.append(evt["text"])
+        elif t in ("action_proposed", "action_decision") and broadcast_fn:
+            try:
+                n_subs = broadcast_fn(evt)
+            except Exception:
+                logger.exception(
+                    "reactive: broadcast_fn raised delivering %s event (instance=%s) — "
+                    "operator will not see this %s",
+                    t,
+                    evt.get("instance_id"),
+                    t,
+                )
+            else:
+                if t == "action_proposed" and not n_subs:
+                    logger.warning(
+                        "reactive: action_proposed broadcast to zero subscribers "
+                        "(instance=%s, attribute=%s) — no operator browser is "
+                        "connected to receive this approval request; the cascade "
+                        "slot will block for up to %ds before recording as "
+                        "timed_out",
+                        evt.get("instance_id"),
+                        evt.get("attribute"),
+                        _ACTION_APPROVAL_TIMEOUT,
+                    )
     return "".join(chunks)
 
 
@@ -211,6 +260,18 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
         )
 
 
+def _log_bg_task_exception(task: asyncio.Task) -> None:
+    _bg_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "reactive: _handle_anomaly task crashed outside its own try block",
+            exc_info=exc,
+        )
+
+
 async def _run(monitor: AnomalyMonitor, aggregator_url: str, model: str, broadcast_fn):
     try:
         logger.info(
@@ -218,9 +279,13 @@ async def _run(monitor: AnomalyMonitor, aggregator_url: str, model: str, broadca
         )
         async for anomaly in monitor.events():
             if _can_trigger(anomaly["instance_id"]):
-                asyncio.create_task(
+                task = asyncio.create_task(
                     _handle_anomaly(anomaly, aggregator_url, model, broadcast_fn)
                 )
+                # Hold a strong reference until the task completes — see
+                # _bg_tasks' module-level docstring.
+                _bg_tasks.add(task)
+                task.add_done_callback(_log_bg_task_exception)
     except asyncio.CancelledError:
         logger.info("Reactive loop stopped")
     except Exception:

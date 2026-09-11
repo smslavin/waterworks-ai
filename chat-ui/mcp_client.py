@@ -56,6 +56,17 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
 async def call_mcp_tool(
     name: str, args: dict, aggregator_url: str | None = None
 ) -> str:
+    """Call an MCP tool via the aggregator.
+
+    MCP signals a tool-level failure two ways: by raising (transport error,
+    aggregator unreachable) or, per the CallToolResult.isError convention, in
+    the *result itself* with nothing raised at all — the fieldworks-adapters
+    Rust tools use the latter for things like a refused broker connection.
+    Both failure modes are normalized here to a return value that starts
+    with the literal "Error" — callers must check for that prefix rather
+    than assume success just because this coroutine didn't raise. A
+    successful result never starts with "Error".
+    """
     url = aggregator_url or _DEFAULT_AGGREGATOR_URL
     try:
         async with sse_client(url, timeout=30) as (read, write):
@@ -67,7 +78,13 @@ async def call_mcp_tool(
                     for block in (result.content or [])
                     if hasattr(block, "text")
                 ]
-                return "\n".join(parts) if parts else "(no result)"
+                text = "\n".join(parts) if parts else "(no result)"
+                if getattr(result, "isError", False):
+                    logger.warning(
+                        "Tool call %s reported isError (args=%r): %s", name, args, text
+                    )
+                    return text if text.startswith("Error") else f"Error: {text}"
+                return text
     except Exception as exc:
         logger.error("Tool call %s failed: %s", name, exc)
         return f"Error calling {name}: {exc}"
