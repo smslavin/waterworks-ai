@@ -5,6 +5,12 @@ Severity comes from LadybugDB via memory-mcp's get_severity_for_attribute
 tool (fieldworks-core#6/#7) rather than static topology.yaml alarm_lo/
 alarm_hi config — fetched once at startup (see _populate_severities), not
 per-message, so the synchronous _on_message callback never needs to await.
+
+_populate_severities is *not* awaited by AnomalyMonitor.start() — the caller
+(backend.py's lifespan) spawns it as a tracked background task instead, so a
+slow/unreachable memory-mcp doesn't stall chat-ui's own startup (see
+backend.py's _ensure_monitor_started). Until it completes, every attribute
+uses _DEFAULT_SEVERITY, same fallback as any single lookup failing.
 """
 
 import asyncio
@@ -73,35 +79,57 @@ _NORMAL_MAP = _build_normal_map()
 
 async def _populate_severities(aggregator_url: str) -> None:
     """Fetch real severities from LadybugDB via memory-mcp. Call once at
-    monitor startup, before the MQTT client connects, so no message can
-    arrive before _NORMAL_MAP has real severities.
+    monitor startup (spawned as a background task by the caller — see the
+    module docstring), so _NORMAL_MAP gets real severities without gating
+    anything else on the fetch.
+
+    Severity is keyed by (type_id, attr_id) in LadybugDB, not by equipment
+    instance — every instance of the same equipment type shares one answer.
+    _NORMAL_MAP is indexed per-instance (that's the key _on_message needs
+    for its MQTT-topic lookup), so looping over it directly would ask the
+    same (type_id, attr_id, condition) question once per instance instead of
+    once per distinct type. Dedupe to the distinct pairs before calling out,
+    then fan each cached answer back out to every instance sharing it — on
+    the current topology this cuts the call count roughly in half (~50
+    lookups down to the ~24 that are actually distinct).
     """
-    for key, meta in _NORMAL_MAP.items():
-        for condition, field in (
-            ("below_min", "severity_below"),
-            ("above_max", "severity_above"),
-        ):
+    unique_pairs = {(meta["type_id"], meta["attr_id"]) for meta in _NORMAL_MAP.values()}
+    # (type_id, attr_id, condition) -> severity
+    severity_cache: dict[tuple, str] = {}
+    for type_id, attr_id in unique_pairs:
+        for condition in ("below_min", "above_max"):
             try:
                 raw = await call_mcp_tool(
                     "memory__get_severity_for_attribute",
                     {
-                        "type_id": meta["type_id"],
-                        "attr_id": meta["attr_id"],
+                        "type_id": type_id,
+                        "attr_id": attr_id,
                         "condition": condition,
                     },
                     aggregator_url,
                 )
                 severity = json.loads(raw)
                 if severity:
-                    meta[field] = severity
+                    severity_cache[(type_id, attr_id, condition)] = severity
             except Exception as e:
                 logger.warning(
-                    "severity fetch failed for %s (%s): %s — using default %r",
-                    key,
+                    "severity fetch failed for type_id=%s attr_id=%s (%s): %s "
+                    "— using default %r",
+                    type_id,
+                    attr_id,
                     condition,
                     e,
                     _DEFAULT_SEVERITY,
                 )
+
+    for meta in _NORMAL_MAP.values():
+        pair = (meta["type_id"], meta["attr_id"])
+        below = severity_cache.get((*pair, "below_min"))
+        if below:
+            meta["severity_below"] = below
+        above = severity_cache.get((*pair, "above_max"))
+        if above:
+            meta["severity_above"] = above
 
 
 def current_status_level() -> str:
@@ -261,7 +289,11 @@ class AnomalyMonitor:
 
     async def start(self):
         self._loop = asyncio.get_event_loop()
-        await _populate_severities(self._aggregator_url)
+        # _populate_severities is intentionally not awaited here — see the
+        # module docstring. The caller (backend.py's _ensure_monitor_started)
+        # spawns it as a tracked background task so a slow/unreachable
+        # memory-mcp only delays real severities, not chat-ui's own startup
+        # or this monitor's MQTT connect below.
         self._client.connect_async(self._host, self._port)
         self._client.loop_start()
         logger.info("Anomaly monitor started (min_duration=%.0fs)", self._min_duration)
