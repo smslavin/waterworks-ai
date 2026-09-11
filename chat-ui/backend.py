@@ -102,9 +102,14 @@ def _specialist_for_node(node_id: str) -> str | None:
 _alert_subs: list[asyncio.Queue] = []
 
 
-def broadcast_alert(event: dict) -> None:
+def broadcast_alert(event: dict) -> int:
+    """Returns the number of subscribers the event was delivered to, so
+    callers (see reactive_loop.py's _collect_text) can detect and log the
+    "reactive mode with no subscriber" case instead of assuming delivery
+    just because nothing raised."""
     for q in _alert_subs:
         q.put_nowait(event)
+    return len(_alert_subs)
 
 
 _LOOP_MODULES = {"claude": claude_loop, "openai": openai_loop}
@@ -211,7 +216,13 @@ async def health_endpoint(request: Request):
         "control_mcp",
         "memory_mcp",
     )
-    return JSONResponse({k: "ok" if v else "error" for k, v in zip(keys, results)})
+    health = {k: "ok" if v else "error" for k, v in zip(keys, results)}
+    # Distinct from "mqtt" above (a raw TCP port check against mosquitto
+    # itself) — this reflects whether the mqtt-mcp *adapter's* explicit
+    # connect() call is currently believed to be live, per
+    # _connect_mqtt_adapter / _mqtt_health_check_loop.
+    health["mqtt_adapter"] = "ok" if _mqtt_adapter_connected else "error"
+    return JSONResponse(health)
 
 
 async def site_endpoint(request: Request):
@@ -903,12 +914,49 @@ def _reactive_params() -> tuple[str, str, str]:
     return broker_url, aggregator_url, model
 
 
+# Strong references for fire-and-forget background tasks created in this
+# module (mirrors reactive_loop.py's _bg_tasks). Without this, asyncio's
+# weak reference to a task with nothing else holding it can let CPython's
+# GC drop the task mid-execution — here that means the startup mqtt__connect
+# (or a later health-check reconnect) can silently stop partway through with
+# no error anywhere.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_tracked(coro, *, task_name: str) -> asyncio.Task:
+    task = asyncio.create_task(coro, name=task_name)
+    _bg_tasks.add(task)
+
+    def _done(t: asyncio.Task) -> None:
+        _bg_tasks.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.error("Background task %s crashed", t.get_name(), exc_info=exc)
+
+    task.add_done_callback(_done)
+    return task
+
+
+# Adapter connection health, surfaced on /api/health as "mqtt_adapter" and
+# used to decide when the periodic health-check loop should retry connect.
+_mqtt_adapter_connected = False
+
+_MQTT_HEALTH_CHECK_INTERVAL = int(os.environ.get("MQTT_HEALTH_CHECK_INTERVAL", "60"))
+
+
 async def _connect_mqtt_adapter() -> None:
     """The fieldworks-adapters mqtt-mcp binary (unlike the old Python one) doesn't
     auto-connect at startup — connect is an explicit MCP tool call. Specialists
     call mqtt__* tools assuming a live connection, so establish one here, once,
     before serving any requests. Bounded retry absorbs the aggregator/mosquitto
-    startup-ordering race in start.sh (no health-check gating between services)."""
+    startup-ordering race in start.sh (no health-check gating between services).
+
+    Also called from _mqtt_health_check_loop to re-establish the connection
+    if it's later found unhealthy (e.g. mosquitto restarted — docker-compose
+    restarts it on failure — after this ran once at boot)."""
+    global _mqtt_adapter_connected
     host = os.environ.get("MQTT_BROKER_URL", "localhost")
     port = int(os.environ.get("MQTT_BROKER_PORT", "1883"))
     for attempt in range(1, 6):
@@ -917,14 +965,48 @@ async def _connect_mqtt_adapter() -> None:
             {"host": host, "port": port},
             MCP_AGGREGATOR_URL,
         )
-        if not result.startswith("Error calling"):
+        # mcp_client.call_mcp_tool normalizes both a client-side exception and
+        # a tool-level isError result to a string starting with "Error" — a
+        # narrower "Error calling" check here previously missed a tool-level
+        # failure from the Rust adapter (e.g. "Error: connection refused"),
+        # which doesn't share that exact literal prefix, and logged it as a
+        # startup success.
+        if not result.startswith("Error"):
             logger.info("mqtt__connect succeeded (attempt %d): %s", attempt, result)
+            _mqtt_adapter_connected = True
             return
         logger.warning("mqtt__connect attempt %d/5 failed: %s", attempt, result)
         await asyncio.sleep(2)
+    _mqtt_adapter_connected = False
     logger.error(
         "mqtt__connect failed after 5 attempts — mqtt__* tools will error until reconnected"
     )
+
+
+async def _mqtt_health_check_loop() -> None:
+    """Periodic liveness check for the mqtt-mcp adapter connection.
+    _connect_mqtt_adapter above only runs once at boot; if mosquitto (or the
+    aggregator) restarts later, mqtt__* tools stay broken silently until this
+    loop notices via a lightweight mqtt__scan call and retries connect —
+    previously the only fix was manually restarting chat-ui itself, with the
+    original startup log still claiming success."""
+    global _mqtt_adapter_connected
+    while True:
+        await asyncio.sleep(_MQTT_HEALTH_CHECK_INTERVAL)
+        try:
+            result = await mcp_client.call_mcp_tool(
+                "mqtt__scan", {}, MCP_AGGREGATOR_URL
+            )
+            if result.startswith("Error"):
+                logger.warning(
+                    "mqtt health check: mqtt__scan failed (%s) — reconnecting", result
+                )
+                _mqtt_adapter_connected = False
+                await _connect_mqtt_adapter()
+            else:
+                _mqtt_adapter_connected = True
+        except Exception:
+            logger.exception("mqtt health check loop iteration failed")
 
 
 @asynccontextmanager
@@ -959,7 +1041,8 @@ async def lifespan(app):
             recovered,
         )
 
-    asyncio.create_task(_connect_mqtt_adapter())
+    _spawn_tracked(_connect_mqtt_adapter(), task_name="connect_mqtt_adapter")
+    _spawn_tracked(_mqtt_health_check_loop(), task_name="mqtt_health_check_loop")
 
     monitor = await _ensure_monitor_started()
 

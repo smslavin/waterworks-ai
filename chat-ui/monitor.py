@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 
 import paho.mqtt.client as mqtt
@@ -24,6 +25,19 @@ PLANT_TOPIC_ROOT = os.environ.get("PLANT_TOPIC_ROOT", "Plant/WTP")
 
 _topology = _load_topology()
 _window: dict[tuple, dict] = {}
+# _window is written from paho's loop_start() network thread (_on_message)
+# and read from the asyncio event-loop thread (current_status_level(), on
+# the /api/plant-status heartbeat path). Both sides must hold this lock —
+# a snapshot copy on the read side alone wouldn't fix the torn read/write
+# on a nested dict value (e.g. _window[key]["value"] = value racing a
+# concurrent v.get("severity") read), only serializing both sides does.
+_window_lock = threading.Lock()
+
+# Per-topic "already warned" set for _on_message's parse-failure logging —
+# bounds a stuck/garbage-publishing device to one warning until it recovers,
+# instead of unbounded spam. Only ever touched from the paho network thread
+# (_on_message runs exclusively there), so it needs no lock of its own.
+_warned_topics: set[str] = set()
 
 _DEFAULT_SEVERITY = "warning"  # used until _populate_severities() completes
 
@@ -102,11 +116,12 @@ def current_status_level() -> str:
     be; the narrative half of the heartbeat still goes through a real
     diagnosis, which accounts for that.
     """
-    if not _window:
-        return "Normal"
-    if any(v.get("severity") == "critical" for v in _window.values()):
-        return "Fault Detected"
-    return "Anomaly Detected"
+    with _window_lock:
+        if not _window:
+            return "Normal"
+        if any(v.get("severity") == "critical" for v in _window.values()):
+            return "Fault Detected"
+        return "Anomaly Detected"
 
 
 class AnomalyMonitor:
@@ -137,8 +152,11 @@ class AnomalyMonitor:
         self._client.on_message = self._on_message
 
     def _on_connect(self, client, userdata, flags, rc):
-        client.subscribe(f"{PLANT_TOPIC_ROOT}/#")
-        logger.info("Anomaly monitor connected to MQTT broker")
+        if rc == 0:
+            client.subscribe(f"{PLANT_TOPIC_ROOT}/#")
+            logger.info("Anomaly monitor connected to MQTT broker")
+        else:
+            logger.error("Anomaly monitor MQTT connect failed  rc=%d", rc)
 
     def _on_message(self, client, userdata, msg):
         try:
@@ -151,6 +169,10 @@ class AnomalyMonitor:
                 return
             meta = _NORMAL_MAP[key]
             value = float(msg.payload.decode())
+            # Parseable again — clear any standing "already warned" state for
+            # this topic so a future parse failure warns again (see except
+            # block below).
+            _warned_topics.discard(msg.topic)
             lo, hi = meta["normal"]
             now = time.time()
 
@@ -160,57 +182,76 @@ class AnomalyMonitor:
                 value > hi and (value - hi) < 0.02 * span
             )
 
-            if in_normal or minor_excursion:
-                if key in _window:
-                    # Value returned toward normal — start a grace period rather than
-                    # immediately resetting. Oscillating faults (level_sensor_fault)
-                    # briefly cross back into range; only truly clear after 10s sustained.
-                    ws = _window[key].setdefault("recovery_start", now)
-                    if now - ws >= 10.0:
-                        _window.pop(key, None)
-                return
+            anomaly = None
+            with _window_lock:
+                if in_normal or minor_excursion:
+                    if key in _window:
+                        # Value returned toward normal — start a grace period rather than
+                        # immediately resetting. Oscillating faults (level_sensor_fault)
+                        # briefly cross back into range; only truly clear after 10s sustained.
+                        ws = _window[key].setdefault("recovery_start", now)
+                        if now - ws >= 10.0:
+                            _window.pop(key, None)
+                else:
+                    condition = "below_min" if value < lo else "above_max"
+                    severity = (
+                        meta["severity_below"]
+                        if condition == "below_min"
+                        else meta["severity_above"]
+                    )
 
-            condition = "below_min" if value < lo else "above_max"
-            severity = (
-                meta["severity_below"]
-                if condition == "below_min"
-                else meta["severity_above"]
-            )
+                    if key not in _window:
+                        _window[key] = {
+                            "violation_start": now,
+                            "condition": condition,
+                            "severity": severity,
+                            "value": value,
+                        }
+                    else:
+                        # Back in significant violation — cancel any pending recovery
+                        _window[key].pop("recovery_start", None)
+                        _window[key]["value"] = value
+                        elapsed = now - _window[key]["violation_start"]
+                        # Re-queue every min_duration seconds while the fault persists.
+                        # The reactive loop's _can_trigger (cooldown + _active) handles
+                        # deduplication. A permanent fired=True flag caused silently
+                        # dropped faults when _MAX_CONCURRENT was full — those instances
+                        # would never re-trigger after being blocked.
+                        last_fire = _window[key].get("last_fire", 0)
+                        if (
+                            elapsed >= self._min_duration
+                            and now - last_fire >= self._min_duration
+                        ):
+                            _window[key]["last_fire"] = now
+                            anomaly = {
+                                "instance_id": instance_id,
+                                "equipment_type": eq_type,
+                                "attribute": attribute,
+                                "current_value": value,
+                                "normal_range": [lo, hi],
+                                "condition": condition,
+                                "severity": severity,
+                                "duration_seconds": elapsed,
+                            }
 
-            if key not in _window:
-                _window[key] = {
-                    "violation_start": now,
-                    "condition": condition,
-                    "severity": severity,
-                    "value": value,
-                }
-                return
-
-            # Back in significant violation — cancel any pending recovery
-            _window[key].pop("recovery_start", None)
-            _window[key]["value"] = value
-            elapsed = now - _window[key]["violation_start"]
-            # Re-queue every min_duration seconds while the fault persists.
-            # The reactive loop's _can_trigger (cooldown + _active) handles deduplication.
-            # A permanent fired=True flag caused silently dropped faults when _MAX_CONCURRENT
-            # was full — those instances would never re-trigger after being blocked.
-            last_fire = _window[key].get("last_fire", 0)
-            if elapsed >= self._min_duration and now - last_fire >= self._min_duration:
-                _window[key]["last_fire"] = now
-                anomaly = {
-                    "instance_id": instance_id,
-                    "equipment_type": eq_type,
-                    "attribute": attribute,
-                    "current_value": value,
-                    "normal_range": [lo, hi],
-                    "condition": condition,
-                    "severity": severity,
-                    "duration_seconds": elapsed,
-                }
-                if self._loop:
-                    self._loop.call_soon_threadsafe(self._enqueue, anomaly)
+            if anomaly is not None and self._loop:
+                self._loop.call_soon_threadsafe(self._enqueue, anomaly)
         except Exception as e:
-            logger.debug("monitor parse error: %s", e)
+            # Default log level is INFO — logger.debug here would make a
+            # device stuck sending garbage (a unit string, JSON, a bad
+            # payload) silently and permanently stop being monitored, with
+            # no visible sign of it. Bounded to one warning per topic until
+            # it recovers (see the _warned_topics.discard above) so a device
+            # wedged in a parse-failure loop doesn't spam the log forever.
+            if msg.topic not in _warned_topics:
+                logger.warning(
+                    "monitor: failed to parse/process message on topic %s "
+                    "(payload=%r): %s",
+                    msg.topic,
+                    msg.payload,
+                    e,
+                )
+                _warned_topics.add(msg.topic)
 
     def _enqueue(self, anomaly: dict) -> None:
         try:
