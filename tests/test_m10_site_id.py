@@ -38,14 +38,14 @@ def test_log_session_summary_tags_current_site_id(store):
     assert summary["site_id"] == "wtp"
 
 
-def test_log_action_event_tags_current_site_id(store):
-    session_store.log_action_event(
+def test_log_action_proposed_tags_current_site_id(store):
+    session_store.log_action_proposed(
+        action_id="a1",
         session_id="s1",
         action_type="setpoint_adjustment",
         target="Chlorine_01",
         value="2.8",
         description="Reduce chlorine dose",
-        decision="approved",
     )
     events = session_store.get_action_events(session_id="s1")
     assert len(events) == 1

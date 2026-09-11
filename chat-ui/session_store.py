@@ -94,6 +94,27 @@ def _add_column_if_missing(
         c.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")  # nosec B608
 
 
+def _drop_column_if_present(c: sqlite3.Connection, table: str, column: str) -> None:
+    """The inverse of _add_column_if_missing, for a column whose constraints
+    turned out to be wrong (operator_id's hardcoded fake default) rather than
+    just missing. Needs SQLite >= 3.35 (2021) for DROP COLUMN; skips with a
+    warning on anything older rather than failing startup over it."""
+    cols = {
+        row["name"] for row in c.execute(f"PRAGMA table_info({table})")
+    }  # nosec B608
+    if column in cols:
+        try:
+            c.execute(f"ALTER TABLE {table} DROP COLUMN {column}")  # nosec B608
+        except sqlite3.OperationalError as exc:
+            logger.warning(
+                "Could not drop stale column %s.%s (SQLite may be older than "
+                "3.35): %s",
+                table,
+                column,
+                exc,
+            )
+
+
 def _init_db() -> None:
     with _lock, _conn() as c:
         c.executescript("""
@@ -112,12 +133,12 @@ def _init_db() -> None:
             CREATE TABLE IF NOT EXISTS action_events (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts           TEXT    NOT NULL,
+                action_id    TEXT,
                 session_id   TEXT    NOT NULL,
                 action_type  TEXT,
                 target       TEXT,
                 value        TEXT,
                 description  TEXT,
-                operator_id  TEXT    NOT NULL DEFAULT 'operator_01',
                 decision     TEXT,
                 outcome      TEXT    DEFAULT 'pending',
                 site_id      TEXT    NOT NULL DEFAULT 'wtp'
@@ -136,6 +157,8 @@ def _init_db() -> None:
         _add_column_if_missing(
             c, "action_events", "site_id", "site_id TEXT NOT NULL DEFAULT 'wtp'"
         )
+        _add_column_if_missing(c, "action_events", "action_id", "action_id TEXT")
+        _drop_column_if_present(c, "action_events", "operator_id")
         c.commit()
 
 
@@ -175,40 +198,101 @@ def log_session_summary(
         logger.warning("session_summary write failed: %s", exc)
 
 
-def log_action_event(
+def log_action_proposed(
     *,
+    action_id: str,
     session_id: str,
     action_type: str,
     target: str,
     value: str,
     description: str,
-    decision: str,
-    outcome: str = "pending",
-    operator_id: str = "operator_01",
 ) -> None:
+    """Insert the action_events row at PROPOSAL time, not decision time — a
+    row this early has no decision yet, but it exists, which is the point:
+    previously nothing was written until the operator's Future resolved, so
+    a restart (or a disconnected SSE client tearing down the generator)
+    while awaiting left the proposal with no record at all, despite
+    CLAUDE.md's claim that denial has parity with approval in action_events.
+    log_action_decision/log_action_outcome update this same row in place."""
     try:
         with _lock, _conn() as c:
             c.execute(
                 """INSERT INTO action_events
-                   (ts, session_id, action_type, target, value, description,
-                    operator_id, decision, outcome, site_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (ts, action_id, session_id, action_type, target, value,
+                    description, decision, outcome, site_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?)""",
                 (
                     datetime.now(timezone.utc).isoformat(),
+                    action_id,
                     session_id,
                     action_type,
                     target,
                     value,
                     description,
-                    operator_id,
-                    decision,
-                    outcome,
                     _SITE_ID,
                 ),
             )
             c.commit()
     except Exception as exc:
-        logger.warning("action_event write failed: %s", exc)
+        logger.warning("action_event (proposed) write failed: %s", exc)
+
+
+def log_action_decision(*, action_id: str, decision: str) -> None:
+    """Record the operator's decision on a previously-proposed action. A
+    denial also settles outcome='not_executed' immediately — nothing will
+    execute after a denial. An approval leaves outcome='pending' for
+    log_action_outcome to fill in once (if) the execution tool actually
+    runs — 'approved' alone doesn't mean it happened."""
+    try:
+        with _lock, _conn() as c:
+            if decision == "approved":
+                c.execute(
+                    "UPDATE action_events SET decision = ? WHERE action_id = ?",
+                    (decision, action_id),
+                )
+            else:
+                c.execute(
+                    """UPDATE action_events SET decision = ?, outcome = 'not_executed'
+                       WHERE action_id = ?""",
+                    (decision, action_id),
+                )
+            c.commit()
+    except Exception as exc:
+        logger.warning("action_event (decision) write failed: %s", exc)
+
+
+def log_action_outcome(*, action_id: str, outcome: str) -> None:
+    """Record the actual result of executing an approved action ('ok' or
+    'failed: <error>'). Only called after a real execution attempt — a
+    denial or a refused (ungranted) execution call never reaches here."""
+    try:
+        with _lock, _conn() as c:
+            c.execute(
+                "UPDATE action_events SET outcome = ? WHERE action_id = ?",
+                (outcome, action_id),
+            )
+            c.commit()
+    except Exception as exc:
+        logger.warning("action_event (outcome) write failed: %s", exc)
+
+
+def recover_abandoned_actions() -> int:
+    """Call once at process startup, before anything else touches
+    action_events. A row still decision='pending' means the process
+    restarted (or crashed) while an operator's answer was in flight — the
+    in-memory Future control.py was awaiting is gone and will never resolve,
+    so the row would otherwise sit looking like it's still awaiting an
+    answer that's never coming. Returns the number of rows recovered."""
+    try:
+        with _lock, _conn() as c:
+            cur = c.execute("""UPDATE action_events
+                   SET decision = 'abandoned_restart', outcome = 'abandoned_restart'
+                   WHERE decision = 'pending'""")
+            c.commit()
+            return cur.rowcount
+    except Exception as exc:
+        logger.warning("recover_abandoned_actions failed: %s", exc)
+        return 0
 
 
 # ── Plant status (status_heartbeat.py's persisted rollup) ─────────────────────
