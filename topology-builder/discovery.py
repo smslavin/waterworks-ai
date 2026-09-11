@@ -12,8 +12,28 @@ from __future__ import annotations
 
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import CallToolResult
 
 from fieldworks.topology_builder.discovery import crawl_mqtt, crawl_opcua
+
+
+class AdapterConnectError(RuntimeError):
+    """Raised when an MQTT/OPC-UA adapter's connect tool call reports
+    failure via the MCP result (isError / error content) rather than by
+    raising — e.g. a refused broker connection. Without this check the
+    caller has no way to distinguish "connected, crawled, found nothing"
+    from "never actually connected" — both currently look identical."""
+
+
+def _raise_if_connect_failed(result: CallToolResult, target: str) -> None:
+    if not getattr(result, "isError", False):
+        return
+    detail = "; ".join(
+        block.text for block in (result.content or []) if hasattr(block, "text")
+    )
+    raise AdapterConnectError(
+        f"connect to {target} failed: {detail or '(no error detail returned)'}"
+    )
 
 
 def _parse_broker_url(url: str) -> tuple[str, int]:
@@ -31,7 +51,8 @@ async def discover_mqtt_topics(broker_url: str) -> list[str]:
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            await session.call_tool("connect", {"host": host, "port": port})
+            result = await session.call_tool("connect", {"host": host, "port": port})
+            _raise_if_connect_failed(result, f"{host}:{port}")
             return await crawl_mqtt(session)
 
 
@@ -44,5 +65,6 @@ async def discover_opcua_nodes(opcua_url: str) -> list[str]:
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            await session.call_tool("connect", {"host": opcua_url})
+            result = await session.call_tool("connect", {"host": opcua_url})
+            _raise_if_connect_failed(result, opcua_url)
             return await crawl_opcua(session)

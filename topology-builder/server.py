@@ -138,6 +138,21 @@ async def _run_discovery(
 
         mqtt_topics = await discover_mqtt_topics(broker_url)
         session["stats"]["topics_seen"] = len(mqtt_topics)
+        if not mqtt_topics:
+            # A refused connection now raises (see discovery.py's
+            # AdapterConnectError) and is caught by the except below. Getting
+            # here means the connect itself succeeded but the crawl saw
+            # nothing — reachable but empty, or nothing publishing yet. That
+            # is reported as an explicit error state, not folded into
+            # "complete", since the two are otherwise indistinguishable from
+            # a real successful discovery of an empty plant.
+            session["status"] = "error"
+            session["error"] = (
+                f"Connected to MQTT broker at {broker_url} but discovered zero "
+                "topics during the crawl window. The broker is reachable but "
+                "appears to have no equipment publishing on it."
+            )
+            return
 
         opcua_nodes: list[str] = []
         if opcua_url:
