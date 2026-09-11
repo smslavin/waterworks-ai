@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import type { FlyoutKey } from '@/stores/ui'
+import { authFetch } from '@/lib/api'
 
 const ui = useUIStore()
 
@@ -60,7 +61,7 @@ function cancelClear() {
 
 async function confirmClear() {
   confirmingClear.value = false
-  await fetch('/api/audit/clear', { method: 'POST' })
+  await authFetch('/api/audit/clear', { method: 'POST' })
 }
 </script>
 

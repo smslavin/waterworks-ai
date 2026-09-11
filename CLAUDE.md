@@ -180,10 +180,14 @@ If the block is missing, `multi_agent_loop.py` makes a cheap follow-up call with
 1. AI calls `propose_action(...)` → backend intercepts
 2. Backend streams `action_proposed` SSE to frontend
 3. Frontend shows approval dialog
-4. Approve → backend calls execution tool → logs to `action_events`
+4. Approve → `control.py` stamps a one-time execution grant (session + tool + exact args, hashed) → AI calls the execution tool → backend refuses it unless a matching grant is presented and consumed → logs to `action_events`
 5. Deny → backend injects "operator denied: [action]" back to AI → AI responds → logs denial
 
-Denial path has parity with approval path in `action_events`. `propose_action` works in both single-agent mode (`claude_loop.py`) and multi-agent mode (Cascade, via `multi_agent_loop.py`'s own intercept) — the two intercepts are separate implementations, not shared code; a fix to one (e.g. denial-message wording) does not automatically apply to the other.
+Approval alone does not execute anything — the grant is what does, and it's bound to the exact target/attribute/value that were proposed; a drifted execution call (rounded value, different target) is refused, not silently coerced. `propose_action` is intercepted in three places, not shared code: single-agent mode (`claude_loop.py`), multi-agent mode's orchestrator loop, and multi-agent mode's follow-up-question path (`multi_agent_loop.py`'s `_run_cascade_only`) — a fix to one (e.g. denial-message wording) does not automatically apply to the others.
+
+## Network exposure
+
+`chat-ui/backend.py` and the simulator's control plane (`:8090`) bind to loopback (`BIND_HOST`, default `127.0.0.1`) — nothing off-host can reach the approval endpoint, control writes, or the audit log by default. Set `BIND_HOST=0.0.0.0` only to deliberately expose the app (e.g. to a phone on the same LAN); doing so requires `WATERWORKS_API_TOKEN` on chat-ui's mutating/audit routes (`chat-ui/auth.py`) — a bearer header or `?token=` query param, checked with `secrets.compare_digest`. Unset, the server generates one at startup and logs it. This is a demo-scope shared-secret gate, not a login system — see `chat-ui/auth.py`'s module docstring before extending it.
 
 ## Audit log
 

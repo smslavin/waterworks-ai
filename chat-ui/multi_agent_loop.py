@@ -676,7 +676,7 @@ async def _run_cascade_only(
                 yield json.dumps({"type": "tool_call", "tool": tu.name, "args": args})
 
                 if tu.name == "control__propose_action":
-                    action_id = str(uuid.uuid4())[:8]
+                    action_id = str(uuid.uuid4())
                     yield json.dumps(
                         {
                             "type": "action_proposed",
@@ -1015,7 +1015,7 @@ async def run_multi_agent(
                     )
 
                     if block.name == "control__propose_action":
-                        action_id = str(uuid.uuid4())[:8]
+                        action_id = str(uuid.uuid4())
                         yield json.dumps(
                             {
                                 "type": "action_proposed",

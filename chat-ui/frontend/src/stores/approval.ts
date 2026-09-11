@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
+import { authFetch } from '@/lib/api'
 
 export interface PendingApproval {
   id: string
@@ -54,7 +55,7 @@ export const useApprovalStore = defineStore('approval', () => {
     if (!item) return
 
     try {
-      const res = await fetch('/api/action/respond', {
+      const res = await authFetch('/api/action/respond', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
