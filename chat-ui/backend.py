@@ -931,7 +931,16 @@ async def _ensure_monitor_started() -> "_monitor_mod.AnomalyMonitor":
     on top of it. status_heartbeat.py reads its _window directly for a
     free, always-fresh status level; reactive_loop attaches to its
     .events() stream only when toggled on. Idempotent — safe to call from
-    both lifespan and the reactive toggle endpoint."""
+    both lifespan and the reactive toggle endpoint.
+
+    monitor.start() no longer awaits _populate_severities itself (its ~24
+    distinct LadybugDB lookups after dedup) — that's spawned here as a
+    tracked background task instead, via the same _spawn_tracked/_bg_tasks
+    pattern used for _connect_mqtt_adapter below, so a slow or unreachable
+    memory-mcp can no longer stall chat-ui's own startup (lifespan used to
+    await this directly, ahead of the MQTT connect). Every attribute uses
+    _DEFAULT_SEVERITY until the background fetch completes — the same
+    fallback already used per-lookup on failure."""
     global _monitor
     if _monitor is not None:
         return _monitor
@@ -940,6 +949,10 @@ async def _ensure_monitor_started() -> "_monitor_mod.AnomalyMonitor":
         broker_url=broker_url,
         aggregator_url=aggregator_url,
         min_duration=_reactive_loop.MIN_DURATION,
+    )
+    _spawn_tracked(
+        _monitor_mod._populate_severities(aggregator_url),
+        task_name="populate_severities",
     )
     await _monitor.start()
     logger.info("Anomaly monitor started (broker=%s)", broker_url)
