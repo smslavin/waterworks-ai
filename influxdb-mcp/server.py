@@ -5,7 +5,11 @@ Tools
 list_measurements   Discover what measurements exist in a bucket. Returns org,
                     bucket, and measurement list — enough context to build queries.
 write_point         Write a single tagged data point.
-query               Run an arbitrary Flux query; returns formatted results.
+query               Run an arbitrary Flux query; returns LLM-facing prose results.
+query_series        Run a structured time-series lookup; returns raw JSON points
+                    ({"points": [{"t": ..., "v": ...}, ...]}) for callers that need
+                    to compute over the values directly (e.g. trend/slope math)
+                    rather than parse prose meant for an LLM to read.
 
 Environment variables
 ---------------------
@@ -199,6 +203,70 @@ def query(flux_query: str, org: str = "") -> str:
         )
     except Exception as exc:
         return f"Error: {exc}"
+
+
+@mcp.tool()
+def query_series(
+    measurement: str,
+    instance: str,
+    attribute: str,
+    start: str,
+    bucket: str = "",
+    org: str = "",
+) -> str:
+    """Run a structured time-series lookup and return raw JSON points.
+
+    This is the machine-readable counterpart to `query`: no prose formatting,
+    just `{"t": <ISO timestamp>, "v": <float>}` pairs, sorted by time. Use
+    this when a caller needs to compute over the raw values (slope, trend,
+    thresholds) rather than have an LLM read them — parsing numbers back out
+    of `query`'s prose output is fragile (e.g. timestamp components get
+    mistaken for data values) and is not a supported use of that tool.
+
+    Equivalent to:
+
+        from(bucket: "<bucket>")
+          |> range(start: <start>)
+          |> filter(fn: (r) => r._measurement == "<measurement>")
+          |> filter(fn: (r) => r.instance == "<instance>")
+          |> filter(fn: (r) => r.attribute == "<attribute>")
+          |> sort(columns: ["_time"])
+
+    Args:
+        measurement: Measurement name, e.g. "wtp_process".
+        instance:    "instance" tag value, e.g. "RawWater_01".
+        attribute:   "attribute" tag value, e.g. "Flow".
+        start:       Flux range start bound, e.g. "-30m", "-90s", or an
+                     absolute RFC3339 timestamp.
+        bucket:      Bucket to query. Omit to use the configured default bucket.
+        org:         InfluxDB org. Omit to use the configured default org.
+
+    Returns:
+        JSON string: {"points": [{"t": "<ISO-8601 time>", "v": <float>}, ...]}
+        On error: {"points": [], "error": "<message>"}
+    """
+    target = bucket or INFLUXDB_BUCKET
+    flux = (
+        f'from(bucket: "{target}")\n'
+        f"  |> range(start: {start})\n"
+        f'  |> filter(fn: (r) => r._measurement == "{measurement}")\n'
+        f'  |> filter(fn: (r) => r.instance == "{instance}")\n'
+        f'  |> filter(fn: (r) => r.attribute == "{attribute}")\n'
+        '  |> sort(columns: ["_time"])'
+    )
+    try:
+        tables = _get_client().query_api().query(flux, org=org or INFLUXDB_ORG)
+        points: list[dict[str, Any]] = []
+        for table in tables:
+            for record in table.records:
+                t = record.get_time()
+                v = record.get_value()
+                if t is None or v is None:
+                    continue
+                points.append({"t": t.isoformat(), "v": v})
+        return json.dumps({"points": points})
+    except Exception as exc:
+        return json.dumps({"points": [], "error": str(exc)})
 
 
 if __name__ == "__main__":
