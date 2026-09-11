@@ -2,21 +2,34 @@
 import { computed, watch, nextTick, ref } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useChatStore } from '@/stores/chat'
+import { useTopologyStore } from '@/stores/topology'
 import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 import SpecialistBadges from './SpecialistBadges.vue'
 
 export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 
-const PROMPTS: Record<string, string> = {
-  plant:      'Provide a high-level status summary of the Waterworks treatment plant. Use available tools to check all process areas (Intake, Treatment, Distribution) and report current status, any alarms, and recommended actions.',
-  region:     'Provide a status summary for every plant in the Metro Region. Check each site individually and report current operational status, any alarms, and recommended actions per site.',
-  enterprise: 'Provide an enterprise-wide status overview across every registered plant. Check each site individually and report current operational status, any alarms, and recommended actions per site.',
-}
-
 const ui = useUIStore()
 const chat = useChatStore()
+const topo = useTopologyStore()
 const { stream, stopStream } = useSSE()
+
+// ui.activeSite/activeRegion come from GET /api/site (seeded in App.vue's
+// onMounted; default to 'Waterworks'/'Metro Region' until that resolves —
+// see stores/ui.ts). topo.areas comes from GET /api/topology (loadTopology(),
+// same place). Both previously hardcoded here as literal prompt/title
+// strings, which meant a genuinely different second plant's PlantPanel
+// still talked about "the Waterworks treatment plant" and process areas
+// "(Intake, Treatment, Distribution)" regardless of what that plant's own
+// topology.yaml actually contained.
+const PROMPTS = computed<Record<string, string>>(() => {
+  const areaList = topo.areas.length ? topo.areas.join(', ') : 'each process area'
+  return {
+    plant:      `Provide a high-level status summary of the ${ui.activeSite} treatment plant. Use available tools to check all process areas (${areaList}) and report current status, any alarms, and recommended actions.`,
+    region:     `Provide a status summary for every plant in the ${ui.activeRegion}. Check each site individually and report current operational status, any alarms, and recommended actions per site.`,
+    enterprise: 'Provide an enterprise-wide status overview across every registered plant. Check each site individually and report current operational status, any alarms, and recommended actions per site.',
+  }
+})
 
 const KEY = 'plant'
 const panelTop = ref(0)
@@ -33,11 +46,11 @@ const badgeText = computed(() => {
 
 const titleText = computed(() => {
   const map: Record<string, string> = {
-    plant: 'Waterworks',
-    region: 'Metro Region',
+    plant: ui.activeSite,
+    region: ui.activeRegion,
     enterprise: 'Enterprise',
   }
-  return map[crumbLevel.value ?? 'plant'] ?? 'Waterworks'
+  return map[crumbLevel.value ?? 'plant'] ?? ui.activeSite
 })
 
 // Region/Enterprise breadcrumb levels are cross-plant questions — answered by
@@ -149,7 +162,7 @@ watch(() => ui.activePanel, async (panel, prev) => {
   }
   await nextTick()
   positionPanel()
-  const msgContent = PROMPTS[crumbLevel.value ?? 'plant'] ?? 'Provide a status summary of the Waterworks treatment plant.'
+  const msgContent = PROMPTS.value[crumbLevel.value ?? 'plant'] ?? `Provide a status summary of the ${ui.activeSite} treatment plant.`
   const initial: Message = { role: 'user', content: msgContent }
   conversationLog.value = [initial]
   stream(KEY, [initial], { mode: chatMode.value })

@@ -46,6 +46,14 @@ onMounted(async () => {
     }
   } catch { /* backend not running — keep ui.ts defaults */ }
 
+  // Real equipment/area shape for this plant, replacing the topology
+  // store's INITIAL_NODES/AREA_ORDER empty-state fallback — see
+  // stores/topology.ts's loadTopology(). Awaited (unlike the fault-status
+  // fetch below, which is fire-and-forget) and run before it, so that
+  // fault-status's per-node setAlarmState() calls land on this plant's real
+  // node list rather than racing ahead of it.
+  await topo.loadTopology()
+
   if (_carryParams.get('reactive') === '1') {
     try {
       const resp = await fetch('/api/reactive/toggle', {

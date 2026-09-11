@@ -242,6 +242,52 @@ async def site_endpoint(request: Request):
     )
 
 
+async def topology_endpoint(request: Request):
+    """This plant's own equipment graph, for stores/topology.ts's
+    loadTopology() to fetch instead of hardcoding a copy of topology.yaml's
+    shape (INITIAL_NODES/AREA_ORDER) — the actual bug this route exists to
+    fix: with a single shared Vite build (chat-ui/static/) serving every
+    plant checkout, a genuinely different second plant's browser previously
+    rendered whatever plant's equipment/areas happened to be baked into that
+    static bundle, silently wrong for anything but the demo's wtp2 fixture
+    (which happens to share instance/area names with wtp1). Derived from the
+    same `_topology` object as every other route here (see
+    `_specialist_for_node`, which this reuses) — nodes are grouped by
+    process area (matching `instances_in_area`'s own per-area order) so the
+    array arrives pre-sorted the way the frontend's `nodesByArea` grouping
+    expects.
+
+    `specialist` is always equal to `area` today (this app's specialists are
+    1:1 with process areas — see CLAUDE.md's "Multi-agent architecture"
+    table; `historian` is the one specialist with no area/node of its own
+    and is correctly absent here) — kept as a separate field rather than
+    collapsed into `area` because `_specialist_for_node` and the frontend's
+    `TopologyNode.specialist` both already model them as distinct concepts,
+    and a framework fork with non-1:1 specialist/area mapping would need
+    this to stay a real field, not a derived one.
+
+    Deliberately does NOT include flow-diagram edges: topology.yaml's schema
+    (fieldworks.topology.EquipmentInstance / ProcessArea) carries no
+    upstream/downstream or connectivity field at all, so there is nothing
+    authoritative here to derive them from. See stores/topology.ts's
+    INITIAL_EDGES comment for why edges are left as a frontend-only,
+    non-authoritative display layout rather than a fabricated heuristic
+    (e.g. chaining equipment_instances' declaration order) that could draw
+    plausible-looking but wrong connections for a genuinely different plant."""
+    areas = [area.name for area in _topology.process_areas]
+    nodes = [
+        {
+            "id": inst.name,
+            "area": area.name,
+            "specialist": area.name,
+            "equipmentType": inst.type_id,
+        }
+        for area in _topology.process_areas
+        for inst in _topology.instances_in_area(area.id)
+    ]
+    return JSONResponse({"areas": areas, "nodes": nodes})
+
+
 async def plant_status_endpoint(request: Request):
     """status_heartbeat.py's persisted rollup — a plain DB read, no LLM call,
     for enterprise-level overview questions. See diagnose_plant_mcp's
@@ -1178,6 +1224,7 @@ routes = [
     Route("/api/models", models_endpoint),
     Route("/api/health", health_endpoint),
     Route("/api/site", site_endpoint),
+    Route("/api/topology", topology_endpoint),
     Route("/api/plant-status", plant_status_endpoint),
     Route("/api/sites", sites_endpoint),
     Route("/api/chat", chat_endpoint, methods=["POST"]),
