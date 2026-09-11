@@ -25,7 +25,7 @@ _GRANT_TTL_SECONDS = 300
 
 _pending: dict[str, "asyncio.Future[str]"] = {}
 _proposals: dict[str, dict] = {}
-_grants: dict[str, float] = {}  # grant key -> expiry (time.monotonic())
+_grants: dict[str, tuple[float, str]] = {}  # grant key -> (expiry, action_id)
 
 
 def build_execution_payload(
@@ -94,23 +94,26 @@ def resolve(action_id: str, decision: str) -> bool:
         if payload is not None:
             tool_name, args = payload
             key = _grant_key(proposal["session_id"], tool_name, args)
-            _grants[key] = time.monotonic() + _GRANT_TTL_SECONDS
+            _grants[key] = (time.monotonic() + _GRANT_TTL_SECONDS, action_id)
 
     fut.set_result(decision)
     return True
 
 
-def consume_grant(session_id: str, tool_name: str, args: dict) -> bool:
+def consume_grant(session_id: str, tool_name: str, args: dict) -> str | None:
     """Check for and consume a one-time grant matching this exact call.
 
-    Returns True (and invalidates the grant) only if an unexpired grant exists
-    for this session/tool/args combination.
+    Returns the action_id it was granted for (and invalidates the grant) only
+    if an unexpired grant exists for this session/tool/args combination, else
+    None. The action_id lets the caller record the execution outcome against
+    the same action_events row the proposal and decision were recorded on.
     """
     key = _grant_key(session_id, tool_name, args)
-    expires = _grants.pop(key, None)
-    if expires is None:
-        return False
-    return time.monotonic() <= expires
+    entry = _grants.pop(key, None)
+    if entry is None:
+        return None
+    expires, action_id = entry
+    return action_id if time.monotonic() <= expires else None
 
 
 def pending_ids() -> list[str]:

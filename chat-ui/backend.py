@@ -1032,6 +1032,15 @@ async def lifespan(app):
             auth.BIND_HOST,
         )
 
+    recovered = session_store.recover_abandoned_actions()
+    if recovered:
+        logger.warning(
+            "Recovered %d action_events row(s) left pending by a previous "
+            "process — marked abandoned_restart (the operator answer they "
+            "were awaiting can no longer arrive).",
+            recovered,
+        )
+
     _spawn_tracked(_connect_mqtt_adapter(), task_name="connect_mqtt_adapter")
     _spawn_tracked(_mqtt_health_check_loop(), task_name="mqtt_health_check_loop")
 

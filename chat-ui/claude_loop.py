@@ -483,6 +483,17 @@ async def run_chat(
                                 "value": args.get("value", ""),
                             },
                         )
+                        # Record the proposal now, before awaiting the operator's
+                        # answer — a restart or disconnect while awaiting must not
+                        # leave this action with no row at all.
+                        session_store.log_action_proposed(
+                            action_id=action_id,
+                            session_id=session_id,
+                            action_type=args.get("action_type", ""),
+                            target=args.get("target", ""),
+                            value=str(args.get("value", "")),
+                            description=args.get("description", ""),
+                        )
                         try:
                             decision = await asyncio.wait_for(
                                 fut, timeout=_ACTION_TIMEOUT
@@ -490,13 +501,8 @@ async def run_chat(
                         except asyncio.TimeoutError:
                             decision = "timed_out"
 
-                        session_store.log_action_event(
-                            session_id=session_id,
-                            action_type=args.get("action_type", ""),
-                            target=args.get("target", ""),
-                            value=str(args.get("value", "")),
-                            description=args.get("description", ""),
-                            decision=decision,
+                        session_store.log_action_decision(
+                            action_id=action_id, decision=decision
                         )
                         audit.log(
                             "action_decision",
@@ -539,10 +545,21 @@ async def run_chat(
 
                     # ── Gated execution tools ───────────────────────────────────
                     elif block.name in control.EXECUTION_TOOLS:
-                        if control.consume_grant(session_id, block.name, args):
+                        granted_action_id = control.consume_grant(
+                            session_id, block.name, args
+                        )
+                        if granted_action_id is not None:
                             result = await call_mcp_tool(block.name, args)
                             if result.startswith("Error"):
                                 error_count += 1
+                            session_store.log_action_outcome(
+                                action_id=granted_action_id,
+                                outcome=(
+                                    f"failed: {result[:200]}"
+                                    if result.startswith("Error")
+                                    else "ok"
+                                ),
+                            )
                         else:
                             result = (
                                 "Refused: no matching operator approval for this "
