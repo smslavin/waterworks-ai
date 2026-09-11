@@ -1,10 +1,24 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useTopologyStore, alarmStateFromFindingsStatus } from '@/stores/topology'
+import { useTopologyStore, alarmStateFromFindingsStatus, AREA_ORDER } from '@/stores/topology'
+
+// AREA_ORDER is a module-level `reactive()` array (see stores/topology.ts) —
+// a singleton shared across every test in this file (and the app), not
+// something a fresh Pinia instance resets. loadTopology() mutates it via
+// .splice() (matching the AREA_ORDER contract callers like ConfigCanvas.vue
+// rely on: mutate in place, never reassign), so tests that call
+// loadTopology() with a different area list must restore it afterward or
+// leak into unrelated tests below (e.g. "areas getter" further down).
+const DEFAULT_AREA_ORDER = ['Intake', 'Treatment', 'Distribution']
 
 describe('useTopologyStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    AREA_ORDER.splice(0, AREA_ORDER.length, ...DEFAULT_AREA_ORDER)
+    vi.unstubAllGlobals()
   })
 
   describe('initial state', () => {
@@ -149,6 +163,80 @@ describe('useTopologyStore', () => {
     it('is a no-op for unknown id', () => {
       const topo = useTopologyStore()
       expect(() => topo.saveInsight('NonExistent', 'fault_pattern')).not.toThrow()
+    })
+  })
+
+  describe('loadTopology', () => {
+    const MOCK_RESPONSE = {
+      areas: ['Alpha', 'Beta'],
+      nodes: [
+        { id: 'Foo_01', area: 'Alpha', specialist: 'Alpha', equipmentType: 'pump' },
+        { id: 'Bar_01', area: 'Beta', specialist: 'Beta', equipmentType: 'tank' },
+      ],
+    }
+
+    it('replaces nodes and AREA_ORDER with the fetched shape', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(MOCK_RESPONSE),
+      }))
+      const topo = useTopologyStore()
+      await topo.loadTopology()
+
+      expect(topo.nodes).toHaveLength(2)
+      expect(topo.nodeById('Foo_01')).toMatchObject({
+        id: 'Foo_01', area: 'Alpha', specialist: 'Alpha', equipmentType: 'pump',
+        confidenceLevel: 'verified', alarmState: 'normal', hasMemory: false, saveCount: 0,
+      })
+      expect(topo.areas).toEqual(['Alpha', 'Beta'])
+    })
+
+    it('leaves edges untouched — no backend source of truth for flow connectivity', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve(MOCK_RESPONSE),
+      }))
+      const topo = useTopologyStore()
+      const edgesBefore = topo.edges.length
+      await topo.loadTopology()
+      expect(topo.edges).toHaveLength(edgesBefore)
+    })
+
+    it('keeps the INITIAL_NODES/AREA_ORDER fallback when the fetch fails', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('backend offline')))
+      const topo = useTopologyStore()
+      await topo.loadTopology()
+
+      expect(topo.nodes).toHaveLength(10)
+      expect(topo.areas).toEqual(DEFAULT_AREA_ORDER)
+    })
+
+    it('keeps the fallback when the response is not ok', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }))
+      const topo = useTopologyStore()
+      await topo.loadTopology()
+
+      expect(topo.nodes).toHaveLength(10)
+      expect(topo.areas).toEqual(DEFAULT_AREA_ORDER)
+    })
+
+    it('keeps the fallback when the response body is malformed (missing nodes/areas)', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ unrelated: 'shape' }),
+      }))
+      const topo = useTopologyStore()
+      await topo.loadTopology()
+
+      expect(topo.nodes).toHaveLength(10)
+      expect(topo.areas).toEqual(DEFAULT_AREA_ORDER)
+    })
+
+    it('does not throw when fetch itself is undefined (older test/runtime environments)', async () => {
+      vi.stubGlobal('fetch', undefined)
+      const topo = useTopologyStore()
+      await expect(topo.loadTopology()).resolves.toBeUndefined()
+      expect(topo.nodes).toHaveLength(10)
     })
   })
 })

@@ -39,14 +39,23 @@ const visible = computed(() => ui.activeFlyout !== null)
 
 type HealthStatus = 'ok' | 'error' | 'loading'
 
+// Ports intentionally not shown here: they're per-plant env config (see
+// backend.py's health_endpoint(), which reads each one from its own env var
+// rather than a fixed default — M10 multi-plant fix) and this app has no
+// endpoint that reports "what port did this plant actually configure for
+// service X" back to the browser. Previously this list hardcoded wtp1's own
+// port defaults, which meant a genuinely different second plant's flyout
+// showed wtp1's ports mislabeled as its own. The dot + service name (both
+// still real, sourced from GET /api/health below) carry the actually
+// useful information; the port number was decorative.
 const HEALTH_SERVICES = [
-  { key: 'aggregator',  name: 'mcp-aggregator', port: 8100 },
-  { key: 'influxdb',    name: 'influxdb',        port: 8086 },
-  { key: 'mqtt',        name: 'mosquitto',       port: 1883 },
-  { key: 'simulator',   name: 'simulator',       port: 8090 },
-  { key: 'audit_mcp',   name: 'audit-mcp',       port: 8004 },
-  { key: 'control_mcp', name: 'control-mcp',     port: 8005 },
-  { key: 'memory_mcp',  name: 'memory-mcp',      port: 8006 },
+  { key: 'aggregator',  name: 'mcp-aggregator' },
+  { key: 'influxdb',    name: 'influxdb' },
+  { key: 'mqtt',        name: 'mosquitto' },
+  { key: 'simulator',   name: 'simulator' },
+  { key: 'audit_mcp',   name: 'audit-mcp' },
+  { key: 'control_mcp', name: 'control-mcp' },
+  { key: 'memory_mcp',  name: 'memory-mcp' },
 ]
 
 const healthData = ref<Record<string, HealthStatus>>({})
@@ -168,7 +177,6 @@ const activeFaultCount = computed(() =>
             :class="healthData[svc.key] === 'ok' ? 'ok' : healthData[svc.key] === 'error' ? 'err' : 'warn'"
           />
           <span class="health-name">{{ svc.name }}</span>
-          <span class="health-port">:{{ svc.port }}</span>
         </div>
       </div>
 
@@ -530,12 +538,6 @@ const activeFaultCount = computed(() =>
   color: var(--color-text1);
   flex: 1;
   font-size: 11px;
-}
-
-.health-port {
-  color: var(--color-text2);
-  font-size: 11px;
-  font-family: var(--font-mono);
 }
 
 /* Faults */
