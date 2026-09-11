@@ -461,7 +461,7 @@ async def run_chat(
 
                     # ── propose_action intercept ───────────────────────────────
                     if block.name == _PROPOSE_ACTION_TOOL:
-                        action_id = str(uuid.uuid4())[:8]
+                        action_id = str(uuid.uuid4())
                         yield json.dumps(
                             {
                                 "type": "action_proposed",

@@ -44,11 +44,12 @@ from contextlib import asynccontextmanager
 from sse_starlette.sse import EventSourceResponse
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 import audit
+import auth
 import claude_loop
 import control
 import metrics
@@ -136,7 +137,21 @@ def _resolve_provider(model: str) -> dict:
 
 
 async def index(request: Request):
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    with open(os.path.join(STATIC_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    # Embed the token so the SPA's own fetch calls can present it. While
+    # exposed (BIND_HOST off loopback), only echo back a token the request
+    # already proved it holds — otherwise loading the bare homepage would
+    # hand the secret to anyone who can reach the server.
+    if auth.EXPOSED:
+        given = auth.presented(request)
+        embed_token = given if auth.check(request) else ""
+    else:
+        embed_token = auth.token()
+    html = html.replace(
+        "</head>", f'<meta name="api-token" content="{embed_token}">\n</head>'
+    )
+    return HTMLResponse(html)
 
 
 async def models_endpoint(request: Request):
@@ -329,6 +344,7 @@ async def chat_endpoint(request: Request):
     return EventSourceResponse(generate())
 
 
+@auth.require
 async def fault_endpoint(request: Request):
     """Proxy fault injection requests to the simulator control plane."""
     import httpx
@@ -370,6 +386,7 @@ async def fault_modes_endpoint(request: Request):
         return JSONResponse({"error": str(exc)}, status_code=503)
 
 
+@auth.require
 async def action_respond_endpoint(request: Request):
     """Operator approval/denial for a pending AI-proposed action."""
     body = await request.json()
@@ -388,15 +405,18 @@ async def action_respond_endpoint(request: Request):
     return JSONResponse({"ok": True, "action_id": action_id, "decision": decision})
 
 
+@auth.require
 async def audit_endpoint(request: Request):
     return JSONResponse(audit.read_log())
 
 
+@auth.require
 async def audit_clear_endpoint(request: Request):
     archive = audit.rotate_log()
     return JSONResponse({"ok": True, "archived": archive})
 
 
+@auth.require
 async def audit_download_endpoint(request: Request):
     from starlette.responses import FileResponse, Response
 
@@ -413,8 +433,11 @@ async def audit_download_endpoint(request: Request):
     )
 
 
+@auth.require
 async def audit_page_endpoint(request: Request):
-    from starlette.responses import HTMLResponse
+    # Propagate the token that got us past @auth.require into this page's own
+    # links, so "JSON" / "Download JSONL" keep working when EXPOSED.
+    token_qs = f"?token={auth.presented(request)}" if auth.EXPOSED else ""
 
     entries = audit.read_log()
 
@@ -625,8 +648,8 @@ async def audit_page_endpoint(request: Request):
 <body>
 <h1>Waterworks AI — Audit Log</h1>
 <div class="meta">{len(entries)} entries &nbsp;&middot;&nbsp; {len(sessions)} sessions &nbsp;|&nbsp;
-  <a href="/api/audit">JSON</a> &nbsp;|&nbsp;
-  <a href="/api/audit/download">Download JSONL</a>
+  <a href="/api/audit{token_qs}">JSON</a> &nbsp;|&nbsp;
+  <a href="/api/audit/download{token_qs}">Download JSONL</a>
 </div>
 <div class="controls">
   <button class="btn" onclick="expandAll()">Expand all</button>
@@ -906,6 +929,27 @@ async def _connect_mqtt_adapter() -> None:
 
 @asynccontextmanager
 async def lifespan(app):
+    if auth.EXPOSED:
+        logger.warning(
+            "BIND_HOST=%s — bound off loopback. The approval endpoint, audit "
+            "log, and topology-commit endpoint now require the "
+            "WATERWORKS_API_TOKEN token (header 'Authorization: Bearer "
+            "<token>' or '?token=' query param). Token%s: %s",
+            auth.BIND_HOST,
+            (
+                " (generated — set WATERWORKS_API_TOKEN to pin it)"
+                if auth.GENERATED
+                else ""
+            ),
+            auth.token(),
+        )
+    else:
+        logger.info(
+            "Bound to loopback (%s) — mutating/audit routes are not "
+            "token-gated. Set BIND_HOST to reach this from another device.",
+            auth.BIND_HOST,
+        )
+
     asyncio.create_task(_connect_mqtt_adapter())
 
     monitor = await _ensure_monitor_started()
@@ -1009,6 +1053,7 @@ async def insight_save_endpoint(request: Request):
     return JSONResponse({"status": "ok"})
 
 
+@auth.require
 async def topology_commit_endpoint(request: Request):
     body = await request.json()
     facility_id = body.get("facility_id", "WTP_001")
@@ -1068,7 +1113,7 @@ app = Starlette(routes=routes, lifespan=lifespan)
 if __name__ == "__main__":
     uvicorn.run(
         app,
-        host="0.0.0.0",  # nosec B104
+        host=auth.BIND_HOST,
         port=int(os.environ.get("CHAT_UI_PORT", 8080)),
         log_level="info",
     )

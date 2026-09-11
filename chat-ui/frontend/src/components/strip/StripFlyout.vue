@@ -3,6 +3,7 @@ import { computed, ref, watch, onMounted } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
 import { useAlarmStore } from '@/stores/alarm'
+import { authFetch } from '@/lib/api'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
@@ -100,7 +101,7 @@ async function injectFault(target: string, mode: string) {
     })
   }
   try {
-    await fetch('/api/fault', {
+    await authFetch('/api/fault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target, mode }),

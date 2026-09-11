@@ -41,6 +41,7 @@ MQTT_BROKER = os.environ.get("MQTT_BROKER_URL", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_BROKER_PORT", 1883))
 OPCUA_PORT = int(os.environ.get("OPCUA_PORT", 4840))
 CONTROL_PORT = int(os.environ.get("CONTROL_PORT", 8090))
+BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 INTERVAL = float(os.environ.get("PUBLISH_INTERVAL", 2.0))
 
 MQTT_ROOT = os.environ.get("PLANT_TOPIC_ROOT", "Plant/WTP")
@@ -365,11 +366,19 @@ async def _start_control_plane(mqtt_client: mqtt.Client) -> None:
 
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", CONTROL_PORT).start()  # nosec B104
+    await web.TCPSite(runner, BIND_HOST, CONTROL_PORT).start()
     logger.info(
-        "Control plane    http://0.0.0.0:%d  POST /fault  POST /setpoint  GET /status",
+        "Control plane    http://%s:%d  POST /fault  POST /setpoint  GET /status",
+        BIND_HOST,
         CONTROL_PORT,
     )
+    if BIND_HOST not in ("127.0.0.1", "localhost", "::1"):
+        logger.warning(
+            "Control plane bound to %s, not loopback — POST /fault and "
+            "POST /setpoint (direct actuation) are reachable from the network. "
+            "No auth on this endpoint; only expose it on a trusted network.",
+            BIND_HOST,
+        )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
