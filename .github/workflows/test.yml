@@ -26,6 +26,8 @@ jobs:
           pip install -r chat-ui/requirements.txt
           pip install -r simulator/requirements.txt
           pip install -r audit-mcp/requirements.txt
+          pip install -r control-mcp/requirements.txt
+          pip install -r influxdb-mcp/requirements.txt
 
       - name: Check topology-builder template matches fieldworks-core reference
         run: |
