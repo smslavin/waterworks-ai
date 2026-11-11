@@ -74,7 +74,7 @@ class _ConnectionTracker:
             yield (None, None)
 
         class _FakeClientSessionCM:
-            def __init__(self, read, write):
+            def __init__(self, read, write, message_handler=None):
                 session = _FakeSession(
                     len(tracker.connections) + 1, tracker._call_tool_fn
                 )

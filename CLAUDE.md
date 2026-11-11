@@ -147,7 +147,7 @@ data/               ladybugdb/, duckdb/, specialist-memory/ are gitignored (gene
 
 ## Multi-agent architecture
 
-Single aggregator at :8100. Tool isolation enforced by filtering the tool list in Python before each specialist API call — not separate aggregator instances.
+Single aggregator at :8100 (submodule pinned at mcp-aggregator v3.0.0: localhost-only bind, retries backends that miss startup, sends `tools/list_changed`; `mcp_client.py` clears its per-url tool cache on that notification and on reconnect). Tool isolation enforced by filtering the tool list in Python before each specialist API call — not separate aggregator instances.
 
 | Specialist | Model | Units | Tools |
 |---|---|---|---|
