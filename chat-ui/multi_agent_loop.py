@@ -16,6 +16,7 @@ import audit
 import control
 import metrics
 import session_store
+import verdict
 from claude_loop import _fetch_process_state, running_state_for
 from mcp_client import call_mcp_tool, list_mcp_tools
 from topology import load as _load_topology
@@ -236,17 +237,16 @@ Use these when the operator asks about pending reviews, saved insights, or the i
 queue. Do NOT use audit__list_incidents or audit__query_history for this — those query
 diagnostic sessions, not the insight review queue."""
 
-_SUMMARY_FORMAT = """
+_SUMMARY_FORMAT = (
+    """
 
 ── Synthesis output format ─────────────────────────────────────────────────────
 START your synthesis with this block, before any detailed breakdown — the
 specialist findings are already in front of you, so lead with the conclusion
 rather than building up to it:
-SUMMARY:
-Status: Normal | Anomaly Detected | Fault Detected
-Overview: [one or two plain-language sentences]
-Key points:
-- [bullet points — omit the list entirely if there is nothing notable]
+"""
+    + verdict.SUMMARY_BLOCK
+    + """
 
 Detailed reasoning, tables, and recommendations belong after this block, not
 before it — the block must never be pushed to the end where it risks being cut
@@ -254,6 +254,7 @@ off by the response length limit.
 
 Omit this block for a simple conversational follow-up that isn't really a status
 overview of the area or plant."""
+)
 
 _topology = _load_topology()
 SPECIALISTS = _build_specialists(_topology)
@@ -266,11 +267,7 @@ _ORCHESTRATOR_SYSTEM = (
 
 _FINDINGS_FORMAT = """
 End your response with this block exactly:
-FINDINGS:
-Status: Normal | Anomaly Detected | Fault Detected
-Confidence: 0.0–1.0
-Key observations:
-- [bullet points]"""
+""" + verdict.FINDINGS_BLOCK
 
 _SPECIALIST_TOOL_GUIDANCE = """
 ── Tool selection ─────────────────────────────────────────────────────────────
@@ -292,21 +289,19 @@ Never use uppercase OR / AND / NOT — they are parsed as identifiers and will c
 _ORCHESTRATOR_TOOL_PREFIXES = ("control__", "audit__")
 _ACTION_TIMEOUT = 300  # seconds to wait for operator decision
 
-_FINDINGS_RE = re.compile(
-    r"FINDINGS:.*?Status:\s*([^\n]+)\n.*?Confidence:\s*([0-9.]+)",
-    re.IGNORECASE | re.DOTALL,
-)
+
+def _findings(text: str) -> dict | None:
+    found = verdict.parse(text)
+    return found if found and found["kind"] == "findings" else None
 
 
 def _parse_findings(text: str) -> tuple[str, float]:
     """Extract (status, confidence) from specialist text. Returns ('Unknown', 0.0) on failure."""
-    m = _FINDINGS_RE.search(text)
-    if not m:
+    found = _findings(text)
+    if found is None:
         logger.warning("FINDINGS parse failed. tail: %r", text[-300:])
         return "Unknown", 0.0
-    status = m.group(1).strip().strip("*").strip()
-    confidence = float(m.group(2))
-    return status, confidence
+    return found["status"], found["confidence"]
 
 
 async def _ensure_findings(
@@ -314,7 +309,7 @@ async def _ensure_findings(
 ) -> str:
     """Force a FINDINGS block onto full_text if it doesn't already have one —
     shared by both the natural end-of-turn case and the max-rounds cutoff."""
-    if _FINDINGS_RE.search(full_text):
+    if _findings(full_text):
         return full_text
     try:
         extr = await client.messages.create(

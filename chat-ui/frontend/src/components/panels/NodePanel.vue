@@ -7,6 +7,7 @@ import { useNodePanel } from '@/composables/useNodePanel'
 import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 import SaveInsight from './SaveInsight.vue'
+import { useVerdict } from '@/composables/useVerdict'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
@@ -42,42 +43,10 @@ const analysisExpanded = ref(false)
 type Message = { role: 'user' | 'assistant'; content: string }
 const conversationLog = ref<Message[]>([])
 
-interface Verdict {
-  status: string
-  confidence: number
-  observations: string[]
-}
-
-const FINDINGS_RE = /FINDINGS:\s*\nStatus:\s*([^\n]+)\nConfidence:\s*([0-9.]+)\nKey observations:\n([\s\S]+?)(?:\n\n|$)/i
-
-const verdict = computed((): Verdict | null => {
-  if (!streamDone.value) return null
-  const m = content.value.match(FINDINGS_RE)
-  if (!m) return null
-  const [, rawStatus, rawConf, rawObs] = m
-  if (!rawStatus || !rawConf || !rawObs) return null
-  const observations = rawObs
-    .split('\n')
-    .filter(l => l.trimStart().startsWith('-'))
-    .map(l => l.replace(/^\s*-\s*/, '').trim())
-    .filter(Boolean)
-  return { status: rawStatus.trim(), confidence: parseFloat(rawConf), observations }
-})
-
-const analysisText = computed(() => {
-  if (!verdict.value) return content.value
-  const idx = content.value.lastIndexOf('\nFINDINGS:')
-  return idx > 0 ? content.value.slice(0, idx).trim() : content.value
-})
-
-const verdictClass = computed(() => {
-  switch (verdict.value?.status) {
-    case 'Normal':           return 'verdict-normal'
-    case 'Anomaly Detected': return 'verdict-anomaly'
-    case 'Fault Detected':   return 'verdict-fault'
-    default:                 return 'verdict-unknown'
-  }
-})
+const { verdict: parsedVerdict, analysisText, statusKey } = useVerdict(KEY)
+// The card replaces the text once the response is complete.
+const verdict = computed(() => (streamDone.value ? parsedVerdict.value : null))
+const verdictClass = computed(() => `verdict-${statusKey.value}`)
 
 const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
 const statusText = computed(() => {
@@ -172,15 +141,16 @@ function sendFollowUp() {
         <div class="skeleton-line" style="width: 55%" />
       </div>
 
-      <!-- Verdict card: shown when stream done and FINDINGS parsed -->
+      <!-- Verdict card: shown when stream done and a verdict arrived -->
       <template v-else-if="verdict">
         <div class="verdict-card" :class="verdictClass">
           <div class="verdict-header">
             <span class="verdict-status">{{ verdict.status }}</span>
-            <span class="verdict-conf">{{ Math.round(verdict.confidence * 100) }}%</span>
+            <span v-if="verdict.confidence !== null" class="verdict-conf">{{ Math.round(verdict.confidence * 100) }}%</span>
           </div>
+          <p v-if="verdict.overview" class="verdict-overview">{{ verdict.overview }}</p>
           <ul class="verdict-obs">
-            <li v-for="obs in verdict.observations" :key="obs">{{ obs }}</li>
+            <li v-for="obs in verdict.points" :key="obs">{{ obs }}</li>
           </ul>
           <button class="verdict-expand-btn" @click.stop="analysisExpanded = !analysisExpanded">
             {{ analysisExpanded ? 'Hide analysis ↑' : 'Full analysis ↓' }}
@@ -505,6 +475,13 @@ function sendFollowUp() {
   font-size: 11px;
   font-weight: 600;
   color: var(--color-text2);
+}
+
+.verdict-overview {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text1);
+  margin: 0 0 6px;
 }
 
 .verdict-obs {

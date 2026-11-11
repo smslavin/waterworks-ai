@@ -59,6 +59,7 @@ import multi_agent_loop
 import openai_loop
 import reactive_loop as _reactive_loop
 import session_store
+import verdict
 import status_heartbeat
 import topology as _topo_loader
 
@@ -332,12 +333,14 @@ async def chat_endpoint(request: Request):
 
         async def generate_multi():
             try:
-                async for chunk in multi_agent_loop.run_multi_agent(
-                    messages,
-                    model,
-                    api_key=api_key,
-                    scope_instance_id=scope,
-                    include_orchestrator=(scope is None),
+                async for chunk in verdict.annotate(
+                    multi_agent_loop.run_multi_agent(
+                        messages,
+                        model,
+                        api_key=api_key,
+                        scope_instance_id=scope,
+                        include_orchestrator=(scope is None),
+                    )
                 ):
                     yield {"data": chunk}
             except Exception as exc:
@@ -355,19 +358,23 @@ async def chat_endpoint(request: Request):
         # diagnose_plant fan-out this triggers.
         import httpx
 
+        async def enterprise_events():
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0, connect=5.0)
+            ) as http:
+                async with http.stream(
+                    "POST",
+                    f"{ENTERPRISE_ORCHESTRATOR_URL}/api/chat",
+                    json={"messages": messages},
+                ) as resp:
+                    async for line in resp.aiter_lines():
+                        if line.startswith("data:"):
+                            yield line[len("data:") :].strip()
+
         async def generate_enterprise():
             try:
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(120.0, connect=5.0)
-                ) as http:
-                    async with http.stream(
-                        "POST",
-                        f"{ENTERPRISE_ORCHESTRATOR_URL}/api/chat",
-                        json={"messages": messages},
-                    ) as resp:
-                        async for line in resp.aiter_lines():
-                            if line.startswith("data:"):
-                                yield {"data": line[len("data:") :].strip()}
+                async for chunk in verdict.annotate(enterprise_events()):
+                    yield {"data": chunk}
             except Exception as exc:
                 logger.exception("Enterprise chat proxy error")
                 yield {"data": json.dumps({"type": "error", "error": str(exc)})}
@@ -386,12 +393,14 @@ async def chat_endpoint(request: Request):
 
     async def generate():
         try:
-            async for chunk in run_fn(
-                messages,
-                model,
-                base_url=provider["base_url"],
-                api_key=api_key,
-                **extra,
+            async for chunk in verdict.annotate(
+                run_fn(
+                    messages,
+                    model,
+                    base_url=provider["base_url"],
+                    api_key=api_key,
+                    **extra,
+                )
             ):
                 yield {"data": chunk}
         except Exception as exc:

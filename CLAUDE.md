@@ -175,6 +175,8 @@ Key observations:
 ```
 If the block is missing, `multi_agent_loop.py` makes a cheap follow-up call with assistant prefill `"FINDINGS:\nStatus:"` to force it. Do not remove this fallback.
 
+**One parser:** `chat-ui/verdict.py` holds the FINDINGS/SUMMARY templates the prompts embed and the only parser for them. `backend.py` wraps every `/api/chat` stream in `verdict.annotate()`, which emits one `{"type": "verdict", kind, status, confidence, overview, points, block}` event as soon as a block is complete. The panels (`useVerdict`), `session_store.extract_status_single`, specialist status and `diagnose_plant_mcp` all read that instead of matching text — five separate regexes had drifted apart (gh-25). The enterprise orchestrator runs in its own process and keeps its own copy of the SUMMARY template.
+
 ## Approval flow (control-mcp)
 
 1. AI calls `propose_action(...)` → backend intercepts

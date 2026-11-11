@@ -11,6 +11,8 @@ import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 
+import verdict
+
 _DB_PATH = os.environ.get(
     "METRICS_DB_PATH",
     os.path.join(os.path.dirname(__file__), "metrics.db"),
@@ -42,7 +44,11 @@ def extract_equipment(tool_calls: list[tuple[str, dict]]) -> list[str]:
 
 
 def extract_status_single(text: str) -> tuple[str, float | None]:
-    """Heuristic status/confidence extraction from a free-form response."""
+    """Status/confidence of a free-form response: from its FINDINGS or
+    SUMMARY block when it has one, otherwise by keyword heuristic."""
+    block = verdict.parse(text)
+    if block is not None:
+        return block["status"], block["confidence"]
     t = text.lower()
     if any(
         w in t

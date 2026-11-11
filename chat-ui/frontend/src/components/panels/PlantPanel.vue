@@ -6,6 +6,7 @@ import { useTopologyStore } from '@/stores/topology'
 import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 import SpecialistBadges from './SpecialistBadges.vue'
+import { useVerdict } from '@/composables/useVerdict'
 
 export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 
@@ -77,70 +78,12 @@ const analysisExpanded = ref(false)
 type Message = { role: 'user' | 'assistant'; content: string }
 const conversationLog = ref<Message[]>([])
 
-interface PlantSummary {
-  status: string
-  overview: string
-  points: string[]
-}
-
-// SUMMARY is meant to lead the response (the model is instructed to state the
-// conclusion before the detailed breakdown), but this isn't anchored to the
-// start — if the model ever reverts to placing it at the end instead, "full
-// analysis" still needs to show everything else, not go blank. Excising just
-// the matched span (wherever it lands) rather than assuming a fixed position
-// keeps that working either way.
-//
-// \*{0,2} around each label tolerates the model bolding "Status:"/"Overview:"/
-// "Key points:" (observed in practice — it isn't consistent about this), and
-// the lazy value capture + trailing \*{0,2} strips a bolded value's closing
-// ** without swallowing it into the next line. The optional \n? before "Key
-// points:" tolerates an extra blank line before it, also observed in
-// practice. Without these, a match failure silently falls through to the
-// raw full-text branch instead of the summary card — worse than a stray
-// residual ** would be.
-const SUMMARY_RE = /SUMMARY:\s*\n\*{0,2}Status:\*{0,2}\s*([^\n]+?)\*{0,2}\n\*{0,2}Overview:\*{0,2}\s*([^\n]+?)\*{0,2}\n(?:\n?\*{0,2}Key points:\*{0,2}\s*\n([\s\S]+?))?(?:\n\n|$)/i
-
-// Deliberately not gated on streamDone — the model is instructed to lead
-// with SUMMARY before the detailed breakdown, so this pattern is usually
-// fully matchable within seconds of the model starting to write (right
-// after any tool calls resolve), well before the whole response finishes.
-// Matching as soon as it's parseable means the panel goes straight from
-// skeleton to summary card like every other panel, instead of showing the
-// raw response mid-stream and then visibly collapsing into the card once
-// done.
-const summaryMatch = computed(() => {
-  return content.value.match(SUMMARY_RE)
-})
-
-const summary = computed((): PlantSummary | null => {
-  const m = summaryMatch.value
-  if (!m) return null
-  const [, rawStatus, rawOverview, rawPoints] = m
-  if (!rawStatus || !rawOverview) return null
-  const points = (rawPoints ?? '')
-    .split('\n')
-    .filter(l => l.trimStart().startsWith('-'))
-    .map(l => l.replace(/^\s*-\s*/, '').trim())
-    .filter(Boolean)
-  return { status: rawStatus.trim(), overview: rawOverview.trim(), points }
-})
-
-const analysisText = computed(() => {
-  const m = summaryMatch.value
-  if (!m || m.index === undefined) return content.value
-  const before = content.value.slice(0, m.index)
-  const after = content.value.slice(m.index + m[0].length)
-  return (before + after).trim()
-})
-
-const summaryClass = computed(() => {
-  switch (summary.value?.status) {
-    case 'Normal':           return 'summary-normal'
-    case 'Anomaly Detected': return 'summary-anomaly'
-    case 'Fault Detected':   return 'summary-fault'
-    default:                 return 'summary-unknown'
-  }
-})
+// Not gated on streamDone, unlike the other panels: the model leads with
+// SUMMARY, and the backend sends the verdict as soon as that block is
+// complete, usually seconds into a Region/Enterprise turn that can run for
+// minutes. The panel goes straight from skeleton to card.
+const { verdict: summary, analysisText, statusKey } = useVerdict(KEY)
+const summaryClass = computed(() => `summary-${statusKey.value}`)
 
 function positionPanel() {
   const canvas = document.getElementById('topo-canvas')
@@ -222,7 +165,7 @@ function sendFollowUp() {
           <div class="summary-header">
             <span class="summary-status">{{ summary.status }}</span>
           </div>
-          <p class="summary-overview">{{ summary.overview }}</p>
+          <p v-if="summary.overview" class="summary-overview">{{ summary.overview }}</p>
           <ul v-if="summary.points.length" class="summary-points">
             <li v-for="point in summary.points" :key="point">{{ point }}</li>
           </ul>
