@@ -118,3 +118,50 @@ def test_discovery_task_is_referenced_until_done(tb):
 
     held, after = asyncio.run(go())
     assert held == 1 and after == 0
+
+
+# ── preview_discovered_topology (gh-29) ────────────────────────────────────
+#
+# Replaces generate_topology_yaml, which emitted site/facility/instances
+# YAML that fieldworks.topology.load() rejects and dropped the confidence
+# levels and tag bindings discovery found.
+
+
+def test_preview_is_a_labelled_review_document(tb):
+    import yaml
+
+    server._sessions["abc"] = {
+        "status": "complete",
+        "broker_url": "localhost:1883",
+        "last_used": 0.0,
+        "instances": [
+            {
+                "instance_id": "RawWater_01",
+                "equipment_type": "Pump",
+                "ladybug_type_id": "centrifugal_pump",
+                "area_id": "intake",
+                "confidence_score": 0.92,
+                "confidence_level": "verified",
+                "attributes": {"Flow": {"tag": "Plant/WTP/Pump/RawWater_01/Flow"}},
+            }
+        ],
+    }
+    text = asyncio.run(server.preview_discovered_topology("abc"))
+    assert text.startswith("# Topology discovery preview")
+    assert "NOT a loadable topology.yaml" in text
+    doc = yaml.safe_load(text)
+    assert doc["areas"]["intake"] == [
+        {
+            "id": "RawWater_01",
+            "equipment_type": "Pump",
+            "ladybug_type_id": "centrifugal_pump",
+            "confidence": "verified",
+            "confidence_score": 0.92,
+            "tags": {"Flow": "Plant/WTP/Pump/RawWater_01/Flow"},
+        }
+    ]
+
+
+def test_preview_of_unknown_session(tb):
+    text = asyncio.run(server.preview_discovered_topology("nope"))
+    assert "Unknown or expired" in text

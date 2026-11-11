@@ -12,6 +12,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 import verdict
+from topology import load as _load_topology
 
 _DB_PATH = os.environ.get(
     "METRICS_DB_PATH",
@@ -24,10 +25,46 @@ _SITE_ID = os.environ.get("SITE_ID", "wtp")
 _lock = threading.Lock()
 logger = logging.getLogger(__name__)
 
-_EQUIP_RE = re.compile(
-    r"\b(RawWater_\d+|HighService_\d+|Clarifier_\d+|FinishedWater_\d+"
-    r"|Chlorine_\d+|Fluoride_\d+|UV_\d+)\b"
+# Built from this plant's own topology.yaml (TOPOLOGY_FILE for an M10
+# second plant), not from one plant's instance names: a hardcoded list gave
+# every session summary at a plant with other equipment `equipment: ""`.
+_topology = _load_topology()
+
+
+def _equipment_re(topology) -> re.Pattern:
+    names = sorted(
+        (i.name for i in topology.equipment_instances), key=len, reverse=True
+    )
+    return re.compile(r"\b(" + "|".join(map(re.escape, names)) + r")\b")
+
+
+def _fault_mode_re(topology) -> re.Pattern:
+    """Matches any declared fault mode's name, written with spaces,
+    underscores or hyphens ("run status fault", "run-status fault")."""
+    phrases = {
+        r"[\s_-]+".join(map(re.escape, f.name.lower().split()))
+        for eq_type in topology.equipment_types
+        for f in eq_type.fault_modes
+    }
+    return re.compile(r"\b(?:" + "|".join(sorted(phrases)) + r")\b")
+
+
+_EQUIP_RE = _equipment_re(_topology)
+_FAULT_MODE_RE = _fault_mode_re(_topology)
+
+# Keyword fallback for a response with no FINDINGS/SUMMARY block. The
+# confidences only mark these as guesses, below what a block would state.
+_FAULT_WORDS = ("fault detected", "fault condition")
+_ANOMALY_WORDS = (
+    "anomaly",
+    "abnormal",
+    "irregular",
+    "out of range",
+    "concern",
+    "elevated",
+    "below threshold",
 )
+_HEURISTIC_CONFIDENCE = {"Fault Detected": 0.7, "Anomaly Detected": 0.6, "Normal": 0.8}
 
 
 # ── Equipment extraction ───────────────────────────────────────────────────────
@@ -50,32 +87,13 @@ def extract_status_single(text: str) -> tuple[str, float | None]:
     if block is not None:
         return block["status"], block["confidence"]
     t = text.lower()
-    if any(
-        w in t
-        for w in (
-            "fault detected",
-            "fault condition",
-            "run-status fault",
-            "cavitation",
-            "suction starvation",
-            "pressure drift",
-        )
-    ):
-        return "Fault Detected", 0.7
-    if any(
-        w in t
-        for w in (
-            "anomaly",
-            "abnormal",
-            "irregular",
-            "out of range",
-            "concern",
-            "elevated",
-            "below threshold",
-        )
-    ):
-        return "Anomaly Detected", 0.6
-    return "Normal", 0.8
+    if any(w in t for w in _FAULT_WORDS) or _FAULT_MODE_RE.search(t):
+        status = "Fault Detected"
+    elif any(w in t for w in _ANOMALY_WORDS):
+        status = "Anomaly Detected"
+    else:
+        status = "Normal"
+    return status, _HEURISTIC_CONFIDENCE[status]
 
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
