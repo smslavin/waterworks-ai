@@ -47,6 +47,23 @@ SIMULATOR_URL = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
 mcp = MCPServer("control-mcp")
 
 
+def _post_to_simulator(path: str, params: dict) -> str:
+    """POST to the simulator's control plane and return its JSON reply.
+
+    Raises on a transport failure or a non-2xx reply, which MCPServer turns
+    into an is_error result. The simulator answers a rejected write (unknown
+    attribute, out of engineering limits) with 4xx and a JSON body; returned
+    as plain text, that body read as success and the backend recorded the
+    action's outcome as 'ok' for a write that never happened.
+    """
+    resp = httpx.post(f"{SIMULATOR_URL}{path}", params=params, timeout=5.0)
+    if resp.is_error:
+        raise RuntimeError(
+            f"simulator rejected {path} ({resp.status_code}): {resp.text}"
+        )
+    return json.dumps(resp.json(), indent=2)
+
+
 @mcp.tool()
 def propose_action(
     description: str,
@@ -93,16 +110,9 @@ def set_setpoint(target: str, attribute: str, value: float) -> str:
         attribute: Attribute name (e.g. "FlowRate", "Pressure")
         value:     New setpoint value (numeric)
     """
-    try:
-        resp = httpx.post(
-            f"{SIMULATOR_URL}/setpoint",
-            params={"target": target, "attribute": attribute, "value": value},
-            timeout=5.0,
-        )
-        data = resp.json()
-        return json.dumps(data, indent=2)
-    except Exception as exc:
-        return f"Error calling simulator /setpoint: {exc}"
+    return _post_to_simulator(
+        "/setpoint", {"target": target, "attribute": attribute, "value": value}
+    )
 
 
 @mcp.tool()
@@ -114,16 +124,7 @@ def clear_fault(target: str) -> str:
     Args:
         target: Equipment ID to clear (e.g. "RawWater_01")
     """
-    try:
-        resp = httpx.post(
-            f"{SIMULATOR_URL}/fault",
-            params={"target": target, "mode": "normal"},
-            timeout=5.0,
-        )
-        data = resp.json()
-        return json.dumps(data, indent=2)
-    except Exception as exc:
-        return f"Error calling simulator /fault: {exc}"
+    return _post_to_simulator("/fault", {"target": target, "mode": "normal"})
 
 
 if __name__ == "__main__":

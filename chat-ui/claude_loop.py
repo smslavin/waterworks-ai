@@ -572,6 +572,19 @@ async def run_chat(
                                 tool=block.name,
                                 args=args,
                             )
+                        audit.log(
+                            "tool_result",
+                            session_id=session_id,
+                            tool=block.name,
+                            result=result,
+                        )
+                        yield json.dumps(
+                            {
+                                "type": "tool_result",
+                                "tool": block.name,
+                                "result": result,
+                            }
+                        )
 
                     # ── Normal MCP tool call ────────────────────────────────────
                     else:
