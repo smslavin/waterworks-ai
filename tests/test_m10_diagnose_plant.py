@@ -93,45 +93,101 @@ def test_get_site_returns_metadata_for_known_site(enterprise_file):
     assert site["topology_file"] == "topology-wtp2.yaml"
 
 
-# ── diagnose_plant_mcp: SUMMARY extraction ──────────────────────────────────
+# ── diagnose_plant_mcp: formatting the plant's verdict (gh-25) ────────────
+#
+# The plant's chat-ui parses its SUMMARY/FINDINGS block once (chat-ui/
+# verdict.py) and sends it as a "verdict" event; diagnose_plant formats that
+# event instead of re-matching the text.
 
 
-def test_extract_summary_parses_full_block():
-    text = (
-        "Here is my analysis.\n\n"
-        "SUMMARY:\n"
+def _verdict(**fields):
+    return {
+        "type": "verdict",
+        "kind": "summary",
+        "confidence": None,
+        "overview": None,
+        "points": [],
+        **fields,
+    }
+
+
+def test_format_summary_from_full_verdict():
+    result = diagnose_server._format_summary(
+        _verdict(
+            status="Fault Detected",
+            overview="RawWater_01 shows suction starvation.",
+            points=["Flow near zero", "Pressure dropping"],
+        ),
+        "ignored when a verdict is present",
+    )
+    assert result == (
         "Status: Fault Detected\n"
         "Overview: RawWater_01 shows suction starvation.\n"
-        "Key points:\n"
-        "- Flow near zero\n"
-        "- Pressure dropping\n\n"
-        "Detailed reasoning follows..."
+        "Key points:\n- Flow near zero\n- Pressure dropping"
     )
-    result = diagnose_server._extract_summary(text)
-    assert "Status: Fault Detected" in result
-    assert "Overview: RawWater_01 shows suction starvation." in result
-    assert "- Flow near zero" in result
-    assert "- Pressure dropping" in result
 
 
-def test_extract_summary_handles_no_key_points():
-    text = "SUMMARY:\nStatus: Normal\nOverview: All units nominal.\n\nNothing else to report."
-    result = diagnose_server._extract_summary(text)
-    assert "Status: Normal" in result
-    assert "Overview: All units nominal." in result
-    assert "Key points:" not in result
+def test_format_summary_without_points_or_overview():
+    result = diagnose_server._format_summary(
+        _verdict(kind="findings", status="Normal", confidence=0.9), ""
+    )
+    assert result == "Status: Normal\nConfidence: 0.9"
 
 
-def test_extract_summary_falls_back_to_raw_text_when_absent():
+def test_format_summary_falls_back_to_raw_text_without_verdict():
     text = "Sure — RawWater_01 is running fine right now."
-    result = diagnose_server._extract_summary(text)
-    assert result == text
+    assert diagnose_server._format_summary(None, text) == text
 
 
-def test_extract_summary_truncates_long_fallback_text():
-    text = "x" * 5000
-    result = diagnose_server._extract_summary(text)
-    assert len(result) <= 2000
+def test_format_summary_truncates_long_fallback_text():
+    assert len(diagnose_server._format_summary(None, "x" * 5000)) <= 2000
+
+
+def _plant_stream(events):
+    import json
+
+    import httpx
+
+    body = "".join(f"data: {json.dumps(e)}\n\n" for e in events)
+
+    def handler(request):
+        return httpx.Response(
+            200, text=body, headers={"content-type": "text/event-stream"}
+        )
+
+    real = httpx.AsyncClient
+    return lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
+
+
+def test_diagnose_plant_uses_the_plants_verdict_event(enterprise_file, monkeypatch):
+    """Bolded labels used to defeat this module's regex while PlantPanel's
+    tolerated them; now the plant's parse is the only one."""
+    monkeypatch.setenv("ENTERPRISE_FILE", str(enterprise_file))
+    text = "SUMMARY:\n**Status:** Anomaly Detected\n**Overview:** Low flow.\n\nDetail"
+    monkeypatch.setattr(
+        diagnose_server.httpx,
+        "AsyncClient",
+        _plant_stream(
+            [
+                {"type": "text", "text": text},
+                _verdict(status="Anomaly Detected", overview="Low flow."),
+                {"type": "done"},
+            ]
+        ),
+    )
+    result = asyncio.run(diagnose_server.diagnose_plant("wtp", "status?"))
+    assert result == "[wtp] Status: Anomaly Detected\nOverview: Low flow."
+
+
+def test_diagnose_plant_without_verdict_returns_the_text(enterprise_file, monkeypatch):
+    monkeypatch.setenv("ENTERPRISE_FILE", str(enterprise_file))
+    monkeypatch.setattr(
+        diagnose_server.httpx,
+        "AsyncClient",
+        _plant_stream([{"type": "text", "text": "All fine."}, {"type": "done"}]),
+    )
+    result = asyncio.run(diagnose_server.diagnose_plant("wtp", "hi"))
+    assert result == "[wtp] All fine."
 
 
 # ── diagnose_plant: unknown site_id fast path (no network needed) ──────────

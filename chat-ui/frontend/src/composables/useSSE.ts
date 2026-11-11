@@ -1,5 +1,5 @@
 import { onUnmounted } from 'vue'
-import { useChatStore } from '@/stores/chat'
+import { useChatStore, type Verdict } from '@/stores/chat'
 import { useUIStore } from '@/stores/ui'
 import { useApprovalStore, type BackendActionProposal } from '@/stores/approval'
 import { useTopologyStore } from '@/stores/topology'
@@ -70,6 +70,8 @@ export function useSSE() {
               const prefix = afterToolCall ? '\n\n' : ''
               afterToolCall = false
               chat.appendToken(key, prefix + (evt.text as string))
+            } else if (evt.type === 'verdict') {
+              chat.setVerdict(key, evt as unknown as Verdict)
             } else if (evt.type === 'tool_call') {
               afterToolCall = true
             } else if (evt.type === 'specialist_start') {

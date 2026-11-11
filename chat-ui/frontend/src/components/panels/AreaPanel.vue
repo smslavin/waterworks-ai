@@ -5,6 +5,7 @@ import { useChatStore } from '@/stores/chat'
 import { useSSE } from '@/composables/useSSE'
 import { renderText } from '@/utils/renderText'
 import SpecialistBadges from './SpecialistBadges.vue'
+import { useVerdict } from '@/composables/useVerdict'
 
 const ui = useUIStore()
 const chat = useChatStore()
@@ -32,54 +33,10 @@ const analysisExpanded = ref(false)
 type Message = { role: 'user' | 'assistant'; content: string }
 const conversationLog = ref<Message[]>([])
 
-interface AreaSummary {
-  status: string
-  overview: string
-  points: string[]
-}
-
-// SUMMARY is meant to lead the response (the model is instructed to state the
-// conclusion before the detailed breakdown), but this isn't anchored to the
-// start — if the model ever reverts to placing it at the end instead, "full
-// analysis" still needs to show everything else, not go blank. Excising just
-// the matched span (wherever it lands) rather than assuming a fixed position
-// keeps that working either way.
-const SUMMARY_RE = /SUMMARY:\s*\nStatus:\s*([^\n]+)\nOverview:\s*([^\n]+)\n(?:Key points:\n([\s\S]+?))?(?:\n\n|$)/i
-
-const summaryMatch = computed(() => {
-  if (!streamDone.value) return null
-  return content.value.match(SUMMARY_RE)
-})
-
-const summary = computed((): AreaSummary | null => {
-  const m = summaryMatch.value
-  if (!m) return null
-  const [, rawStatus, rawOverview, rawPoints] = m
-  if (!rawStatus || !rawOverview) return null
-  const points = (rawPoints ?? '')
-    .split('\n')
-    .filter(l => l.trimStart().startsWith('-'))
-    .map(l => l.replace(/^\s*-\s*/, '').trim())
-    .filter(Boolean)
-  return { status: rawStatus.trim(), overview: rawOverview.trim(), points }
-})
-
-const analysisText = computed(() => {
-  const m = summaryMatch.value
-  if (!m || m.index === undefined) return content.value
-  const before = content.value.slice(0, m.index)
-  const after = content.value.slice(m.index + m[0].length)
-  return (before + after).trim()
-})
-
-const summaryClass = computed(() => {
-  switch (summary.value?.status) {
-    case 'Normal':           return 'summary-normal'
-    case 'Anomaly Detected': return 'summary-anomaly'
-    case 'Fault Detected':   return 'summary-fault'
-    default:                 return 'summary-unknown'
-  }
-})
+const { verdict, analysisText, statusKey } = useVerdict(KEY)
+// The card replaces the text once the response is complete.
+const summary = computed(() => (streamDone.value ? verdict.value : null))
+const summaryClass = computed(() => `summary-${statusKey.value}`)
 
 function positionPanel(area: string) {
   const canvas = document.getElementById('topo-canvas')
@@ -155,13 +112,13 @@ function sendFollowUp() {
         <div class="skeleton-line" style="width: 55%" />
       </div>
 
-      <!-- Summary card: shown when stream done and SUMMARY parsed -->
+      <!-- Summary card: shown when stream done and a verdict arrived -->
       <template v-else-if="summary">
         <div class="summary-card" :class="summaryClass">
           <div class="summary-header">
             <span class="summary-status">{{ summary.status }}</span>
           </div>
-          <p class="summary-overview">{{ summary.overview }}</p>
+          <p v-if="summary.overview" class="summary-overview">{{ summary.overview }}</p>
           <ul v-if="summary.points.length" class="summary-points">
             <li v-for="point in summary.points" :key="point">{{ point }}</li>
           </ul>

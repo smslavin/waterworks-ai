@@ -15,6 +15,7 @@ import audit
 import control
 import metrics
 import session_store
+import verdict
 from mcp_client import call_mcp_tool, list_mcp_tools
 from topology import load as _load_topology
 
@@ -179,6 +180,8 @@ def build_system_prompt(process_units: str, alarm_history: str) -> str:
     return _SYSTEM_PROMPT_BASE.format(
         process_units=process_units,
         alarm_history=alarm_history,
+        findings_block=verdict.FINDINGS_BLOCK,
+        summary_block=verdict.SUMMARY_BLOCK,
         mqtt_topic_root=_PLANT_TOPIC_ROOT,
     )
 
@@ -270,21 +273,13 @@ Use audit tools to answer questions about past incidents and decisions:
 
 ── Diagnostic output format ───────────────────────────────────────────────────
 When diagnosing a specific piece of equipment, end your response with this block:
-FINDINGS:
-Status: Normal | Anomaly Detected | Fault Detected
-Confidence: 0.0–1.0
-Key observations:
-- [bullet points]
+{findings_block}
 
 When answering an area-wide or plant-wide status query (not a single piece of
 equipment), START your response with this block instead, before any detailed
 breakdown — you already have everything you read from tools this turn, so lead
 with the conclusion rather than building up to it:
-SUMMARY:
-Status: Normal | Anomaly Detected | Fault Detected
-Overview: [one or two plain-language sentences]
-Key points:
-- [bullet points — omit the list entirely if there is nothing notable]
+{summary_block}
 
 Detailed reasoning, tables, and recommendations belong after this block, not
 before it — the block must never be pushed to the end where it risks being cut

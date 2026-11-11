@@ -7,12 +7,24 @@ export interface SpecialistInfo {
   done: boolean
 }
 
+/** A FINDINGS or SUMMARY block, parsed once by the backend (chat-ui/verdict.py)
+ *  and sent as a "verdict" SSE event. `block` is the exact text it came from. */
+export interface Verdict {
+  kind: 'summary' | 'findings'
+  status: string
+  confidence: number | null
+  overview: string | null
+  points: string[]
+  block: string
+}
+
 export const useChatStore = defineStore('chat', () => {
   const content    = ref<Record<string, string>>({})
   const streaming  = ref<Record<string, boolean>>({})
   const streamDone = ref<Record<string, boolean>>({})
   const specialists = ref<Record<string, Record<string, SpecialistInfo>>>({})
   const inputTokens = ref<Record<string, number>>({})
+  const verdict = ref<Record<string, Verdict | null>>({})
 
   function appendToken(key: string, token: string) {
     content.value[key] = (content.value[key] ?? '') + token
@@ -24,6 +36,7 @@ export const useChatStore = defineStore('chat', () => {
     streamDone.value[key] = false
     specialists.value[key] = {}
     inputTokens.value[key] = 0
+    verdict.value[key] = null
   }
 
   function finishStream(key: string) {
@@ -37,6 +50,11 @@ export const useChatStore = defineStore('chat', () => {
     streamDone.value[key] = false
     specialists.value[key] = {}
     inputTokens.value[key] = 0
+    verdict.value[key] = null
+  }
+
+  function setVerdict(key: string, v: Verdict) {
+    verdict.value[key] = v
   }
 
   function updateSpecialist(key: string, name: string, info: SpecialistInfo) {
@@ -49,8 +67,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    content, streaming, streamDone, specialists, inputTokens,
+    content, streaming, streamDone, specialists, inputTokens, verdict,
     appendToken, startStream, finishStream, clearContent,
-    updateSpecialist, setInputTokens,
+    updateSpecialist, setInputTokens, setVerdict,
   }
 })

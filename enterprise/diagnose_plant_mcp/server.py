@@ -24,7 +24,6 @@ import json
 import logging
 import logging.handlers
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -75,33 +74,25 @@ class _PlantSideError(Exception):
     (this call's own deadline), so each gets its own message to the caller."""
 
 
-# Matches chat-ui/frontend/src/components/panels/PlantPanel.vue's SUMMARY_RE —
-# same convention, same source text (the plant's own orchestrator synthesis),
-# kept in sync deliberately rather than importing across the JS/Python boundary.
-_SUMMARY_RE = re.compile(
-    r"SUMMARY:\s*\nStatus:\s*([^\n]+)\nOverview:\s*([^\n]+)\n"
-    r"(?:Key points:\n([\s\S]+?))?(?:\n\n|$)",
-    re.IGNORECASE,
-)
+def _format_summary(verdict: dict | None, full_text: str) -> str:
+    """A plant's answer for the enterprise orchestrator: its verdict block
+    when it sent one, else the raw (truncated) text for conversational
+    replies that don't warrant a SUMMARY block.
 
-
-def _extract_summary(full_text: str) -> str:
-    """Pull the SUMMARY block out of a plant's full synthesis text. Falls back
-    to the raw (truncated) text for simple conversational replies that don't
-    warrant a SUMMARY block per the plant's own system prompt."""
-    m = _SUMMARY_RE.search(full_text)
-    if not m:
+    The plant's chat-ui parses the block itself (chat-ui/verdict.py) and
+    sends it as a "verdict" event; matching the text again here was one of
+    five parsers that had drifted apart (gh-25).
+    """
+    if verdict is None:
         return full_text.strip()[:2000] or "(empty response)"
-    status, overview, points_block = m.group(1), m.group(2), m.group(3)
-    points = [
-        line.strip().lstrip("-").strip()
-        for line in (points_block or "").splitlines()
-        if line.strip().startswith("-")
-    ]
-    lines = [f"Status: {status.strip()}", f"Overview: {overview.strip()}"]
-    if points:
+    lines = [f"Status: {verdict['status']}"]
+    if verdict.get("overview"):
+        lines.append(f"Overview: {verdict['overview']}")
+    if verdict.get("confidence") is not None:
+        lines.append(f"Confidence: {verdict['confidence']}")
+    if verdict.get("points"):
         lines.append("Key points:")
-        lines.extend(f"- {p}" for p in points)
+        lines.extend(f"- {p}" for p in verdict["points"])
     return "\n".join(lines)
 
 
@@ -121,7 +112,10 @@ async def diagnose_plant(site_id: str, query: str) -> str:
 
     chat_ui_url = site["chat_ui_url"]
 
+    verdict: dict | None = None
+
     async def _ask() -> list[str]:
+        nonlocal verdict
         full_text: list[str] = []
         # timeout here is per-read (resets on every chunk, including the
         # plant's own SSE keep-alive pings) — real deadline enforcement is
@@ -146,6 +140,8 @@ async def diagnose_plant(site_id: str, query: str) -> str:
                     event_type = event.get("type")
                     if event_type == "text":
                         full_text.append(event.get("text", ""))
+                    elif event_type == "verdict":
+                        verdict = event
                     elif event_type == "error":
                         logger.warning(
                             "diagnose_plant(%s) plant-side error: %s",
@@ -185,7 +181,7 @@ async def diagnose_plant(site_id: str, query: str) -> str:
     response_text = "".join(full_text)
     if not response_text:
         return f"Plant '{site_id}' returned no response."
-    return f"[{site_id}] " + _extract_summary(response_text)
+    return f"[{site_id}] " + _format_summary(verdict, response_text)
 
 
 @mcp.tool()
