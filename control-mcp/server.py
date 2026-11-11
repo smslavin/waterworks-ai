@@ -22,6 +22,7 @@ import os
 import httpx
 from dotenv import load_dotenv
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 load_dotenv()
@@ -58,17 +59,21 @@ _DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
 def _post_to_simulator(path: str, params: dict) -> str:
     """POST to the simulator's control plane and return its JSON reply.
 
-    Raises on a transport failure or a non-2xx reply, which MCPServer turns
-    into an is_error result. The simulator answers a rejected write (unknown
-    attribute, out of engineering limits) with 4xx and a JSON body; returned
-    as plain text, that body read as success and the backend recorded the
-    action's outcome as 'ok' for a write that never happened.
+    Raises ToolError on a transport failure or a non-2xx reply, which
+    MCPServer turns into an is_error result. The simulator answers a rejected
+    write (unknown attribute, out of engineering limits) with 4xx and a JSON
+    body; returned as plain text, that body read as success and the backend
+    recorded the action's outcome as 'ok' for a write that never happened.
+    ToolError, not a bare exception: from mcp 2.3 on, MCPServer replaces any
+    other exception's message with "Error executing tool <name>", and the
+    reason would never reach action_events.outcome.
     """
-    resp = httpx.post(f"{SIMULATOR_URL}{path}", params=params, timeout=5.0)
+    try:
+        resp = httpx.post(f"{SIMULATOR_URL}{path}", params=params, timeout=5.0)
+    except httpx.HTTPError as exc:
+        raise ToolError(f"simulator unreachable at {path}: {exc}") from exc
     if resp.is_error:
-        raise RuntimeError(
-            f"simulator rejected {path} ({resp.status_code}): {resp.text}"
-        )
+        raise ToolError(f"simulator rejected {path} ({resp.status_code}): {resp.text}")
     return json.dumps(resp.json(), indent=2)
 
 
