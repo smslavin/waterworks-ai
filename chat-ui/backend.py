@@ -1204,30 +1204,84 @@ async def insight_save_endpoint(request: Request):
     return JSONResponse({"status": "ok"})
 
 
+_INSTANCE_STR_FIELDS = ("ladybug_type_id", "area_id", "confidence_level")
+
+
+def _instance_problems(instances) -> list[str]:
+    """What's wrong with a topology commit's instances, or [] if nothing.
+
+    Mirrors what fieldworks' GraphClient.seed_discovered_topology reads:
+    a required instance_id, three optional strings, and attributes as
+    {name: {"tag": str, ...}}. Checked before dispatch so a malformed
+    request is refused whole instead of half-seeding the graph.
+    """
+    if not isinstance(instances, list) or not instances:
+        return ["instances must be a non-empty list"]
+    problems = []
+    for i, inst in enumerate(instances):
+        where = f"instances[{i}]"
+        if not isinstance(inst, dict):
+            problems.append(f"{where} must be an object")
+            continue
+        if not isinstance(inst.get("instance_id"), str) or not inst["instance_id"]:
+            problems.append(f"{where}.instance_id must be a non-empty string")
+        for key in _INSTANCE_STR_FIELDS:
+            if key in inst and not isinstance(inst[key], str):
+                problems.append(f"{where}.{key} must be a string")
+        attributes = inst.get("attributes", {})
+        if not isinstance(attributes, dict):
+            problems.append(f"{where}.attributes must be an object")
+            continue
+        for name, info in attributes.items():
+            if not isinstance(info, dict) or not isinstance(info.get("tag"), str):
+                problems.append(f"{where}.attributes.{name}.tag must be a string")
+    return problems
+
+
 @auth.require
 async def topology_commit_endpoint(request: Request):
-    body = await request.json()
-    facility_id = body.get("facility_id", "WTP_001")
-    facility_name = body.get("facility_name", "Water Treatment Plant")
-    instances = body.get("instances", [])
-    if not instances:
-        return JSONResponse({"error": "no instances provided"}, status_code=400)
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "body must be JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    instances = body.get("instances")
+    problems = _instance_problems(instances)
+    if problems:
+        return JSONResponse(
+            {"error": "invalid instances", "problems": problems}, status_code=400
+        )
     result_str = await mcp_client.call_mcp_tool(
         "memory__seed_discovered_topology",
         {
-            "facility_id": facility_id,
-            "facility_name": facility_name,
+            "facility_id": body.get("facility_id", "WTP_001"),
+            "facility_name": body.get("facility_name", "Water Treatment Plant"),
             "instances": instances,
         },
     )
     try:
         result = json.loads(result_str)
-    except Exception:
-        result = {"seeded_count": 0, "errors": 1}
+        committed, errors = int(result["seeded_count"]), int(result["errors"])
+    except (ValueError, TypeError, KeyError):
+        # The seed may have written some instances before failing, or the
+        # call may never have reached memory-mcp; either way the count is
+        # unknown, and reporting 0 would claim nothing was written.
+        logger.error("topology commit: unreadable seed result: %s", result_str[:500])
+        return JSONResponse(
+            {
+                "status": "unknown",
+                "committed_count": None,
+                "errors": None,
+                "detail": result_str[:500],
+            },
+            status_code=502,
+        )
     return JSONResponse(
         {
-            "committed_count": result.get("seeded_count", 0),
-            "errors": result.get("errors", 0),
+            "status": "ok" if errors == 0 else "partial",
+            "committed_count": committed,
+            "errors": errors,
         }
     )
 
