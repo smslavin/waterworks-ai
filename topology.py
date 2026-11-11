@@ -27,7 +27,7 @@ def load(path: str | Path | None = None) -> TopologyConfig:
 
 def load_extensions(path: str | Path | None = None) -> dict:
     """Raw top-level keys fieldworks.topology.load() doesn't know about
-    (insight_categories, specialists) — waterworks-ai's own config sections,
+    (insight_categories) — waterworks-ai's own config sections,
     ignored (not rejected) by the fieldworks-core schema.
     """
     with open(_resolve_path(path)) as f:

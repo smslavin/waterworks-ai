@@ -10,7 +10,7 @@ an enterprise-level question can read directly with a plain DB query
 instead — see diagnose_plant_mcp's get_plant_status tool. diagnose_plant
 itself is unchanged and remains the on-demand drill-down path.
 
-status_level is NOT derived from monitor.current_status_level() directly —
+status_level is NOT derived from monitor.status_level() directly —
 an earlier version of this did that, on the assumption that the cheap
 threshold check could stand in for a real status level between diagnoses.
 It can't: monitor.py only tracks numeric attribute excursions, not
@@ -18,7 +18,7 @@ discrete equipment state (offline/running flags) — live testing showed it
 report "Normal" while a full diagnosis in the same instant found real
 offline equipment and said "Fault Detected". status_level is always
 extracted from the narrative it's stored alongside, so the two can never
-disagree; monitor.current_status_level() is used only as a cheap trigger
+disagree; monitor.status_level() is used only as a cheap trigger
 signal for deciding *when* to pay for a real check, with a max-staleness
 backstop (STATUS_HEARTBEAT_MAX_STALE_TICKS) covering the cases it can't
 see at all.
@@ -92,10 +92,10 @@ async def _generate_narrative() -> str:
     return full_text
 
 
-async def _tick() -> None:
+async def _tick(monitor: "_monitor_mod.AnomalyMonitor") -> None:
     global _last_trigger_level, _ticks_since_check
 
-    trigger_level = _monitor_mod.current_status_level()
+    trigger_level = monitor.status_level()
     prev = session_store.get_plant_status()
 
     should_check = (
@@ -121,11 +121,11 @@ async def _tick() -> None:
     logger.info("status_heartbeat: checked (status_level=%s)", status_level)
 
 
-async def _run() -> None:
+async def _run(monitor: "_monitor_mod.AnomalyMonitor") -> None:
     try:
         while True:
             try:
-                await _tick()
+                await _tick(monitor)
             except Exception:
                 logger.exception("status_heartbeat tick failed")
             await asyncio.sleep(INTERVAL_SECONDS)
@@ -134,15 +134,11 @@ async def _run() -> None:
 
 
 def start(monitor: "_monitor_mod.AnomalyMonitor") -> asyncio.Task:
-    """monitor param is unused directly (current_status_level() reads the
-    module-level _window global) — accepted anyway so the caller's intent
-    ("this heartbeat depends on the shared monitor already being started")
-    is explicit at the call site, and so a future refactor away from a
-    module global doesn't silently break this without a signature change
-    forcing a look here too."""
+    """Tick every INTERVAL_SECONDS, using `monitor`'s threshold status as the
+    cheap trigger for when to run a real check."""
     global _task
     if is_running():
         return _task
-    _task = asyncio.create_task(_run())
+    _task = asyncio.create_task(_run(monitor))
     logger.info("status_heartbeat started (interval=%ds)", INTERVAL_SECONDS)
     return _task

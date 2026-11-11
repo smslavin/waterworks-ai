@@ -6,9 +6,9 @@ import pytest
 
 root = Path(__file__).parent.parent
 sys.path.insert(0, str(root / "chat-ui"))
-sys.path.insert(
-    0, str(root / "simulator")
-)  # simulator wins on 'topology' name conflict
+# Both directories have a topology.py; they are identical shims over the
+# root loader (tests/test_topology_shims.py), so which one wins is moot.
+sys.path.insert(0, str(root / "simulator"))
 
 
 @pytest.fixture(autouse=True)
