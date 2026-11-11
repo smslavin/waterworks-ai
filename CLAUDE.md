@@ -147,7 +147,7 @@ data/               ladybugdb/, duckdb/, specialist-memory/ are gitignored (gene
 
 ## Multi-agent architecture
 
-Single aggregator at :8100. Tool isolation enforced by filtering the tool list in Python before each specialist API call — not separate aggregator instances.
+Single aggregator at :8100 (submodule pinned at mcp-aggregator v3.0.0: localhost-only bind, retries backends that miss startup, sends `tools/list_changed`; `mcp_client.py` clears its per-url tool cache on that notification and on reconnect). Tool isolation enforced by filtering the tool list in Python before each specialist API call — not separate aggregator instances.
 
 | Specialist | Model | Units | Tools |
 |---|---|---|---|
@@ -182,6 +182,8 @@ If the block is missing, `multi_agent_loop.py` makes a cheap follow-up call with
 3. Frontend shows approval dialog
 4. Approve → `control.py` stamps a one-time execution grant (session + tool + exact args, hashed) → AI calls the execution tool → backend refuses it unless a matching grant is presented and consumed → logs to `action_events`
 5. Deny → backend injects "operator denied: [action]" back to AI → AI responds → logs denial
+
+**What a model is offered** is decided by MCP tool annotations (`control.requires_approval`, MCP spec defaults): a tool needs approval unless it declares `readOnlyHint=true` or `destructiveHint=false`. Only `control__set_setpoint`/`control__clear_fault` can be approved, so every other tool that needs approval (`influxdb__write_point`, anything unannotated) is filtered out of every model's tool list. Every `@mcp.tool` in this repo must pass `annotations=` (`tests/test_tool_policy.py` enforces it). The fieldworks-adapters binaries declare none yet, so `control._ADAPTER_READ_ONLY` lists their known reads; `write_tag` is also excluded at the aggregator in `backends.json`. This needs mcp-aggregator v2.0+, which forwards annotations — an older one makes every tool look unannotated, and `mcp_client` logs a warning.
 
 Approval alone does not execute anything — the grant is what does, and it's bound to the exact target/attribute/value that were proposed; a drifted execution call (rounded value, different target) is refused, not silently coerced. `propose_action` is intercepted in three places, not shared code: single-agent mode (`claude_loop.py`), multi-agent mode's orchestrator loop, and multi-agent mode's follow-up-question path (`multi_agent_loop.py`'s `_run_cascade_only`) — a fix to one (e.g. denial-message wording) does not automatically apply to the others.
 

@@ -329,7 +329,7 @@ async def run_chat(
             "description": t["description"],
             "input_schema": t["inputSchema"],
         }
-        for t in mcp_tools
+        for t in control.offered_to_models(mcp_tools)
     ]
 
     conv_messages = list(messages)

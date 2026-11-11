@@ -21,6 +21,70 @@ import time
 
 EXECUTION_TOOLS = {"control__set_setpoint", "control__clear_fault"}
 
+# The fieldworks-adapters mqtt-mcp/opcua-mcp binaries declare no tool
+# annotations yet. Until they do, these are the adapter tools known not to
+# write to the plant. Anything else they expose (write_tag today, whatever
+# ships next) counts as unannotated, so models never see it.
+# Delete once fieldworks-build/fieldworks-adapters#15 ships annotations.
+_ADAPTER_READ_ONLY = {
+    f"{backend}__{tool}"
+    for backend, tools in {
+        "mqtt": (
+            "discover_tags",
+            "get_server_info",
+            "get_topic_tree",
+            "read_tag",
+            "read_tag_history",
+            "scan",
+        ),
+        "opcua": (
+            "browse",
+            "discover_tags",
+            "get_node_tree",
+            "get_server_info",
+            "read_tag",
+            "read_tag_history",
+        ),
+    }.items()
+    for tool in tools
+}
+# Session bookkeeping on the adapter, not a plant write.
+_ADAPTER_NON_DESTRUCTIVE = {
+    "mqtt__connect",
+    "mqtt__disconnect",
+    "opcua__connect",
+    "opcua__disconnect",
+}
+
+
+def requires_approval(tool: dict) -> bool:
+    """True if a call to `tool` needs an operator approval to run.
+
+    MCP's own defaults decide: a tool is destructive unless it declares
+    readOnlyHint=true or destructiveHint=false, so a tool with no
+    annotations requires approval. Only EXECUTION_TOOLS can ever be
+    approved (build_execution_payload maps proposals to them), so for every
+    other tool this means "never offered to a model".
+    """
+    name = tool["name"]
+    if name in _ADAPTER_READ_ONLY or name in _ADAPTER_NON_DESTRUCTIVE:
+        return False
+    hints = tool.get("annotations") or {}
+    if hints.get("readOnlyHint") is True:
+        return False
+    return hints.get("destructiveHint") is not False
+
+
+def offered_to_models(tools: list[dict]) -> list[dict]:
+    """The tools a model may be offered: everything that needs no
+    approval, plus the execution tools an approval can unlock. Drops e.g.
+    mqtt__write_tag and influxdb__write_point, which could otherwise inject
+    fake readings with no operator in the loop."""
+    return [
+        t for t in tools if t["name"] in EXECUTION_TOOLS or not requires_approval(t)
+    ]
+
+
 _GRANT_TTL_SECONDS = 300
 
 _pending: dict[str, "asyncio.Future[str]"] = {}

@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 load_dotenv()
 
@@ -56,6 +57,13 @@ _DB_PATH = os.environ.get(
     ),
 )
 mcp = MCPServer("audit-mcp")
+
+# Tool annotations (MCP spec hints), forwarded by mcp-aggregator. chat-ui's
+# approval gate reads them: a destructive or unannotated tool is never offered
+# to a model unless an operator approval can authorize it (chat-ui/control.py).
+_READ = ToolAnnotations(read_only_hint=True)
+_WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
+_DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
 
 
 def _conn() -> sqlite3.Connection:
@@ -90,7 +98,7 @@ _ensure_tables()
 # ── Tools ──────────────────────────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def list_incidents(date: str = "", hours_back: int = 24) -> str:
     """List diagnostic sessions that detected faults or anomalies.
 
@@ -132,7 +140,7 @@ def list_incidents(date: str = "", hours_back: int = 24) -> str:
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def get_session_summary(session_id: str) -> str:
     """Get the full diagnostic summary for a single session, including actions taken.
 
@@ -157,7 +165,7 @@ def get_session_summary(session_id: str) -> str:
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def query_by_equipment(equipment_id: str, hours_back: int = 24) -> str:
     """List all diagnostic sessions involving a specific equipment unit.
 
@@ -193,7 +201,7 @@ def query_by_equipment(equipment_id: str, hours_back: int = 24) -> str:
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def query_history(start: str, end: str, equipment: str = "") -> str:
     """Return narrative-ready session history for a time range.
 
@@ -254,7 +262,7 @@ def query_history(start: str, end: str, equipment: str = "") -> str:
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def list_pending_reviews(hours_back: int = 168) -> str:
     """List unresolved operator insight reviews pending engineering approval.
 
@@ -284,7 +292,7 @@ def list_pending_reviews(hours_back: int = 168) -> str:
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 def resolve_review(review_id: str, resolution: str, resolver_note: str = "") -> str:
     """Resolve a pending insight review.
 

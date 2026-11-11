@@ -43,9 +43,21 @@ PROPOSAL = {
 }
 EXACT = {"target": "Chlorine_01", "attribute": "FlowRate", "value": 2.8}
 
+_READ = {"readOnlyHint": True, "destructiveHint": None}
+_DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True}
+# What the aggregator lists, annotations included (gh-47). The two write
+# tools must never reach a model.
 _TOOLS = [
-    {"name": n, "description": "", "inputSchema": {"type": "object"}}
-    for n in (PROPOSE, SETPOINT, CLEAR, "audit__list_incidents")
+    {"name": n, "description": "", "inputSchema": {"type": "object"}, "annotations": a}
+    for n, a in (
+        (PROPOSE, _READ),
+        (SETPOINT, _DESTRUCTIVE),
+        (CLEAR, _DESTRUCTIVE),
+        ("audit__list_incidents", _READ),
+        ("mqtt__read_tag", None),
+        ("mqtt__write_tag", None),
+        ("influxdb__write_point", _DESTRUCTIVE),
+    )
 ]
 
 
@@ -102,15 +114,17 @@ class _Model:
     def __init__(self, script):
         self._turns = iter(script)
         self.messages = self
+        self.offered: list[set[str]] = []  # tool names offered, per turn
 
-    def _next(self):
+    def _next(self, kwargs):
+        self.offered.append({t["name"] for t in kwargs.get("tools", [])})
         return _message(next(self._turns, []))
 
     def stream(self, **kwargs):
-        return _Stream(self._next())
+        return _Stream(self._next(kwargs))
 
     async def create(self, **kwargs):
-        return self._next()
+        return self._next(kwargs)
 
 
 # ── the three loops ────────────────────────────────────────────────────────
@@ -216,10 +230,10 @@ def _scratch_state(monkeypatch, tmp_path, aggregator):
     control._grants.clear()
 
 
-def _run(monkeypatch, loop, script, decision=None):
+def _run(monkeypatch, loop, script, decision=None, model=None):
     """Run one chat turn. When a proposal is pending, answer it with
     `decision` (None: never answer). Returns (events, row_while_pending)."""
-    model = _Model(script)
+    model = model or _Model(script)
     for mod in (claude_loop, multi_agent_loop):
         monkeypatch.setattr(mod.anthropic, "AsyncAnthropic", lambda **kw: model)
 
@@ -376,3 +390,18 @@ def test_execution_without_a_proposal_is_refused(
     assert any(
         e["type"] == "tool_result" and e["result"].startswith("Refused") for e in events
     )
+
+
+# ── what a model is offered (gh-47) ────────────────────────────────────────
+
+
+def test_models_are_offered_the_approval_tools_but_no_raw_writes(
+    monkeypatch, loop, aggregator
+):
+    model = _Model([])
+    _run(monkeypatch, loop, [], model=model)
+
+    offered = model.offered[0]
+    assert {PROPOSE, SETPOINT, CLEAR, "audit__list_incidents"} <= offered
+    assert "mqtt__write_tag" not in offered
+    assert "influxdb__write_point" not in offered

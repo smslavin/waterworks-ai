@@ -94,6 +94,9 @@ each plant's chat-ui (per plant_registry.py → enterprise.yaml)
    talks to the single `mcp-aggregator` (:8100). The aggregator is the only
    thing that knows how each backend in `backends.json` is actually reached
    (stdio subprocess for `mqtt`/`opcua`, SSE URL for everything else).
+   It retries a backend that misses startup and sends `tools/list_changed`
+   when that backend's tools arrive; `mcp_client.py` drops its cached tool
+   list for that aggregator on the notification and re-lists on next use.
 4. **Each specialist ends with a `FINDINGS:` block** (status, confidence,
    observations). If the model doesn't produce one — either it ends its
    turn without one, or it hits `SPECIALIST_MAX_ROUNDS` (4) of tool calls
