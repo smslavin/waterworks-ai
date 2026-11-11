@@ -22,6 +22,7 @@ import os
 import httpx
 from dotenv import load_dotenv
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 load_dotenv()
 
@@ -46,6 +47,13 @@ logger = logging.getLogger(__name__)
 SIMULATOR_URL = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
 mcp = MCPServer("control-mcp")
 
+# Tool annotations (MCP spec hints), forwarded by mcp-aggregator. chat-ui's
+# approval gate reads them: a destructive or unannotated tool is never offered
+# to a model unless an operator approval can authorize it (chat-ui/control.py).
+_READ = ToolAnnotations(read_only_hint=True)
+_WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
+_DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
+
 
 def _post_to_simulator(path: str, params: dict) -> str:
     """POST to the simulator's control plane and return its JSON reply.
@@ -64,7 +72,7 @@ def _post_to_simulator(path: str, params: dict) -> str:
     return json.dumps(resp.json(), indent=2)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def propose_action(
     description: str,
     action_type: str,
@@ -99,7 +107,7 @@ def propose_action(
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def set_setpoint(target: str, attribute: str, value: float) -> str:
     """Write a new setpoint value to a process unit in the simulator.
 
@@ -115,7 +123,7 @@ def set_setpoint(target: str, attribute: str, value: float) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def clear_fault(target: str) -> str:
     """Clear an active fault condition and restore a process unit to normal operation.
 

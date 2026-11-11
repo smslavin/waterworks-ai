@@ -209,6 +209,15 @@ async def _get_session(url: str) -> ClientSession:
     return entry.session
 
 
+def _hints(annotations) -> dict | None:
+    if annotations is None:
+        return None
+    return {
+        "readOnlyHint": annotations.read_only_hint,
+        "destructiveHint": annotations.destructive_hint,
+    }
+
+
 async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
     url = aggregator_url or _DEFAULT_AGGREGATOR_URL
     if url in _tool_cache:
@@ -231,9 +240,20 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
                 # still land on either attribute name.
                 "inputSchema": getattr(t, "inputSchema", None)
                 or getattr(t, "input_schema", None),
+                # MCP spec hints, forwarded by the aggregator (v2.0+).
+                # control.py's approval gate reads them; None when the
+                # backend declares none.
+                "annotations": _hints(getattr(t, "annotations", None)),
             }
             for t in result.tools
         ]
+        if tools and all(t["annotations"] is None for t in tools):
+            logger.warning(
+                "No tool from %s declares annotations. mcp-aggregator before "
+                "v2.0 drops them, and the approval gate then hides every tool "
+                "but mqtt/opcua reads from models (control.requires_approval).",
+                url,
+            )
         if _tool_generation.get(url, 0) == generation:
             _tool_cache[url] = tools
         logger.info("Loaded %d tools from %s", len(tools), url)

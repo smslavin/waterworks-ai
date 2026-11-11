@@ -18,6 +18,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 from discovery import discover_mqtt_topics, discover_opcua_nodes
 from fieldworks.topology_builder.inference import infer_topology, load_template
@@ -28,10 +29,17 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 mcp = MCPServer("topology-builder")
 
+# Tool annotations (MCP spec hints), forwarded by mcp-aggregator. chat-ui's
+# approval gate reads them: a destructive or unannotated tool is never offered
+# to a model unless an operator approval can authorize it (chat-ui/control.py).
+_READ = ToolAnnotations(read_only_hint=True)
+_WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
+_DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
+
 _sessions: dict[str, dict] = {}
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 async def start_discovery(
     broker_url: str,
     template: str = "water-treatment-municipal",
@@ -66,7 +74,7 @@ async def start_discovery(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def get_discovery_progress(discovery_id: str) -> dict:
     """
     Returns current discovery results for a given discovery_id.
@@ -88,7 +96,7 @@ async def get_discovery_progress(discovery_id: str) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 async def override_instance_type(
     discovery_id: str,
     instance_id: str,
@@ -117,7 +125,7 @@ async def override_instance_type(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 async def generate_topology_yaml(discovery_id: str) -> str:
     """Generate a topology.yaml preview from the current session without committing."""
     session = _sessions.get(discovery_id)

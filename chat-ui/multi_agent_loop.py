@@ -341,7 +341,11 @@ async def _ensure_findings(
 
 
 def _filter_tools(all_tools: list[dict], prefixes: tuple[str, ...]) -> list[dict]:
-    return [t for t in all_tools if any(t["name"].startswith(p) for p in prefixes)]
+    return [
+        t
+        for t in control.offered_to_models(all_tools)
+        if any(t["name"].startswith(p) for p in prefixes)
+    ]
 
 
 def _find_specialist_for_instance(instance_id: str) -> dict | None:

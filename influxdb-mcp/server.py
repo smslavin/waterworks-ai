@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 load_dotenv()
 
@@ -57,6 +58,13 @@ INFLUXDB_ORG = os.environ.get("INFLUXDB_ORG", "waterworks")
 INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 
 mcp = MCPServer("influxdb-mcp")
+
+# Tool annotations (MCP spec hints), forwarded by mcp-aggregator. chat-ui's
+# approval gate reads them: a destructive or unannotated tool is never offered
+# to a model unless an operator approval can authorize it (chat-ui/control.py).
+_READ = ToolAnnotations(read_only_hint=True)
+_WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
+_DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
 
 # Single client instance for the lifetime of the process.
 _client: InfluxDBClient | None = None
@@ -103,7 +111,7 @@ def _format_tables(tables: list) -> str:
 # ── Tools ─────────────────────────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def list_measurements(bucket: str = "") -> str:
     """List all measurements in an InfluxDB bucket.
 
@@ -134,7 +142,7 @@ def list_measurements(bucket: str = "") -> str:
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def write_point(
     measurement: str,
     fields: dict[str, Any],
@@ -173,7 +181,7 @@ def write_point(
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def query(flux_query: str, org: str = "") -> str:
     """Run a Flux query against InfluxDB and return formatted results.
 
@@ -205,7 +213,7 @@ def query(flux_query: str, org: str = "") -> str:
         return f"Error: {exc}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def query_series(
     measurement: str,
     instance: str,

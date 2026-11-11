@@ -894,6 +894,6 @@ waterworks-ai/
 
 **Add a new fault mode:** add a member to `FaultMode` in `simulator/faults.py`, a corresponding `_method` in `FaultState`, and an entry under the relevant equipment type's `faults` in `topology.yaml`. The HTTP control plane and specialist heuristics pick it up automatically.
 
-**Add an MCP server:** add an entry to `mcp-aggregator/backends.json`. The aggregator discovers and prefixes its tools at startup and keeps retrying a backend that isn't up yet; chat-ui picks up late tools through `tools/list_changed`. Use the management API (`POST /backends`, SSE/HTTP backends only) to add backends at runtime without a restart.
+**Add an MCP server:** give every tool `annotations=` (read-only, non-destructive write, or destructive; see `control-mcp/server.py`). An unannotated or destructive tool is never offered to a model. Then add an entry to `mcp-aggregator/backends.json`. The aggregator discovers and prefixes its tools at startup and keeps retrying a backend that isn't up yet; chat-ui picks up late tools through `tools/list_changed`. Use the management API (`POST /backends`, SSE/HTTP backends only) to add backends at runtime without a restart.
 
 **Add a Grafana dashboard:** drop a JSON dashboard file into `docker/grafana/provisioning/dashboards/` and add a dashboards provisioning YAML alongside it.

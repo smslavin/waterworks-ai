@@ -34,6 +34,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 import topology as _topo_loader
 from fieldworks.memory import (
@@ -144,17 +145,24 @@ async def _lifespan(server: MCPServer) -> AsyncIterator[None]:
 
 mcp = MCPServer("memory-mcp", lifespan=_lifespan)
 
+# Tool annotations (MCP spec hints), forwarded by mcp-aggregator. chat-ui's
+# approval gate reads them: a destructive or unannotated tool is never offered
+# to a model unless an operator approval can authorize it (chat-ui/control.py).
+_READ = ToolAnnotations(read_only_hint=True)
+_WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
+_DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
+
 
 # ── Knowledge graph — read ────────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def get_topology() -> str:
     """Full area → equipment → type tree. Use for Cascade routing decisions."""
     return _dump(graph.get_topology())
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def get_specialist_context(area_id: str) -> str:
     """Structured specialist context for area_id: equipment, attributes, fault modes, tag bindings, and area notes."""
     rows = graph.get_specialist_context(area_id)
@@ -162,19 +170,19 @@ def get_specialist_context(area_id: str) -> str:
     return _dump(result)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def get_equipment_history(equipment_id: str) -> str:
     """Past incidents, observations, and operator decision patterns for one equipment instance."""
     return _dump(graph.get_equipment_history(equipment_id))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def get_writable_attributes() -> str:
     """All writable attributes with tag IDs, confirmation requirements, and write limits."""
     return _dump(graph.get_writable_attributes())
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def get_severity_for_attribute(type_id: str, attr_id: str, condition: str = "") -> str:
     """Runtime severity lookup for a (equipment type, attribute) pair, via FaultMode.severity
     on the graph — replaces static topology.yaml alarm config.
@@ -183,7 +191,7 @@ def get_severity_for_attribute(type_id: str, attr_id: str, condition: str = "") 
     return _dump(graph.get_severity_for_attribute(type_id, attr_id, condition or None))
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def query_graph(cypher: str) -> str:
     """Read-only Cypher query against LadybugDB. Write keywords (CREATE/MERGE/SET/DELETE) are rejected."""
     return _dump(graph.query_graph(cypher))
@@ -192,7 +200,7 @@ def query_graph(cypher: str) -> str:
 # ── Knowledge graph — write ───────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 def record_incident(
     session_id: str,
     equipment_id: str,
@@ -216,7 +224,7 @@ def record_incident(
     return _dump({"incident_id": incident_id})
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 def record_observation(
     session_id: str,
     equipment_id: str,
@@ -231,7 +239,7 @@ def record_observation(
     return _dump({"observation_id": obs_id})
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 def link_incident_precedes(
     incident_a_id: str, incident_b_id: str, hours_apart: float
 ) -> str:
@@ -240,7 +248,7 @@ def link_incident_precedes(
     return _dump({"status": "ok"})
 
 
-@mcp.tool()
+@mcp.tool(annotations=_DESTRUCTIVE)
 def seed_discovered_topology(
     facility_id: str,
     facility_name: str,
@@ -257,7 +265,7 @@ def seed_discovered_topology(
 # ── Analytical layer ──────────────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def run_correlation(sql: str) -> str:
     """SELECT query against DuckDB analytical layer. For long-horizon multi-equipment correlations."""
     return _dump(analytical.run_correlation(sql))
@@ -266,7 +274,7 @@ def run_correlation(sql: str) -> str:
 # ── Knowledge / RAG ────────────────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def query_knowledge(query: str, equipment_id: str = "", top_k: int = 5) -> str:
     """Semantic search over ingested facility documentation (manuals, procedures,
     operating limits, text-layer P&IDs). equipment_id scopes results to docs
@@ -275,7 +283,7 @@ def query_knowledge(query: str, equipment_id: str = "", top_k: int = 5) -> str:
     return _dump([dataclasses.asdict(e) for e in excerpts])
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 def ingest_knowledge_docs() -> str:
     """Manually trigger a re-scan of the knowledge docs directory. Unchanged
     files (by content hash) are skipped; new or edited files are re-embedded."""
@@ -285,13 +293,13 @@ def ingest_knowledge_docs() -> str:
 # ── Specialist memory ─────────────────────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(annotations=_READ)
 def get_specialist_memory(specialist: str) -> str:
     """Read accumulated cross-session memory for a specialist. Call at session start."""
     return specialist_mem.get(specialist)
 
 
-@mcp.tool()
+@mcp.tool(annotations=_WRITE)
 def append_specialist_memory(specialist: str, content: str) -> str:
     """Append a timestamped entry to specialist memory. Call at session end with key findings."""
     specialist_mem.append(specialist, content)
