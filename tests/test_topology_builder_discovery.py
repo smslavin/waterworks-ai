@@ -1,6 +1,6 @@
 """Regression tests for gh-21: topology-builder/discovery.py dropped the
 return value of `session.call_tool("connect", ...)` on the MQTT path — MCP
-signals a tool-level failure in the *result* (isError/error content), not
+signals a tool-level failure in the *result* (is_error/error content), not
 by raising, so a refused broker connection proceeded straight into
 crawl_mqtt (which just returns []), and server.py's _run_discovery reported
 `topics_seen=0, instances_found=0, status="complete"` — indistinguishable
@@ -54,33 +54,34 @@ except ImportError as exc:  # pragma: no cover - env without topology-builder de
 import asyncio
 
 
-class _FakeBlock:
-    def __init__(self, text):
-        self.text = text
+def _result(*, is_error: bool, texts: list[str] = ()):
+    """A real CallToolResult, not a stand-in: a fake with an `isError`
+    attribute hid gh-43, where the code read `isError` but mcp 2.x names the
+    field `is_error`."""
+    from mcp.types import CallToolResult, TextContent
 
-
-class _FakeConnectResult:
-    def __init__(self, *, is_error: bool, texts: list[str] = ()):
-        self.isError = is_error
-        self.content = [_FakeBlock(t) for t in texts]
+    return CallToolResult(
+        content=[TextContent(type="text", text=t) for t in texts],
+        is_error=is_error,
+    )
 
 
 # ── discovery.py: _raise_if_connect_failed is the core of the fix ──────────
 
 
 def test_raise_if_connect_failed_raises_on_is_error():
-    result = _FakeConnectResult(is_error=True, texts=["connection refused"])
+    result = _result(is_error=True, texts=["connection refused"])
     with pytest.raises(discovery.AdapterConnectError, match="connection refused"):
         discovery._raise_if_connect_failed(result, "localhost:1883")
 
 
 def test_raise_if_connect_failed_noop_on_success():
-    result = _FakeConnectResult(is_error=False, texts=["ok"])
+    result = _result(is_error=False, texts=["ok"])
     discovery._raise_if_connect_failed(result, "localhost:1883")  # must not raise
 
 
 def test_raise_if_connect_failed_handles_empty_error_content():
-    result = _FakeConnectResult(is_error=True, texts=[])
+    result = _result(is_error=True, texts=[])
     with pytest.raises(discovery.AdapterConnectError, match="no error detail"):
         discovery._raise_if_connect_failed(result, "localhost:1883")
 

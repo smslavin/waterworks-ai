@@ -19,14 +19,14 @@ from fieldworks.topology_builder.discovery import crawl_mqtt, crawl_opcua
 
 class AdapterConnectError(RuntimeError):
     """Raised when an MQTT/OPC-UA adapter's connect tool call reports
-    failure via the MCP result (isError / error content) rather than by
+    failure via the MCP result (is_error / error content) rather than by
     raising — e.g. a refused broker connection. Without this check the
     caller has no way to distinguish "connected, crawled, found nothing"
     from "never actually connected" — both currently look identical."""
 
 
 def _raise_if_connect_failed(result: CallToolResult, target: str) -> None:
-    if not getattr(result, "isError", False):
+    if not result.is_error:
         return
     detail = "; ".join(
         block.text for block in (result.content or []) if hasattr(block, "text")

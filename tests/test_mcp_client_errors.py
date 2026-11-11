@@ -1,14 +1,14 @@
 """Regression tests for gh-21: MCP tools can signal failure in the *result*
-(CallToolResult.isError / error content) rather than by raising — a refused
+(CallToolResult.is_error / error content) rather than by raising — a refused
 broker connection from the fieldworks-adapters Rust tools looks like this.
 mcp_client.call_mcp_tool previously joined result.content into a plain
-string regardless of isError, so a caller checking `result.startswith(
+string regardless of is_error, so a caller checking `result.startswith(
 "Error calling")` (client-side-exception-only) or even the broader
 `result.startswith("Error")` had no reliable signal for a tool-level
 failure unless the tool's own error text happened to start with "Error".
 
 The fix centralizes this: call_mcp_tool now normalizes both failure paths
-(client-side exception, and isError=True result) to a string starting with
+(client-side exception, and is_error=True result) to a string starting with
 "Error", and never returns such a string on success.
 """
 
@@ -19,15 +19,16 @@ import logging
 import mcp_client
 
 
-class _FakeBlock:
-    def __init__(self, text):
-        self.text = text
+def _result(*, is_error: bool, texts: list[str]):
+    """A real CallToolResult, not a stand-in: a fake with an `isError`
+    attribute hid gh-43, where the code read `isError` but mcp 2.x names the
+    field `is_error`."""
+    from mcp.types import CallToolResult, TextContent
 
-
-class _FakeResult:
-    def __init__(self, *, is_error: bool, texts: list[str]):
-        self.isError = is_error
-        self.content = [_FakeBlock(t) for t in texts]
+    return CallToolResult(
+        content=[TextContent(type="text", text=t) for t in texts],
+        is_error=is_error,
+    )
 
 
 class _FakeSession:
@@ -69,30 +70,40 @@ def _patch_transport(monkeypatch, result):
     monkeypatch.setattr(mcp_client, "ClientSession", _FakeClientSessionCM)
 
 
-# ── tool-level failure (isError=True, nothing raised) must be detected ─────
+# ── tool-level failure (is_error=True, nothing raised) must be detected ─────
 
 
 def test_call_mcp_tool_detects_tool_level_is_error_result(monkeypatch, caplog):
-    _patch_transport(
-        monkeypatch, _FakeResult(is_error=True, texts=["connection refused"])
-    )
+    _patch_transport(monkeypatch, _result(is_error=True, texts=["connection refused"]))
     with caplog.at_level(logging.WARNING, logger="mcp_client"):
         result = asyncio.run(mcp_client.call_mcp_tool("mqtt__connect", {"host": "x"}))
     assert result.startswith("Error")
     assert "connection refused" in result
-    assert any("isError" in r.message for r in caplog.records)
+    assert any("is_error" in r.message for r in caplog.records)
+
+
+def test_aggregator_unknown_tool_result_is_an_error(monkeypatch):
+    """gh-43: the aggregator answers a tool it hasn't discovered yet (a
+    backend still pending its startup retry) with is_error and the text
+    "Unknown tool: ...". That text doesn't start with "Error", so before
+    gh-43 _connect_mqtt_adapter logged it as a successful connect."""
+    _patch_transport(
+        monkeypatch, _result(is_error=True, texts=["Unknown tool: mqtt__connect"])
+    )
+    result = asyncio.run(mcp_client.call_mcp_tool("mqtt__connect", {}))
+    assert result == "Error: Unknown tool: mqtt__connect"
 
 
 def test_call_mcp_tool_does_not_double_prefix_error_text(monkeypatch):
     """If the tool's own error text already starts with "Error", it must
     not become "Error: Error: ..."."""
-    _patch_transport(monkeypatch, _FakeResult(is_error=True, texts=["Error: refused"]))
+    _patch_transport(monkeypatch, _result(is_error=True, texts=["Error: refused"]))
     result = asyncio.run(mcp_client.call_mcp_tool("mqtt__connect", {}))
     assert result == "Error: refused"
 
 
 def test_call_mcp_tool_success_never_starts_with_error(monkeypatch):
-    _patch_transport(monkeypatch, _FakeResult(is_error=False, texts=["Connected OK"]))
+    _patch_transport(monkeypatch, _result(is_error=False, texts=["Connected OK"]))
     result = asyncio.run(mcp_client.call_mcp_tool("mqtt__connect", {"host": "x"}))
     assert result == "Connected OK"
     assert not result.startswith("Error")
@@ -120,9 +131,7 @@ def test_call_mcp_tool_client_exception_still_reported(monkeypatch):
 def test_narrow_error_calling_prefix_check_would_miss_tool_level_failure(
     monkeypatch,
 ):
-    _patch_transport(
-        monkeypatch, _FakeResult(is_error=True, texts=["connection refused"])
-    )
+    _patch_transport(monkeypatch, _result(is_error=True, texts=["connection refused"]))
     result = asyncio.run(mcp_client.call_mcp_tool("mqtt__connect", {}))
     # This documents exactly the bug: the old startup check in backend.py
     # was `if not result.startswith("Error calling")`, which is True here
