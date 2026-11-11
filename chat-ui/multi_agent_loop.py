@@ -8,6 +8,7 @@ import os
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from typing import AsyncIterator
 
 import anthropic
@@ -16,6 +17,7 @@ import audit
 import control
 import metrics
 import session_store
+from tool_dispatch import TOOL_RESULT_MAX_CHARS, ToolCall
 import verdict
 from claude_loop import _fetch_process_state, running_state_for
 from mcp_client import call_mcp_tool, list_mcp_tools
@@ -31,7 +33,6 @@ from fieldworks.agents import (
 
 logger = logging.getLogger(__name__)
 
-TOOL_RESULT_MAX_CHARS = 8_000
 
 # Hard cap on tool-calling rounds per specialist. Without this, a specialist's
 # while-True loop only ends when the model itself decides to stop — nothing
@@ -606,6 +607,137 @@ async def _run_specialist(
     await queue.put(None)  # sentinel — this specialist is done
 
 
+@dataclass
+class _CascadeRun:
+    """What one Cascade turn produced, filled in by _cascade_rounds."""
+
+    text: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    tool_call_count: int = 0
+
+
+_ACTION_KEYWORDS = (
+    "propose",
+    "control action",
+    "corrective action",
+    "clear fault",
+    "set_setpoint",
+)
+
+
+async def _cascade_rounds(
+    conv: list[dict],
+    all_tools: list[dict],
+    client,
+    session_id: str,
+    run: _CascadeRun,
+) -> AsyncIterator[str]:
+    """Run Cascade's model/tool rounds until it ends its turn.
+
+    Shared by the synthesis after specialist fan-out and the follow-up path,
+    which used to carry separate copies (gh-24). Tool calls go through
+    tool_dispatch.ToolCall, which owns the approval intercept.
+    """
+    api_tools = cache_tools(_filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES))
+    while True:
+        kwargs: dict = dict(
+            model=ORCHESTRATOR_MODEL,
+            max_tokens=4096,
+            system=cache_system(_ORCHESTRATOR_SYSTEM),
+            messages=conv,
+        )
+        if api_tools:
+            kwargs["tools"] = api_tools
+
+        async with client.messages.stream(**kwargs) as stream:
+            async for text in stream.text_stream:
+                run.text += text
+                yield json.dumps({"type": "text", "text": text})
+            final = await stream.get_final_message()
+
+        run.input_tokens += final.usage.input_tokens
+        run.output_tokens += final.usage.output_tokens
+        run.cache_creation_input_tokens += final.usage.cache_creation_input_tokens or 0
+        run.cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
+
+        tool_uses = [b for b in final.content if b.type == "tool_use"]
+        if final.stop_reason != "tool_use" or not tool_uses:
+            if any(kw in run.text.lower() for kw in _ACTION_KEYWORDS):
+                logger.warning(
+                    "Orchestrator end_turn with action language but no tool call — text tail: %r",
+                    run.text[-200:],
+                )
+            return
+
+        assistant_content = []
+        for block in final.content:
+            if block.type == "text":
+                assistant_content.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                assistant_content.append(
+                    {
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": dict(block.input),
+                    }
+                )
+
+        tool_results = []
+        for block in tool_uses:
+            run.tool_call_count += 1
+            call = ToolCall(
+                block.name,
+                dict(block.input),
+                session_id=session_id,
+                call_tool=call_mcp_tool,
+                action_timeout=_ACTION_TIMEOUT,
+                audit_fields={"specialist": "orchestrator"},
+            )
+            async for event in call.events():
+                yield json.dumps(event)
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": call.for_history(),
+                }
+            )
+
+        conv = conv + [
+            {"role": "assistant", "content": assistant_content},
+            {"role": "user", "content": tool_results},
+        ]
+
+
+def _log_cascade_turn(
+    run: _CascadeRun,
+    *,
+    session_id: str,
+    user_message: str,
+    cascade_id: str | None,
+    started: float,
+) -> None:
+    metrics.log_turn(
+        session_id=session_id,
+        model=ORCHESTRATOR_MODEL,
+        input_tokens=run.input_tokens,
+        output_tokens=run.output_tokens,
+        tool_call_count=run.tool_call_count,
+        error_count=0,
+        latency_ms=int((time.monotonic() - started) * 1000),
+        context_pressure=None,
+        user_message=user_message,
+        specialist="orchestrator",
+        cascade_id=cascade_id,
+        cache_creation_input_tokens=run.cache_creation_input_tokens,
+        cache_read_input_tokens=run.cache_read_input_tokens,
+    )
+
+
 async def _run_cascade_only(
     messages: list[dict],
     user_message: str,
@@ -618,196 +750,32 @@ async def _run_cascade_only(
     """Run Cascade alone on a follow-up question, without specialist fan-out."""
     yield json.dumps({"type": "synthesis_start"})
 
-    orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
-    orch_api_tools = cache_tools(orch_tools)
     # Full conversation history — Cascade sees all prior turns and the new message
-    orch_conv = [
+    conv = [
         {"role": m["role"], "content": m["content"]}
         for m in messages
         if m["role"] in ("user", "assistant")
     ]
-
-    orch_input_tokens = orch_output_tokens = 0
-    orch_cache_creation_input_tokens = orch_cache_read_input_tokens = 0
-    orch_tool_call_count = 0
-    orch_full_text = ""
-
+    run = _CascadeRun()
     try:
-        while True:
-            orch_kwargs: dict = dict(
-                model=ORCHESTRATOR_MODEL,
-                max_tokens=4096,
-                system=cache_system(_ORCHESTRATOR_SYSTEM),
-                messages=orch_conv,
-            )
-            if orch_api_tools:
-                orch_kwargs["tools"] = orch_api_tools
-            response = await client.messages.create(**orch_kwargs)
-            orch_input_tokens += response.usage.input_tokens
-            orch_output_tokens += response.usage.output_tokens
-            orch_cache_creation_input_tokens += (
-                response.usage.cache_creation_input_tokens or 0
-            )
-            orch_cache_read_input_tokens += response.usage.cache_read_input_tokens or 0
-
-            tool_uses, text_blocks = [], []
-            for block in response.content:
-                if block.type == "tool_use":
-                    tool_uses.append(block)
-                elif block.type == "text":
-                    text_blocks.append(block)
-                    orch_full_text += block.text
-                    yield json.dumps({"type": "text", "text": block.text})
-
-            if response.stop_reason == "end_turn" or not tool_uses:
-                break
-
-            tool_results = []
-            for tu in tool_uses:
-                orch_tool_call_count += 1
-                args = dict(tu.input)
-                audit.log(
-                    "tool_call",
-                    session_id=session_id,
-                    tool=tu.name,
-                    args=args,
-                    specialist="orchestrator",
-                )
-                yield json.dumps({"type": "tool_call", "tool": tu.name, "args": args})
-
-                if tu.name == "control__propose_action":
-                    action_id = str(uuid.uuid4())
-                    yield json.dumps(
-                        {
-                            "type": "action_proposed",
-                            "action_id": action_id,
-                            "description": args.get("description", ""),
-                            "action_type": args.get("action_type", ""),
-                            "target": args.get("target", ""),
-                            "attribute": args.get("attribute", ""),
-                            "value": args.get("value", ""),
-                        }
-                    )
-                    fut = control.register(
-                        action_id,
-                        {
-                            "session_id": session_id,
-                            "action_type": args.get("action_type", ""),
-                            "target": args.get("target", ""),
-                            "attribute": args.get("attribute", ""),
-                            "value": args.get("value", ""),
-                        },
-                    )
-                    session_store.log_action_proposed(
-                        action_id=action_id,
-                        session_id=session_id,
-                        action_type=args.get("action_type", ""),
-                        target=args.get("target", ""),
-                        value=str(args.get("value", "")),
-                        description=args.get("description", ""),
-                    )
-                    try:
-                        decision = await asyncio.wait_for(fut, timeout=_ACTION_TIMEOUT)
-                    except asyncio.TimeoutError:
-                        decision = "timed_out"
-
-                    session_store.log_action_decision(
-                        action_id=action_id, decision=decision
-                    )
-                    audit.log(
-                        "action_decision",
-                        session_id=session_id,
-                        action_id=action_id,
-                        decision=decision,
-                    )
-                    yield json.dumps(
-                        {
-                            "type": "action_decision",
-                            "action_id": action_id,
-                            "decision": decision,
-                        }
-                    )
-                    if decision == "approved":
-                        result = (
-                            f"Action approved by operator. Proceed with "
-                            f"{args.get('action_type', '')} on {args.get('target', '')}."
-                        )
-                    else:
-                        result = (
-                            f"Action denied by operator ({decision}). "
-                            f"No changes to {args.get('target', '')}."
-                        )
-                elif tu.name in control.EXECUTION_TOOLS:
-                    granted_action_id = control.consume_grant(session_id, tu.name, args)
-                    if granted_action_id is not None:
-                        result = await call_mcp_tool(tu.name, args)
-                        session_store.log_action_outcome(
-                            action_id=granted_action_id,
-                            outcome=(
-                                f"failed: {result[:200]}"
-                                if result.startswith("Error")
-                                else "ok"
-                            ),
-                        )
-                    else:
-                        result = (
-                            "Refused: no matching operator approval for this "
-                            "exact action. Call propose_action again and use "
-                            "the exact same target/attribute/value to execute."
-                        )
-                        audit.log(
-                            "unapproved_execution_blocked",
-                            session_id=session_id,
-                            tool=tu.name,
-                            args=args,
-                            specialist="orchestrator",
-                        )
-                else:
-                    result = await call_mcp_tool(tu.name, args)
-
-                audit.log(
-                    "tool_result",
-                    session_id=session_id,
-                    tool=tu.name,
-                    result=result,
-                    specialist="orchestrator",
-                )
-                yield json.dumps(
-                    {"type": "tool_result", "tool": tu.name, "result": result}
-                )
-                tool_results.append(
-                    {"type": "tool_result", "tool_use_id": tu.id, "content": result}
-                )
-
-            orch_conv = orch_conv + [
-                {"role": "assistant", "content": response.content},
-                {"role": "user", "content": tool_results},
-            ]
+        async for chunk in _cascade_rounds(conv, all_tools, client, session_id, run):
+            yield chunk
     except Exception as exc:
         logger.exception("Cascade-only stream error: %s", exc)
         yield json.dumps({"type": "error", "error": str(exc)})
 
-    latency = int((time.monotonic() - start_ts) * 1000)
-    metrics.log_turn(
+    _log_cascade_turn(
+        run,
         session_id=session_id,
-        model=ORCHESTRATOR_MODEL,
-        input_tokens=orch_input_tokens,
-        output_tokens=orch_output_tokens,
-        tool_call_count=orch_tool_call_count,
-        error_count=0,
-        latency_ms=latency,
-        context_pressure=None,
         user_message=user_message,
-        specialist="orchestrator",
         cascade_id=cascade_id,
-        cache_creation_input_tokens=orch_cache_creation_input_tokens,
-        cache_read_input_tokens=orch_cache_read_input_tokens,
+        started=start_ts,
     )
     session_store.log_session_summary(
         session_id=session_id,
         user_question=user_message,
         equipment=[],
-        diagnosis=orch_full_text,
+        diagnosis=run.text,
         status="Normal",
         confidence=None,
         mode="multi-followup",
@@ -815,9 +783,9 @@ async def _run_cascade_only(
     yield json.dumps(
         {
             "type": "done",
-            "input_tokens": orch_input_tokens,
-            "output_tokens": orch_output_tokens,
-            "latency_ms": latency,
+            "input_tokens": run.input_tokens,
+            "output_tokens": run.output_tokens,
+            "latency_ms": int((time.monotonic() - start_ts) * 1000),
         }
     )
 
@@ -937,13 +905,7 @@ async def run_multi_agent(
         f"User question: {user_message}\n\n" f"Specialist findings:\n\n{findings_text}"
     )
 
-    orch_input_tokens = orch_output_tokens = 0
-    orch_cache_creation_input_tokens = orch_cache_read_input_tokens = 0
-    orch_tool_call_count = 0
     orch_start = time.monotonic()
-
-    orch_tools = _filter_tools(all_tools, _ORCHESTRATOR_TOOL_PREFIXES)
-    orch_api_tools = cache_tools(orch_tools)
     # Thread prior conversation history into Cascade so follow-up questions
     # have full context. On a fresh open, messages[:-1] is empty and this is
     # equivalent to the old single-turn start.
@@ -953,206 +915,15 @@ async def run_multi_agent(
         if m["role"] in ("user", "assistant")
     ]
     orch_conv = prior_turns + [{"role": "user", "content": orchestrator_user}]
-    orch_full_text = ""
+    run = _CascadeRun()
 
     try:
-        while True:
-            orch_kwargs: dict = dict(
-                model=ORCHESTRATOR_MODEL,
-                max_tokens=4096,
-                system=cache_system(_ORCHESTRATOR_SYSTEM),
-                messages=orch_conv,
-            )
-            if orch_api_tools:
-                orch_kwargs["tools"] = orch_api_tools
+        async for chunk in _cascade_rounds(
+            orch_conv, all_tools, client, session_id, run
+        ):
+            yield chunk
 
-            async with client.messages.stream(**orch_kwargs) as stream:
-                async for text in stream.text_stream:
-                    orch_full_text += text
-                    yield json.dumps({"type": "text", "text": text})
-                final = await stream.get_final_message()
-
-            orch_input_tokens += final.usage.input_tokens
-            orch_output_tokens += final.usage.output_tokens
-            orch_cache_creation_input_tokens += (
-                final.usage.cache_creation_input_tokens or 0
-            )
-            orch_cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
-
-            if final.stop_reason == "end_turn":
-                _action_keywords = (
-                    "propose",
-                    "control action",
-                    "corrective action",
-                    "clear fault",
-                    "set_setpoint",
-                )
-                if any(kw in orch_full_text.lower() for kw in _action_keywords):
-                    logger.warning(
-                        "Orchestrator end_turn with action language but no tool call — text tail: %r",
-                        orch_full_text[-200:],
-                    )
-                break
-
-            if final.stop_reason == "tool_use":
-                assistant_content = []
-                for block in final.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append(
-                            {
-                                "type": "tool_use",
-                                "id": block.id,
-                                "name": block.name,
-                                "input": dict(block.input),
-                            }
-                        )
-
-                tool_results = []
-                for block in final.content:
-                    if block.type != "tool_use":
-                        continue
-                    orch_tool_call_count += 1
-                    args = dict(block.input)
-                    audit.log(
-                        "tool_call",
-                        session_id=session_id,
-                        tool=block.name,
-                        args=args,
-                        specialist="orchestrator",
-                    )
-                    yield json.dumps(
-                        {"type": "tool_call", "tool": block.name, "args": args}
-                    )
-
-                    if block.name == "control__propose_action":
-                        action_id = str(uuid.uuid4())
-                        yield json.dumps(
-                            {
-                                "type": "action_proposed",
-                                "action_id": action_id,
-                                "description": args.get("description", ""),
-                                "action_type": args.get("action_type", ""),
-                                "target": args.get("target", ""),
-                                "attribute": args.get("attribute", ""),
-                                "value": args.get("value", ""),
-                            }
-                        )
-                        fut = control.register(
-                            action_id,
-                            {
-                                "session_id": session_id,
-                                "action_type": args.get("action_type", ""),
-                                "target": args.get("target", ""),
-                                "attribute": args.get("attribute", ""),
-                                "value": args.get("value", ""),
-                            },
-                        )
-                        session_store.log_action_proposed(
-                            action_id=action_id,
-                            session_id=session_id,
-                            action_type=args.get("action_type", ""),
-                            target=args.get("target", ""),
-                            value=str(args.get("value", "")),
-                            description=args.get("description", ""),
-                        )
-                        try:
-                            decision = await asyncio.wait_for(
-                                fut, timeout=_ACTION_TIMEOUT
-                            )
-                        except asyncio.TimeoutError:
-                            decision = "timed_out"
-
-                        session_store.log_action_decision(
-                            action_id=action_id, decision=decision
-                        )
-                        audit.log(
-                            "action_decision",
-                            session_id=session_id,
-                            action_id=action_id,
-                            decision=decision,
-                        )
-                        yield json.dumps(
-                            {
-                                "type": "action_decision",
-                                "action_id": action_id,
-                                "decision": decision,
-                            }
-                        )
-                        if decision == "approved":
-                            result = (
-                                f"Action approved by operator. Proceed with "
-                                f"{args.get('action_type', '')} on {args.get('target', '')}."
-                            )
-                        else:
-                            result = (
-                                f"Action denied by operator ({decision}). "
-                                f"No changes to {args.get('target', '')}."
-                            )
-                    elif block.name in control.EXECUTION_TOOLS:
-                        granted_action_id = control.consume_grant(
-                            session_id, block.name, args
-                        )
-                        if granted_action_id is not None:
-                            result = await call_mcp_tool(block.name, args)
-                            session_store.log_action_outcome(
-                                action_id=granted_action_id,
-                                outcome=(
-                                    f"failed: {result[:200]}"
-                                    if result.startswith("Error")
-                                    else "ok"
-                                ),
-                            )
-                        else:
-                            result = (
-                                "Refused: no matching operator approval for this "
-                                "exact action. Call propose_action again and use "
-                                "the exact same target/attribute/value to execute."
-                            )
-                            audit.log(
-                                "unapproved_execution_blocked",
-                                session_id=session_id,
-                                tool=block.name,
-                                args=args,
-                                specialist="orchestrator",
-                            )
-                    else:
-                        result = await call_mcp_tool(block.name, args)
-
-                    audit.log(
-                        "tool_result",
-                        session_id=session_id,
-                        tool=block.name,
-                        result=result,
-                        specialist="orchestrator",
-                    )
-                    yield json.dumps(
-                        {"type": "tool_result", "tool": block.name, "result": result}
-                    )
-
-                    stored = (
-                        result
-                        if len(result) <= TOOL_RESULT_MAX_CHARS
-                        else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]"
-                    )
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": stored,
-                        }
-                    )
-
-                orch_conv = orch_conv + [
-                    {"role": "assistant", "content": assistant_content},
-                    {"role": "user", "content": tool_results},
-                ]
-                continue
-
-            break
-
-        text_content = orch_full_text
+        text_content = run.text
         audit.log("response", session_id=session_id, text=text_content)
 
         # Write session summary for compliance audit trail
@@ -1191,28 +962,20 @@ async def run_multi_agent(
         logger.exception("Orchestrator failed")
         yield json.dumps({"type": "error", "error": str(exc)})
 
-    metrics.log_turn(
+    _log_cascade_turn(
+        run,
         session_id=session_id,
-        model=ORCHESTRATOR_MODEL,
-        input_tokens=orch_input_tokens,
-        output_tokens=orch_output_tokens,
-        tool_call_count=orch_tool_call_count,
-        error_count=0,
-        latency_ms=int((time.monotonic() - orch_start) * 1000),
-        context_pressure=None,
         user_message=user_message,
-        specialist="orchestrator",
         cascade_id=cascade_id,
-        cache_creation_input_tokens=orch_cache_creation_input_tokens,
-        cache_read_input_tokens=orch_cache_read_input_tokens,
+        started=orch_start,
     )
 
     total_latency_ms = int((time.monotonic() - start_ts) * 1000)
     yield json.dumps(
         {
             "type": "done",
-            "input_tokens": orch_input_tokens,
-            "output_tokens": orch_output_tokens,
+            "input_tokens": run.input_tokens,
+            "output_tokens": run.output_tokens,
             "latency_ms": total_latency_ms,
         }
     )
