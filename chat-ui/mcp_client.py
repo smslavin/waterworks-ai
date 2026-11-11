@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from mcp import ClientSession
 from mcp.client.sse import sse_client
+from mcp.types import ToolListChangedNotification
 
 load_dotenv()
 
@@ -63,6 +64,32 @@ logger = logging.getLogger(__name__)
 # Per-url tool cache. Keyed by aggregator URL so multiple plants (each with their
 # own aggregator) can coexist without one plant's tool list clobbering another's.
 _tool_cache: dict[str, list[dict]] = {}
+
+# Bumped whenever a URL's tool list goes stale (the aggregator sent
+# tools/list_changed, or the pool reconnected). list_mcp_tools only stores
+# its result if the generation didn't move while list_tools() was in flight,
+# so a change that lands mid-listing isn't overwritten by the stale answer.
+_tool_generation: dict[str, int] = {}
+
+
+def _tools_changed(url: str) -> None:
+    _tool_generation[url] = _tool_generation.get(url, 0) + 1
+    if _tool_cache.pop(url, None) is not None:
+        logger.info("Tool list for %s changed; re-listing on next use", url)
+
+
+def _tool_list_listener(url: str):
+    """message_handler for the pooled session. The aggregator (v3+) sends
+    tools/list_changed whenever a backend joins late, is refreshed, or
+    reconnects with different tools; without this the cache filled on first
+    use never saw any of it until chat-ui restarted."""
+
+    async def handle(message) -> None:
+        if isinstance(message, ToolListChangedNotification):
+            _tools_changed(url)
+
+    return handle
+
 
 # Reconnect backoff between failed connection attempts, in seconds. Module-level
 # (not a function default) so tests can shrink it instead of sleeping for real.
@@ -121,8 +148,14 @@ async def _run_persistent_pool(url: str, entry: _PoolEntry) -> None:
     while True:
         try:
             async with sse_client(url, timeout=_CONNECT_TIMEOUT) as (read, write):
-                async with ClientSession(read, write) as session:
+                async with ClientSession(
+                    read, write, message_handler=_tool_list_listener(url)
+                ) as session:
                     await session.initialize()
+                    # A reconnect may be to a restarted aggregator with a
+                    # different tool list, and notifications sent while we
+                    # were disconnected are lost.
+                    _tools_changed(url)
                     entry.session = session
                     entry.error = None
                     entry.ready.set()
@@ -182,8 +215,9 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
         return _tool_cache[url]
     try:
         session = await _get_session(url)
+        generation = _tool_generation.get(url, 0)
         result = await session.list_tools()
-        _tool_cache[url] = [
+        tools = [
             {
                 "name": t.name,
                 "description": t.description or "",
@@ -200,8 +234,10 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
             }
             for t in result.tools
         ]
-        logger.info("Loaded %d tools from %s", len(_tool_cache[url]), url)
-        return _tool_cache[url]
+        if _tool_generation.get(url, 0) == generation:
+            _tool_cache[url] = tools
+        logger.info("Loaded %d tools from %s", len(tools), url)
+        return tools
     except Exception as exc:
         logger.warning("Could not load tools from %s: %s", url, exc)
         _invalidate(url)

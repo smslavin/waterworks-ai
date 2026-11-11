@@ -45,7 +45,7 @@ class _FakeSession:
 class _FakeClientSessionCM:
     """Stands in for `async with ClientSession(read, write) as session:`."""
 
-    def __init__(self, read, write):
+    def __init__(self, read, write, message_handler=None):
         self._session = _pending_session
 
     async def __aenter__(self):

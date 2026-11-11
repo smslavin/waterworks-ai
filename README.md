@@ -280,6 +280,8 @@ This installs all nine components as auto-start Windows services with timestampe
 
 The script shares an existing MQTT broker rather than running a second Mosquitto instance. If no broker is running, install [Mosquitto for Windows](https://mosquitto.org/download/) first — it installs as a Windows service automatically. InfluxDB and Grafana must also be installed natively (links in the script header). After the first manual start sequence (printed by the script), all services restart automatically at boot and on failure.
 
+The aggregator listens on `127.0.0.1` only, which is all chat-ui needs. To reach it from another machine (e.g. Claude Desktop on a laptop), add `AGGREGATOR_BIND_HOST=0.0.0.0` and `AGGREGATOR_AUTH_TOKEN=<long random string>` to the aggregator service's environment; it refuses a non-loopback bind without a token, and every client must then send `Authorization: Bearer <token>`.
+
 To remove: `.\windows\uninstall-services.ps1`
 
 ---
@@ -840,7 +842,7 @@ waterworks-ai/
 │   ├── reactive_loop.py    Reactive loop — anomaly queue, Deadband gate, tiered cascade routing
 │   ├── status_heartbeat.py Periodic per-plant status rollup — cached fast path for enterprise mode
 │   ├── openai_loop.py      OpenAI-compatible loop for Ollama
-│   ├── mcp_client.py       MCP aggregator client (per-url tool cache, list/call tools)
+│   ├── mcp_client.py       MCP aggregator client (pooled session + per-url tool cache, cleared on tools/list_changed)
 │   ├── session_store.py    session_summaries + action_events tables in metrics.db
 │   ├── control.py          asyncio Future registry for the operator approval flow
 │   ├── metrics.py          ai_metrics → InfluxDB + SQLite per turn
@@ -892,6 +894,6 @@ waterworks-ai/
 
 **Add a new fault mode:** add a member to `FaultMode` in `simulator/faults.py`, a corresponding `_method` in `FaultState`, and an entry under the relevant equipment type's `faults` in `topology.yaml`. The HTTP control plane and specialist heuristics pick it up automatically.
 
-**Add an MCP server:** add an entry to `mcp-aggregator/backends.json`. The aggregator discovers and prefixes its tools at startup. Use the management API (`POST /backends`) to add backends at runtime without a restart.
+**Add an MCP server:** add an entry to `mcp-aggregator/backends.json`. The aggregator discovers and prefixes its tools at startup and keeps retrying a backend that isn't up yet; chat-ui picks up late tools through `tools/list_changed`. Use the management API (`POST /backends`, SSE/HTTP backends only) to add backends at runtime without a restart.
 
 **Add a Grafana dashboard:** drop a JSON dashboard file into `docker/grafana/provisioning/dashboards/` and add a dashboards provisioning YAML alongside it.
