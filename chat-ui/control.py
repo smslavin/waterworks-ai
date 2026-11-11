@@ -25,6 +25,7 @@ EXECUTION_TOOLS = {"control__set_setpoint", "control__clear_fault"}
 # annotations yet. Until they do, these are the adapter tools known not to
 # write to the plant. Anything else they expose (write_tag today, whatever
 # ships next) counts as unannotated, so models never see it.
+# Delete once fieldworks-build/fieldworks-adapters#15 ships annotations.
 _ADAPTER_READ_ONLY = {
     f"{backend}__{tool}"
     for backend, tools in {
