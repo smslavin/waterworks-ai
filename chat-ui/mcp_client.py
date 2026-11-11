@@ -214,7 +214,7 @@ async def call_mcp_tool(
     """Call an MCP tool via the aggregator's pooled session.
 
     MCP signals a tool-level failure two ways: by raising (transport error,
-    aggregator unreachable) or, per the CallToolResult.isError convention, in
+    aggregator unreachable) or, per the CallToolResult.is_error convention, in
     the *result itself* with nothing raised at all — the fieldworks-adapters
     Rust tools use the latter for things like a refused broker connection.
     Both failure modes are normalized here to a return value that starts
@@ -236,9 +236,9 @@ async def call_mcp_tool(
             block.text for block in (result.content or []) if hasattr(block, "text")
         ]
         text = "\n".join(parts) if parts else "(no result)"
-        if getattr(result, "isError", False):
+        if result.is_error:
             logger.warning(
-                "Tool call %s reported isError (args=%r): %s", name, args, text
+                "Tool call %s reported is_error (args=%r): %s", name, args, text
             )
             return text if text.startswith("Error") else f"Error: {text}"
         return text

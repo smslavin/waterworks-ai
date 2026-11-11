@@ -25,7 +25,7 @@ def test_connect_mqtt_adapter_detects_tool_level_error_and_exhausts_retries(
 
     async def fake_call_mcp_tool(name, args, url):
         calls.append((name, args))
-        # Tool-level failure per MCP's isError convention, normalized by
+        # Tool-level failure per MCP's is_error convention, normalized by
         # mcp_client.call_mcp_tool to start with "Error" — but NOT with the
         # narrower "Error calling" that only a client-side exception uses.
         return "Error: connection refused"

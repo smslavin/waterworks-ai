@@ -16,15 +16,16 @@ import contextlib
 import mcp_client
 
 
-class _FakeBlock:
-    def __init__(self, text):
-        self.text = text
+def _result(*, is_error: bool = False, texts: list[str] | None = None):
+    """A real CallToolResult, not a stand-in: a fake with an `isError`
+    attribute hid gh-43, where the code read `isError` but mcp 2.x names the
+    field `is_error`."""
+    from mcp.types import CallToolResult, TextContent
 
-
-class _FakeResult:
-    def __init__(self, *, is_error: bool = False, texts: list[str] | None = None):
-        self.isError = is_error
-        self.content = [_FakeBlock(t) for t in (texts or ["ok"])]
+    return CallToolResult(
+        content=[TextContent(type="text", text=t) for t in (texts or ["ok"])],
+        is_error=is_error,
+    )
 
 
 class _FakeSession:
@@ -50,7 +51,7 @@ class _FakeSession:
                 raise outcome
             if outcome is not None:
                 return outcome
-        return _FakeResult(texts=["ok"])
+        return _result(texts=["ok"])
 
 
 class _ConnectionTracker:
@@ -162,12 +163,12 @@ def test_distinct_aggregator_urls_get_distinct_pooled_sessions(monkeypatch):
     assert len(tracker.connections) == 2
 
 
-# ── isError normalization still works through the pooled session ──────────
+# ── is_error normalization still works through the pooled session ──────────
 
 
 def test_pooled_call_still_normalizes_is_error_result(monkeypatch):
     def call_tool_fn(session, name, args):
-        return _FakeResult(is_error=True, texts=["connection refused"])
+        return _result(is_error=True, texts=["connection refused"])
 
     tracker = _ConnectionTracker(call_tool_fn=call_tool_fn)
     tracker.install(monkeypatch)
@@ -188,7 +189,7 @@ def test_dropped_connection_reconnects_on_next_call(monkeypatch):
         if call_count == 2:
             # Simulate the connection dying mid-call.
             return ConnectionResetError("connection dropped")
-        return _FakeResult(texts=[f"ok-{call_count}"])
+        return _result(texts=[f"ok-{call_count}"])
 
     tracker = _ConnectionTracker(call_tool_fn=call_tool_fn)
     tracker.install(monkeypatch)
@@ -221,7 +222,7 @@ def test_pool_survives_many_calls_after_a_reconnect(monkeypatch):
         call_count += 1
         if call_count == 1:
             return ConnectionResetError("dropped immediately")
-        return _FakeResult(texts=["ok"])
+        return _result(texts=["ok"])
 
     tracker = _ConnectionTracker(call_tool_fn=call_tool_fn)
     tracker.install(monkeypatch)

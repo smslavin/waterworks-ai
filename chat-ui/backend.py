@@ -1025,7 +1025,7 @@ async def _connect_mqtt_adapter() -> None:
             MCP_AGGREGATOR_URL,
         )
         # mcp_client.call_mcp_tool normalizes both a client-side exception and
-        # a tool-level isError result to a string starting with "Error" — a
+        # a tool-level is_error result to a string starting with "Error" — a
         # narrower "Error calling" check here previously missed a tool-level
         # failure from the Rust adapter (e.g. "Error: connection refused"),
         # which doesn't share that exact literal prefix, and logged it as a
