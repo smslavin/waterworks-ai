@@ -317,9 +317,10 @@ def test_approved_but_drifted_value_is_refused(monkeypatch, loop, aggregator):
 
 
 def test_failed_execution_records_the_failure(monkeypatch, loop, aggregator):
+    # What control-mcp's ToolError reaches chat-ui as (mcp 2.0 through 2.3).
     aggregator.reply = (
-        "Error: Error executing tool set_setpoint: simulator rejected "
-        "/setpoint (400): outside engineering limits"
+        "Error executing tool set_setpoint: simulator rejected /setpoint (400): "
+        '{"error":"99.0 outside engineering limits [0, 10] for Chlorine_01.FlowRate"}'
     )
     _run(monkeypatch, loop, [[(PROPOSE, PROPOSAL)], [(SETPOINT, EXACT)]], "approved")
 
