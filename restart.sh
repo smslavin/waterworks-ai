@@ -5,10 +5,11 @@
 # Note: ./stop.sh will still cleanly stop all services including restarted ones.
 # Ctrl-C on the original start.sh will NOT kill a restarted service — use stop.sh instead.
 #
-# Restart order matters for tool cache correctness:
-#   MCP services (audit-mcp, etc.) → aggregator → chat-ui
-# If you restart an MCP service, you must also restart aggregator then chat-ui
-# so the backend's in-memory tool cache (mcp_client._tool_cache) reflects the new tool list.
+# Restarting an MCP service (influxdb-mcp, audit-mcp, ...) ends by asking the
+# aggregator to list that backend's tools again (POST /backends/<name>/refresh).
+# The aggregator then sends tools/list_changed and chat-ui drops its cached
+# tool list, so nothing else needs restarting. Restarting the aggregator itself
+# needs no chat-ui restart either: mcp_client reconnects and re-lists.
 
 set -e
 set -m  # each backgrounded service gets its own process group — see scripts/lib/supervise.sh
@@ -78,3 +79,37 @@ case "$SERVICE" in
         exit 1
         ;;
 esac
+
+# ── Re-list the backend's tools on the aggregator ─────────────────────────────
+#
+# The aggregator opens a new connection per call to SSE backends, so calls
+# reach the restarted service on their own, but it only learns about added or
+# removed tools when asked. Retry while the service is still starting (502).
+
+case "$SERVICE" in
+    influxdb-mcp|audit-mcp|control-mcp|memory-mcp) BACKEND="${SERVICE%-mcp}" ;;
+    topology-builder) BACKEND="topology_builder" ;;
+    *) BACKEND="" ;;
+esac
+
+if [[ -n "$BACKEND" ]]; then
+    REFRESH_URL="http://localhost:${AGGREGATOR_PORT}/backends/${BACKEND}/refresh"
+    AUTH=()
+    if [[ -n "$AGGREGATOR_AUTH_TOKEN" ]]; then
+        AUTH=(-H "Authorization: Bearer ${AGGREGATOR_AUTH_TOKEN}")
+    fi
+    for _ in $(seq 1 30); do
+        RESPONSE="$(curl -s -X POST "${AUTH[@]}" -w $'\n%{http_code}' "$REFRESH_URL" || true)"
+        CODE="${RESPONSE##*$'\n'}"
+        BODY="${RESPONSE%$'\n'*}"
+        case "$CODE" in
+            200) echo "Aggregator re-listed $BACKEND: $BODY"; break ;;
+            502) sleep 1 ;;  # service not listening yet
+            000) echo "Aggregator not running on :${AGGREGATOR_PORT}; it lists $BACKEND's tools when it starts."; break ;;
+            *)   echo "Aggregator refresh of $BACKEND failed ($CODE): $BODY"; break ;;
+        esac
+    done
+    if [[ "$CODE" == 502 ]]; then
+        echo "Aggregator still can't reach $BACKEND after 30s: $BODY — check logs/${SERVICE}.log"
+    fi
+fi
