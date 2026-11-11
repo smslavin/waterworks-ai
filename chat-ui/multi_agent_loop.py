@@ -290,6 +290,7 @@ Flux syntax: boolean operators are lowercase — use `or`, `and`, `not`.
 Never use uppercase OR / AND / NOT — they are parsed as identifiers and will cause a 400 error."""
 
 _ORCHESTRATOR_TOOL_PREFIXES = ("control__", "audit__")
+_ACTION_TIMEOUT = 300  # seconds to wait for operator decision
 
 _FINDINGS_RE = re.compile(
     r"FINDINGS:.*?Status:\s*([^\n]+)\n.*?Confidence:\s*([0-9.]+)",
@@ -707,7 +708,7 @@ async def _run_cascade_only(
                         description=args.get("description", ""),
                     )
                     try:
-                        decision = await asyncio.wait_for(fut, timeout=300)
+                        decision = await asyncio.wait_for(fut, timeout=_ACTION_TIMEOUT)
                     except asyncio.TimeoutError:
                         decision = "timed_out"
 
@@ -1058,7 +1059,9 @@ async def run_multi_agent(
                             description=args.get("description", ""),
                         )
                         try:
-                            decision = await asyncio.wait_for(fut, timeout=300)
+                            decision = await asyncio.wait_for(
+                                fut, timeout=_ACTION_TIMEOUT
+                            )
                         except asyncio.TimeoutError:
                             decision = "timed_out"
 

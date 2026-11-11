@@ -70,6 +70,14 @@ def register(action_id: str, proposal: dict) -> "asyncio.Future[str]":
     fut: asyncio.Future[str] = loop.create_future()
     _pending[action_id] = fut
     _proposals[action_id] = proposal
+
+    # A timeout or a dropped client cancels the Future without resolve()
+    # ever running; drop the entry then too, or it stays here for good.
+    def _forget(_fut: "asyncio.Future[str]") -> None:
+        _pending.pop(action_id, None)
+        _proposals.pop(action_id, None)
+
+    fut.add_done_callback(_forget)
     return fut
 
 
