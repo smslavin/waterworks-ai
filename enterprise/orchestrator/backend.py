@@ -28,8 +28,7 @@ from starlette.routing import Route
 import enterprise_loop
 from plant_registry import load_sites
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "orchestrator")
 logger = logging.getLogger(__name__)

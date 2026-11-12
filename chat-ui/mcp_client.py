@@ -251,8 +251,19 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
             logger.warning(
                 "No tool from %s declares annotations. mcp-aggregator before "
                 "v2.0 drops them, and the approval gate then hides every tool "
-                "but mqtt/opcua reads from models (control.requires_approval).",
+                "from models (control.requires_approval).",
                 url,
+            )
+        elif stale := sorted(
+            t["name"]
+            for t in tools
+            if t["annotations"] is None and t["name"].startswith(("mqtt__", "opcua__"))
+        ):
+            logger.warning(
+                "Adapter tools without annotations, hidden from models: %s. "
+                "mqtt-mcp/opcua-mcp declare them from 1.0.5 on; reinstall "
+                "with: cargo install mqtt-mcp opcua-mcp",
+                ", ".join(stale),
             )
         if _tool_generation.get(url, 0) == generation:
             _tool_cache[url] = tools

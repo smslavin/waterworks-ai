@@ -35,8 +35,7 @@ from plant_registry import get_site, load_sites
 
 load_dotenv()
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "diagnose_plant_mcp")
 logger = logging.getLogger(__name__)

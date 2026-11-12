@@ -8,8 +8,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 # stdout, not stderr: the Windows service wrapper captures them separately.
 setup_logging(__file__, "chat_ui", console=sys.stdout)

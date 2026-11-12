@@ -17,7 +17,6 @@ FASTMCP_PORT           Port to bind              (default: 8005)
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 
 import httpx
@@ -28,8 +27,7 @@ from mcp.types import ToolAnnotations
 
 load_dotenv()
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "control_mcp")
 logger = logging.getLogger(__name__)

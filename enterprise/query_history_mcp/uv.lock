@@ -209,6 +209,19 @@ wheels = [
 ]
 
 [[package]]
+name = "fieldworks-core"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/af/96/b2a67644190ea8d63d1c31422d039b92dc3f446b5b9eb24238d259c4d891/fieldworks_core-1.2.0.tar.gz", hash = "sha256:354b75d84288d5a73f08a82b87a73272111a84819a9b5a75c828b7776677a23a", size = 75746, upload-time = "2026-11-12T18:46:49.481Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/af/e4adeb3089fca27bc2d520e3736cceabe29f3193e9d77b5d0902f6795713/fieldworks_core-1.2.0-py3-none-any.whl", hash = "sha256:b1c4347f3b9343dad7643d8c543620679393c5b652637195da7ea05d3b7cb7dd", size = 63686, upload-time = "2026-11-12T18:46:47.9Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -607,6 +620,7 @@ name = "query-history-mcp"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "fieldworks-core" },
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
     { name = "python-dotenv" },
@@ -615,6 +629,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fieldworks-core", specifier = ">=1.2.0" },
     { name = "httpx" },
     { name = "mcp", extras = ["cli"], specifier = ">=2.0" },
     { name = "python-dotenv" },

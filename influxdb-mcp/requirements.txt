@@ -1,3 +1,4 @@
 influxdb-client>=1.43.0
 mcp>=2.0
 python-dotenv
+fieldworks-core>=1.2.0

@@ -8,7 +8,7 @@ dependencies = [
     "aiohttp>=3.9.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
-    "fieldworks-core>=1.0.1",
+    "fieldworks-core>=1.2.0",
 ]
 
 [tool.uv]

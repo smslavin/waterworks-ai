@@ -23,7 +23,6 @@ FASTMCP_PORT     Port this server binds   (default: 8003)
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +36,7 @@ from typing_extensions import TypedDict
 
 load_dotenv()
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "influxdb_mcp")
 logger = logging.getLogger(__name__)

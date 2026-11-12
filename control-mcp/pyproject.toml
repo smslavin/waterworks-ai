@@ -6,6 +6,7 @@ dependencies = [
     "mcp[cli]>=2.0",
     "python-dotenv",
     "httpx",
+    "fieldworks-core>=1.2.0",
 ]
 
 [tool.uv]

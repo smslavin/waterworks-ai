@@ -14,7 +14,6 @@ directly via the aggregator (see fieldworks-core#19).
 import asyncio
 import logging
 import os
-import sys
 import time
 import uuid
 from pathlib import Path
@@ -29,8 +28,7 @@ from fieldworks.topology_builder.inference import infer_topology, load_template
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "topology_builder")
 logger = logging.getLogger(__name__)
