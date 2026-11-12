@@ -598,7 +598,7 @@ def _reactive_params() -> tuple[str, str, str]:
     port = os.environ.get("MQTT_BROKER_PORT", "1883")
     broker_url = f"{host}:{port}"
     aggregator_url = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
-    model = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
+    model = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5")
     return broker_url, aggregator_url, model
 
 

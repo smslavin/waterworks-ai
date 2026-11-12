@@ -14,6 +14,7 @@ from influxdb_client import InfluxDBClient
 import audit
 import control
 import metrics
+import model_params
 import session_store
 from tool_dispatch import ToolCall
 import verdict
@@ -185,9 +186,9 @@ def build_system_prompt(process_units: str, alarm_history: str) -> str:
 
 
 CLAUDE_MODELS = [
-    "claude-sonnet-4-6",
-    "claude-opus-4-7",
-    "claude-haiku-4-5-20251001",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-haiku-4-5",
 ]
 
 _SYSTEM_PROMPT_BASE = """You are a process diagnostics assistant for a water treatment plant (WTP).
@@ -312,7 +313,7 @@ async def run_chat(
         "session_start", session_id=session_id, model=model, user_message=user_message
     )
 
-    effective_model = "claude-opus-4-7" if thinking_enabled else model
+    effective_model = "claude-opus-5-5" if thinking_enabled else model
     client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
 
     mcp_tools = await list_mcp_tools()
@@ -366,11 +367,15 @@ async def run_chat(
                     "cache_control": {"type": "ephemeral"},
                 }
                 stream_kwargs["tools"] = cached_tools
-            if thinking_enabled:
-                stream_kwargs["thinking"] = {"type": "adaptive"}
-                stream_kwargs["output_config"] = {"effort": "high"}
+            stream_kwargs.update(
+                model_params.request_params(
+                    effective_model,
+                    effort="high" if thinking_enabled else "medium",
+                    show_thinking=thinking_enabled,
+                )
+            )
 
-            async with client.messages.stream(**stream_kwargs) as stream:
+            async with client.beta.messages.stream(**stream_kwargs) as stream:
                 if thinking_enabled:
                     _in_thinking = False
                     _thinking_streamed = False
@@ -413,6 +418,12 @@ async def run_chat(
             cache_creation_input_tokens += final.usage.cache_creation_input_tokens or 0
             cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
 
+            if refusal := model_params.refusal_message(final):
+                error_count += 1
+                audit.log("error", session_id=session_id, error=refusal)
+                yield json.dumps({"type": "error", "error": refusal})
+                break
+
             if final.stop_reason == "end_turn":
                 text_content = " ".join(
                     b.text for b in final.content if hasattr(b, "text")
@@ -422,20 +433,7 @@ async def run_chat(
                 break
 
             if final.stop_reason == "tool_use":
-                # Build assistant message for conversation history
-                assistant_content = []
-                for block in final.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append(
-                            {
-                                "type": "tool_use",
-                                "id": block.id,
-                                "name": block.name,
-                                "input": dict(block.input),
-                            }
-                        )
+                assistant_content = model_params.assistant_turn(final.content)
 
                 tool_results = []
                 for block in final.content:

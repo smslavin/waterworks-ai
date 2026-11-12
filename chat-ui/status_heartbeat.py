@@ -43,7 +43,7 @@ MAX_STALE_TICKS = int(os.environ.get("STATUS_HEARTBEAT_MAX_STALE_TICKS", "4"))
 # Same cheap model reactive escalation already uses for background diagnosis
 # — this runs unattended on a timer, not in response to an operator waiting
 # on it, so there's no reason to reach for a more expensive model.
-_MODEL = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
+_MODEL = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5")
 _ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 _task: asyncio.Task | None = None
