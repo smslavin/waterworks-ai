@@ -9,7 +9,7 @@ import time
 import anthropic
 
 import metrics
-from mcp_client import call_mcp_tool
+from mcp_client import call_mcp_tool_structured
 from topology import load as _load_topology
 
 from fieldworks.agents.deadband import (
@@ -38,7 +38,7 @@ async def _verify_sustained(
     # Use seconds for sub-minute precision. Clamp to 30s minimum.
     window_s = max(30, int(duration_minutes * 60))
     try:
-        raw = await call_mcp_tool(
+        series = await call_mcp_tool_structured(
             "influxdb__query_series",
             {
                 "measurement": "wtp_process",
@@ -48,8 +48,7 @@ async def _verify_sustained(
             },
             aggregator_url,
         )
-        logger.debug("deadband query_series raw=%r", raw)
-        points = json.loads(raw)["points"]
+        points = series["points"]
         t = len(points)
         if condition == "below_min":
             v = sum(1 for p in points if p["v"] < limit)
@@ -77,7 +76,7 @@ async def _get_trend_direction(
     instance_id, attribute, time_window_minutes, aggregator_url
 ):
     try:
-        raw = await call_mcp_tool(
+        series = await call_mcp_tool_structured(
             "influxdb__query_series",
             {
                 "measurement": "wtp_process",
@@ -87,7 +86,7 @@ async def _get_trend_direction(
             },
             aggregator_url,
         )
-        points = json.loads(raw)["points"]
+        points = series["points"]
         values = [p["v"] for p in points]
         if len(values) < 4:
             return {"direction": "stable", "slope": 0.0, "confidence": 0.3}

@@ -31,7 +31,9 @@ from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
+from typing_extensions import TypedDict
 
 load_dotenv()
 
@@ -202,6 +204,15 @@ def query(flux_query: str, org: str = "") -> str:
         return f"Error: {exc}"
 
 
+class SeriesPoint(TypedDict):
+    t: str  # ISO-8601 time
+    v: float
+
+
+class Series(TypedDict):
+    points: list[SeriesPoint]
+
+
 @mcp.tool(annotations=_READ)
 def query_series(
     measurement: str,
@@ -210,8 +221,8 @@ def query_series(
     start: str,
     bucket: str = "",
     org: str = "",
-) -> str:
-    """Run a structured time-series lookup and return raw JSON points.
+) -> Series:
+    """Run a structured time-series lookup and return raw points.
 
     This is the machine-readable counterpart to `query`: no prose formatting,
     just `{"t": <ISO timestamp>, "v": <float>}` pairs, sorted by time. Use
@@ -239,8 +250,10 @@ def query_series(
         org:         InfluxDB org. Omit to use the configured default org.
 
     Returns:
-        JSON string: {"points": [{"t": "<ISO-8601 time>", "v": <float>}, ...]}
-        On error: {"points": [], "error": "<message>"}
+        {"points": [{"t": "<ISO-8601 time>", "v": <float>}, ...]}, as
+        structured content (the tool declares an output schema) and as JSON
+        text. A failed query is a tool error, never an empty point list: an
+        empty list means InfluxDB has no points in the window.
     """
     target = bucket or INFLUXDB_BUCKET
     flux = (
@@ -253,17 +266,19 @@ def query_series(
     )
     try:
         tables = _get_client().query_api().query(flux, org=org or INFLUXDB_ORG)
-        points: list[dict[str, Any]] = []
-        for table in tables:
-            for record in table.records:
-                t = record.get_time()
-                v = record.get_value()
-                if t is None or v is None:
-                    continue
-                points.append({"t": t.isoformat(), "v": v})
-        return json.dumps({"points": points})
     except Exception as exc:
-        return json.dumps({"points": [], "error": str(exc)})
+        # A failure returned as {"points": []} read as "no samples" and
+        # Deadband reported fraction_in_violation 0.0 without an error.
+        raise ToolError(f"InfluxDB query failed: {exc}") from exc
+    points: list[SeriesPoint] = []
+    for table in tables:
+        for record in table.records:
+            t = record.get_time()
+            v = record.get_value()
+            if t is None or v is None:
+                continue
+            points.append({"t": t.isoformat(), "v": float(v)})
+    return {"points": points}
 
 
 if __name__ == "__main__":

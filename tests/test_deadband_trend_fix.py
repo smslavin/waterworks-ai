@@ -13,7 +13,7 @@ uses to decide ESCALATE vs SUPPRESS for real plant anomalies.
 
 The fix adds `influxdb-mcp`'s `query_series` tool: a structured JSON read
 path (`{"points": [{"t": ..., "v": ...}, ...]}`) that `deadband.py` now
-parses directly via `json.loads(...)["points"]`, instead of regexing
+reads as structured content (gh-52; JSON text before that), instead of regexing
 `query`'s prose. This file proves three things end to end, using the real
 production code on both sides (not hand-rolled stand-ins):
 
@@ -24,7 +24,7 @@ production code on both sides (not hand-rolled stand-ins):
      value vector and a slope that does NOT match the real signal — i.e.
      this fixture genuinely exercises the bug, not just a happy path.
   3. The *new* path — `deadband._get_trend_direction` calling the real
-     `query_series` tool function via a monkeypatched `call_mcp_tool` —
+     `query_series` tool function via a monkeypatched `call_mcp_tool_structured` —
      recovers the correct slope/direction for the same underlying data.
 
 `verify_sustained`'s parallel fix (JSON point-counting instead of
@@ -35,7 +35,6 @@ too, since it went through the same `query_series` switch.
 import asyncio
 import datetime
 import importlib.util
-import json
 import re
 import sys
 from pathlib import Path
@@ -160,15 +159,12 @@ def test_query_series_returns_structured_points(monkeypatch):
     tables = _make_tables(_TRUE_VALUES)
     monkeypatch.setattr(influxdb_server, "_get_client", lambda: _FakeClient(tables))
 
-    raw = influxdb_server.query_series(
+    points = influxdb_server.query_series(
         measurement="wtp_process",
         instance="RawWater_01",
         attribute="Flow",
         start="-30m",
-    )
-    parsed = json.loads(raw)
-    assert "error" not in parsed
-    points = parsed["points"]
+    )["points"]
     assert len(points) == len(_TRUE_VALUES)
     assert [p["v"] for p in points] == _TRUE_VALUES
     # Timestamps round-trip as ISO-8601 strings, one per point, in order.
@@ -176,17 +172,19 @@ def test_query_series_returns_structured_points(monkeypatch):
     assert [p["t"] for p in points] == sorted(p["t"] for p in points)
 
 
-def test_query_series_reports_error_without_raising(monkeypatch):
+def test_query_series_failure_is_a_tool_error(monkeypatch):
+    """gh-52: a failure used to come back as {"points": [], "error": ...},
+    which Deadband read as zero samples."""
+    from mcp.server.mcpserver.exceptions import ToolError
+
     def _boom():
         raise RuntimeError("influxdb unreachable")
 
     monkeypatch.setattr(influxdb_server, "_get_client", _boom)
-    raw = influxdb_server.query_series(
-        measurement="wtp_process", instance="x", attribute="y", start="-1m"
-    )
-    parsed = json.loads(raw)
-    assert parsed["points"] == []
-    assert "influxdb unreachable" in parsed["error"]
+    with pytest.raises(ToolError, match="influxdb unreachable"):
+        influxdb_server.query_series(
+            measurement="wtp_process", instance="x", attribute="y", start="-1m"
+        )
 
 
 # ── 2. Old prose-regex path: proves the bug is real, not hypothetical ──────
@@ -233,7 +231,7 @@ def test_get_trend_direction_uses_query_series_and_recovers_true_slope(monkeypat
     tables = _make_tables(_TRUE_VALUES)
     monkeypatch.setattr(influxdb_server, "_get_client", lambda: _FakeClient(tables))
 
-    async def _fake_call_mcp_tool(name, args, aggregator_url=None):
+    async def _fake_call_structured(name, args, aggregator_url=None):
         assert name == "influxdb__query_series"
         # Exercises the real production query_series() implementation, not
         # a hand-rolled stand-in — only the transport (aggregator SSE call)
@@ -241,7 +239,7 @@ def test_get_trend_direction_uses_query_series_and_recovers_true_slope(monkeypat
         # directly" testing convention (see tests/conftest.py).
         return influxdb_server.query_series(**args)
 
-    monkeypatch.setattr(deadband, "call_mcp_tool", _fake_call_mcp_tool)
+    monkeypatch.setattr(deadband, "call_mcp_tool_structured", _fake_call_structured)
 
     result = asyncio.run(
         deadband._get_trend_direction(
@@ -263,10 +261,10 @@ def test_get_trend_direction_worsening_signal(monkeypatch):
     tables = _make_tables(declining)
     monkeypatch.setattr(influxdb_server, "_get_client", lambda: _FakeClient(tables))
 
-    async def _fake_call_mcp_tool(name, args, aggregator_url=None):
+    async def _fake_call_structured(name, args, aggregator_url=None):
         return influxdb_server.query_series(**args)
 
-    monkeypatch.setattr(deadband, "call_mcp_tool", _fake_call_mcp_tool)
+    monkeypatch.setattr(deadband, "call_mcp_tool_structured", _fake_call_structured)
 
     result = asyncio.run(
         deadband._get_trend_direction(
@@ -286,11 +284,11 @@ def test_verify_sustained_uses_query_series_and_counts_points_directly(monkeypat
     tables = _make_tables(_TRUE_VALUES)
     monkeypatch.setattr(influxdb_server, "_get_client", lambda: _FakeClient(tables))
 
-    async def _fake_call_mcp_tool(name, args, aggregator_url=None):
+    async def _fake_call_structured(name, args, aggregator_url=None):
         assert name == "influxdb__query_series"
         return influxdb_server.query_series(**args)
 
-    monkeypatch.setattr(deadband, "call_mcp_tool", _fake_call_mcp_tool)
+    monkeypatch.setattr(deadband, "call_mcp_tool_structured", _fake_call_structured)
 
     result = asyncio.run(
         deadband._verify_sustained(
