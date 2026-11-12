@@ -30,7 +30,9 @@ DIAGNOSE_PLANT_MCP_URL = os.environ.get(
     "DIAGNOSE_PLANT_MCP_URL", "http://localhost:8200/sse"
 )
 
-TOOL_RESULT_MAX_CHARS = 4_000
+# Same cap as the plant loops (chat-ui/tool_dispatch.py); this process can't
+# import chat-ui, so keep the two in step by hand.
+TOOL_RESULT_MAX_CHARS = 8_000
 MAX_HISTORY_MESSAGES = 20
 
 
