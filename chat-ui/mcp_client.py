@@ -264,10 +264,34 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
         return []
 
 
+class ToolCallError(Exception):
+    """A failed tool call: the aggregator unreachable, a transport error, or
+    a result flagged is_error. The message starts with "Error", the same
+    text call_mcp_tool returns for it."""
+
+
+async def _call_tool(name: str, args: dict, url: str):
+    """(result, text) for a successful call, else raise ToolCallError. A
+    transport failure drops the pool entry so the next call reconnects."""
+    try:
+        session = await _get_session(url)
+        result = await session.call_tool(name, arguments=args)
+    except Exception as exc:
+        logger.error("Tool call %s failed: %s", name, exc)
+        _invalidate(url)
+        raise ToolCallError(f"Error calling {name}: {exc}") from exc
+    parts = [block.text for block in (result.content or []) if hasattr(block, "text")]
+    text = "\n".join(parts) if parts else "(no result)"
+    if result.is_error:
+        logger.warning("Tool call %s reported is_error (args=%r): %s", name, args, text)
+        raise ToolCallError(text if text.startswith("Error") else f"Error: {text}")
+    return result, text
+
+
 async def call_mcp_tool(
     name: str, args: dict, aggregator_url: str | None = None
 ) -> str:
-    """Call an MCP tool via the aggregator's pooled session.
+    """Call an MCP tool via the aggregator's pooled session, as text.
 
     MCP signals a tool-level failure two ways: by raising (transport error,
     aggregator unreachable) or, per the CallToolResult.is_error convention, in
@@ -277,31 +301,35 @@ async def call_mcp_tool(
     with the literal "Error" — callers must check for that prefix rather
     than assume success just because this coroutine didn't raise. A
     successful result never starts with "Error".
-
-    Signature and behavior are unchanged from the pre-pooling version — this
-    is a pure internal implementation change. On any failure (pool connect
-    failure, or the call itself raising) the pool entry for `aggregator_url`
-    is dropped so the next call reconnects instead of reusing a broken
-    session.
     """
-    url = aggregator_url or _DEFAULT_AGGREGATOR_URL
     try:
-        session = await _get_session(url)
-        result = await session.call_tool(name, arguments=args)
-        parts = [
-            block.text for block in (result.content or []) if hasattr(block, "text")
-        ]
-        text = "\n".join(parts) if parts else "(no result)"
-        if result.is_error:
-            logger.warning(
-                "Tool call %s reported is_error (args=%r): %s", name, args, text
-            )
-            return text if text.startswith("Error") else f"Error: {text}"
-        return text
-    except Exception as exc:
-        logger.error("Tool call %s failed: %s", name, exc)
-        _invalidate(url)
-        return f"Error calling {name}: {exc}"
+        _, text = await _call_tool(
+            name, args, aggregator_url or _DEFAULT_AGGREGATOR_URL
+        )
+    except ToolCallError as exc:
+        return str(exc)
+    return text
+
+
+async def call_mcp_tool_structured(
+    name: str, args: dict, aggregator_url: str | None = None
+) -> dict:
+    """Call a tool that declares an output schema and return its structured
+    content, for code that computes over the result rather than reads it.
+
+    Raises ToolCallError on any failure, including a result with no
+    structured content (the tool declares none, or the aggregator predates
+    v2.1, which forwards it). Unlike call_mcp_tool there is no text to check:
+    a dict back means the call succeeded.
+    """
+    result, text = await _call_tool(
+        name, args, aggregator_url or _DEFAULT_AGGREGATOR_URL
+    )
+    if result.structured_content is None:
+        raise ToolCallError(
+            f"Error: {name} returned no structured content: {text[:200]}"
+        )
+    return result.structured_content
 
 
 def clear_tool_cache(aggregator_url: str | None = None) -> None:
