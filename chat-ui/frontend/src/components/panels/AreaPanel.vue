@@ -1,39 +1,26 @@
 <script setup lang="ts">
 import { computed, watch, nextTick, ref } from 'vue'
 import { useUIStore } from '@/stores/ui'
-import { useChatStore } from '@/stores/chat'
-import { useSSE } from '@/composables/useSSE'
+import { usePanelStream } from '@/composables/usePanelStream'
 import { renderText } from '@/utils/renderText'
 import SpecialistBadges from './SpecialistBadges.vue'
-import { useVerdict } from '@/composables/useVerdict'
 
 const ui = useUIStore()
-const chat = useChatStore()
-const { stream, stopStream } = useSSE()
 
 const KEY = 'area'
 const panelTop = ref(0)
 const panelLeft = ref(0)
 const panelMaxHeight = ref(600)
 
+const {
+  isStreaming, streamDone, renderedContent, followUpText, analysisExpanded,
+  statusLine, reset, begin, sendFollowUp,
+  verdict, analysisText, statusKey,
+} = usePanelStream(KEY, () => ({ mode: ui.multiAgent ? 'multi' : 'single' }))
+
 const visible = computed(() => ui.activePanel === 'area')
-const isStreaming = computed(() => chat.streaming[KEY] ?? false)
-const streamDone = computed(() => chat.streamDone[KEY] ?? false)
-const content = computed(() => chat.content[KEY] ?? '')
-const renderedContent = computed(() => renderText(content.value))
-const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
-const statusText = computed(() => {
-  if (isStreaming.value) return 'Analyzing…'
-  const base = `${ui.activeArea} area · complete`
-  return tokenCount.value ? `${base} · ctx ${Math.round(tokenCount.value / 2000)}%` : base
-})
+const statusText = computed(() => statusLine(`${ui.activeArea} area · complete`))
 
-const followUpText = ref('')
-const analysisExpanded = ref(false)
-type Message = { role: 'user' | 'assistant'; content: string }
-const conversationLog = ref<Message[]>([])
-
-const { verdict, analysisText, statusKey } = useVerdict(KEY)
 // The card replaces the text once the response is complete.
 const summary = computed(() => (streamDone.value ? verdict.value : null))
 const summaryClass = computed(() => `summary-${statusKey.value}`)
@@ -57,33 +44,12 @@ function positionPanel(area: string) {
 
 watch(() => ui.activeArea, async (area, oldArea) => {
   if (!area) return
-  if (oldArea !== area) {
-    followUpText.value = ''
-    analysisExpanded.value = false
-    stopStream(KEY)
-  }
+  if (oldArea !== area) reset()
 
   await nextTick()
   positionPanel(area)
-  const msgContent = `Analyze the ${area} process area of the Waterworks plant. Use available tools to check all equipment in this area and provide a status summary including any alarms or anomalies.`
-  const initial: Message = { role: 'user', content: msgContent }
-  conversationLog.value = [initial]
-  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single' })
+  begin(`Analyze the ${area} process area of the Waterworks plant. Use available tools to check all equipment in this area and provide a status summary including any alarms or anomalies.`)
 })
-
-function sendFollowUp() {
-  const text = followUpText.value.trim()
-  if (!text || isStreaming.value) return
-  followUpText.value = ''
-  analysisExpanded.value = false
-  const messages: Message[] = [
-    ...conversationLog.value,
-    { role: 'assistant', content: content.value },
-    { role: 'user', content: text },
-  ]
-  conversationLog.value = messages
-  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single' })
-}
 </script>
 
 <template>
