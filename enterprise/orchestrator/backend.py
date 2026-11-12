@@ -28,7 +28,10 @@ from starlette.routing import Route
 import enterprise_loop
 from plant_registry import load_sites
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root
+from service_logging import setup_logging  # noqa: E402
+
+setup_logging(__file__, "orchestrator")
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")

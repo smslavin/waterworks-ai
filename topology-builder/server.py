@@ -12,13 +12,14 @@ directly via the aggregator (see fieldworks-core#19).
 """
 
 import asyncio
+import logging
 import os
+import sys
 import time
 import uuid
-
-import yaml
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
@@ -27,6 +28,12 @@ from discovery import discover_mqtt_topics, discover_opcua_nodes
 from fieldworks.topology_builder.inference import infer_topology, load_template
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
+from service_logging import setup_logging  # noqa: E402
+
+setup_logging(__file__, "topology_builder")
+logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
