@@ -22,8 +22,9 @@ FASTMCP_PORT     Port this server binds   (default: 8003)
 
 import json
 import logging
-import logging.handlers
 import os
+import sys
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -34,22 +35,10 @@ from mcp.types import ToolAnnotations
 
 load_dotenv()
 
-_log_dir = os.path.join(os.path.dirname(__file__), "logs")
-os.makedirs(_log_dir, exist_ok=True)
-_fh = logging.handlers.RotatingFileHandler(
-    os.path.join(_log_dir, "influxdb_mcp.log"), maxBytes=5 * 1024 * 1024, backupCount=3
-)
-_fh.setFormatter(
-    logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[logging.StreamHandler(), _fh],
-)
+sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
+from service_logging import setup_logging  # noqa: E402
+
+setup_logging(__file__, "influxdb_mcp")
 logger = logging.getLogger(__name__)
 
 INFLUXDB_URL = os.environ.get("INFLUXDB_URL", "http://localhost:8086")

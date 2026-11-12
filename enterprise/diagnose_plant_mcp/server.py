@@ -22,7 +22,6 @@ FASTMCP_PORT     Port to bind             (default: 8200)
 import asyncio
 import json
 import logging
-import logging.handlers
 import os
 import sys
 from pathlib import Path
@@ -36,24 +35,10 @@ from plant_registry import get_site, load_sites
 
 load_dotenv()
 
-_log_dir = os.path.join(os.path.dirname(__file__), "logs")
-os.makedirs(_log_dir, exist_ok=True)
-_fh = logging.handlers.RotatingFileHandler(
-    os.path.join(_log_dir, "diagnose_plant_mcp.log"),
-    maxBytes=5 * 1024 * 1024,
-    backupCount=3,
-)
-_fh.setFormatter(
-    logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[logging.StreamHandler(), _fh],
-)
+sys.path.append(str(Path(__file__).resolve().parents[2]))  # repo root
+from service_logging import setup_logging  # noqa: E402
+
+setup_logging(__file__, "diagnose_plant_mcp")
 logger = logging.getLogger(__name__)
 
 mcp = MCPServer("diagnose-plant-mcp")
