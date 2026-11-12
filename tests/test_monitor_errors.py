@@ -42,6 +42,7 @@ def _new_monitor(min_duration: float = 0.0) -> monitor.AnomalyMonitor:
     m = monitor.AnomalyMonitor.__new__(monitor.AnomalyMonitor)
     m._min_duration = min_duration
     m._loop = None  # _on_message guards `if anomaly is not None and self._loop`
+    m._init_state()
     return m
 
 
@@ -74,11 +75,10 @@ def test_on_connect_does_not_subscribe_and_logs_error_on_failure(caplog):
 
 def test_on_message_warns_on_unparseable_payload(caplog):
     _, _, topic = _pick_key()
-    monitor._warned_topics.discard(topic)
     m = _new_monitor(min_duration=30.0)
     with caplog.at_level(logging.WARNING, logger="monitor"):
         m._on_message(None, None, _FakeMsg(topic, b"12.5 psi"))
-    assert topic in monitor._warned_topics
+    assert topic in m._warned_topics
     records = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert any("failed to parse/process message" in r.message for r in records)
     assert any(topic in r.message for r in records)
@@ -86,7 +86,6 @@ def test_on_message_warns_on_unparseable_payload(caplog):
 
 def test_on_message_bounds_repeated_warnings_for_same_topic(caplog):
     _, _, topic = _pick_key()
-    monitor._warned_topics.discard(topic)
     m = _new_monitor(min_duration=30.0)
     with caplog.at_level(logging.WARNING, logger="monitor"):
         m._on_message(None, None, _FakeMsg(topic, b"not-a-number"))
@@ -102,18 +101,15 @@ def test_on_message_bounds_repeated_warnings_for_same_topic(caplog):
 
 def test_on_message_warns_again_after_recovery(caplog):
     key, meta, topic = _pick_key()
-    monitor._warned_topics.discard(topic)
-    with monitor._window_lock:
-        monitor._window.pop(key, None)
     m = _new_monitor(min_duration=30.0)
     lo, hi = meta["normal"]
     good_value = (lo + hi) / 2.0
 
     with caplog.at_level(logging.WARNING, logger="monitor"):
         m._on_message(None, None, _FakeMsg(topic, b"garbage-1"))
-        assert topic in monitor._warned_topics
+        assert topic in m._warned_topics
         m._on_message(None, None, _FakeMsg(topic, str(good_value).encode()))
-        assert topic not in monitor._warned_topics  # recovered — flag cleared
+        assert topic not in m._warned_topics  # recovered — flag cleared
         m._on_message(None, None, _FakeMsg(topic, b"garbage-2"))
 
     warnings = [
@@ -124,17 +120,13 @@ def test_on_message_warns_again_after_recovery(caplog):
     assert len(warnings) == 2  # warned once, recovered, warned again
 
 
-# ── _window race: lock must survive concurrent read (current_status_level)
+# ── window race: lock must survive concurrent read (status_level)
 #    and write (_on_message) from separate threads without raising ─────────
 
 
 def test_window_lock_survives_concurrent_readers_and_writers():
     keys = list(monitor._NORMAL_MAP.items())[:3]
     assert keys, "topology must expose at least one numeric attribute to test"
-
-    with monitor._window_lock:
-        for key, _ in keys:
-            monitor._window.pop(key, None)
 
     m = _new_monitor(min_duration=0.0)  # fire on every call, maximize churn
     errors: list[Exception] = []
@@ -158,7 +150,7 @@ def test_window_lock_survives_concurrent_readers_and_writers():
     def reader():
         try:
             while not stop.is_set():
-                monitor.current_status_level()
+                m.status_level()
         except Exception as exc:  # pragma: no cover - only on real bug
             errors.append(exc)
 
@@ -172,31 +164,34 @@ def test_window_lock_survives_concurrent_readers_and_writers():
     for t in threads:
         t.join(timeout=5)
 
-    with monitor._window_lock:
-        for key, _ in keys:
-            monitor._window.pop(key, None)
-
     assert errors == [], f"lock did not prevent races: {errors!r}"
 
 
-def test_current_status_level_reflects_window_contents():
-    with monitor._window_lock:
-        monitor._window.clear()
-    assert monitor.current_status_level() == "Normal"
+def test_status_level_reflects_window_contents():
+    m = _new_monitor()
+    assert m.status_level() == "Normal"
 
     key, meta, _ = _pick_key()
-    with monitor._window_lock:
-        monitor._window[key] = {
+    with m._window_lock:
+        m._window[key] = {
             "violation_start": time.time(),
             "condition": "above_max",
             "severity": "warning",
             "value": meta["normal"][1] + 1,
         }
-    assert monitor.current_status_level() == "Anomaly Detected"
+    assert m.status_level() == "Anomaly Detected"
 
-    with monitor._window_lock:
-        monitor._window[key]["severity"] = "critical"
-    assert monitor.current_status_level() == "Fault Detected"
+    with m._window_lock:
+        m._window[key]["severity"] = "critical"
+    assert m.status_level() == "Fault Detected"
 
-    with monitor._window_lock:
-        monitor._window.clear()
+
+def test_two_monitors_keep_separate_windows():
+    """The window was a module global, so a second AnomalyMonitor in one
+    process shared (and fought over) the first one's state."""
+    first, second = _new_monitor(), _new_monitor()
+    key, meta, _ = _pick_key()
+    with first._window_lock:
+        first._window[key] = {"severity": "critical", "violation_start": time.time()}
+    assert first.status_level() == "Fault Detected"
+    assert second.status_level() == "Normal"

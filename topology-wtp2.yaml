@@ -291,11 +291,6 @@ historian:
 # unrecognized top-level keys) — read directly by waterworks-ai's own code.
 # Not part of the fieldworks-core spec.
 
-specialists:
-  historian:
-    data_sources: [influxdb, memory]
-    role: historical_only
-
 insight_categories:
   - id: fault_pattern
     label: "Fault pattern"
