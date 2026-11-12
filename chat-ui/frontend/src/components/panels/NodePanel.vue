@@ -2,22 +2,25 @@
 import { computed, ref, watch, nextTick } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import { useTopologyStore } from '@/stores/topology'
-import { useChatStore } from '@/stores/chat'
 import { useNodePanel } from '@/composables/useNodePanel'
-import { useSSE } from '@/composables/useSSE'
+import { usePanelStream } from '@/composables/usePanelStream'
 import { renderText } from '@/utils/renderText'
 import SaveInsight from './SaveInsight.vue'
-import { useVerdict } from '@/composables/useVerdict'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
-const chat = useChatStore()
 const { panelTop, panelLeft, arrowSide, panelMaxHeight, positionPanel } = useNodePanel()
-const { stream, stopStream } = useSSE()
-
-const KEY = 'node'
 
 const activeNode = computed(() => ui.activeNodeId ? topo.nodeById(ui.activeNodeId) : null)
+const {
+  isStreaming, streamDone, renderedContent, followUpText, analysisExpanded,
+  statusLine, reset, begin, sendFollowUp,
+  verdict: parsedVerdict, analysisText, statusKey,
+} = usePanelStream('node', () => ({
+  mode: ui.multiAgent ? 'multi' : 'single',
+  scope: ui.multiAgent ? activeNode.value?.id : undefined,
+}))
+
 const visible = computed(() => ui.activePanel === 'node')
 const isCritical = computed(() => activeNode.value?.alarmState === 'critical')
 const isWarning = computed(() => activeNode.value?.alarmState === 'warning')
@@ -30,30 +33,13 @@ const badgeText = computed(() => {
   return activeNode.value?.specialist ?? ''
 })
 
-const isStreaming = computed(() => chat.streaming[KEY] ?? false)
-const streamDone = computed(() => chat.streamDone[KEY] ?? false)
-const content = computed(() => chat.content[KEY] ?? '')
-const renderedContent = computed(() => renderText(content.value))
 const hasSaved = computed(() => (activeNode.value?.saveCount ?? 0) > 0)
-
 const classifyOpen = ref(false)
-const followUpText = ref('')
-const analysisExpanded = ref(false)
 
-type Message = { role: 'user' | 'assistant'; content: string }
-const conversationLog = ref<Message[]>([])
-
-const { verdict: parsedVerdict, analysisText, statusKey } = useVerdict(KEY)
 // The card replaces the text once the response is complete.
 const verdict = computed(() => (streamDone.value ? parsedVerdict.value : null))
 const verdictClass = computed(() => `verdict-${statusKey.value}`)
-
-const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
-const statusText = computed(() => {
-  if (isStreaming.value) return 'Analyzing…'
-  const base = `${activeNode.value?.specialist ?? ''} · complete`
-  return tokenCount.value ? `${base} · ctx ${Math.round(tokenCount.value / 2000)}%` : base
-})
+const statusText = computed(() => statusLine(`${activeNode.value?.specialist ?? ''} · complete`))
 
 async function reposition() {
   await nextTick()
@@ -68,9 +54,7 @@ watch(() => ui.activeNodeId, async (newId) => {
   if (!newId) return
 
   classifyOpen.value = false
-  followUpText.value = ''
-  analysisExpanded.value = false
-  stopStream(KEY)
+  reset()
 
   await nextTick()
   const nodeEl = document.querySelector<HTMLElement>(`[data-id="${newId}"]`)
@@ -78,27 +62,8 @@ watch(() => ui.activeNodeId, async (newId) => {
 
   const node = topo.nodeById(newId)
   if (!node) return
-
-  const msgContent = `Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`
-  const initial: Message = { role: 'user', content: msgContent }
-  conversationLog.value = [initial]
-  stream(KEY, [initial], { mode: ui.multiAgent ? 'multi' : 'single', scope: ui.multiAgent ? node.id : undefined })
+  begin(`Please diagnose ${node.id} (${node.equipmentType}) in the ${node.area} area. Use available tools to check current readings and identify any issues.`)
 })
-
-function sendFollowUp() {
-  const text = followUpText.value.trim()
-  if (!text || isStreaming.value) return
-  followUpText.value = ''
-  analysisExpanded.value = false
-  const messages: Message[] = [
-    ...conversationLog.value,
-    { role: 'assistant', content: content.value },
-    { role: 'user', content: text },
-  ]
-  conversationLog.value = messages
-  const nodeId = activeNode.value?.id
-  stream(KEY, messages, { mode: ui.multiAgent ? 'multi' : 'single', scope: ui.multiAgent && nodeId ? nodeId : undefined })
-}
 </script>
 
 <template>

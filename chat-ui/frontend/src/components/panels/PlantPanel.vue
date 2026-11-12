@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { computed, watch, nextTick, ref } from 'vue'
 import { useUIStore } from '@/stores/ui'
-import { useChatStore } from '@/stores/chat'
 import { useTopologyStore } from '@/stores/topology'
-import { useSSE } from '@/composables/useSSE'
+import { usePanelStream } from '@/composables/usePanelStream'
 import { renderText } from '@/utils/renderText'
 import SpecialistBadges from './SpecialistBadges.vue'
-import { useVerdict } from '@/composables/useVerdict'
 
 export type CrumbLevel = 'plant' | 'region' | 'enterprise'
 
 const ui = useUIStore()
-const chat = useChatStore()
 const topo = useTopologyStore()
-const { stream, stopStream } = useSSE()
 
 // ui.activeSite/activeRegion come from GET /api/site (seeded in App.vue's
 // onMounted; default to 'Waterworks'/'Metro Region' until that resolves —
@@ -62,27 +58,17 @@ const chatMode = computed<'single' | 'multi' | 'enterprise'>(() => {
   return ui.multiAgent ? 'multi' : 'single'
 })
 
-const isStreaming = computed(() => chat.streaming[KEY] ?? false)
-const streamDone = computed(() => chat.streamDone[KEY] ?? false)
-const content = computed(() => chat.content[KEY] ?? '')
-const renderedContent = computed(() => renderText(content.value))
-const tokenCount = computed(() => chat.inputTokens[KEY] ?? 0)
-const statusText = computed(() => {
-  if (isStreaming.value) return 'Analyzing…'
-  const base = `${titleText.value} · complete`
-  return tokenCount.value ? `${base} · ctx ${Math.round(tokenCount.value / 2000)}%` : base
-})
-
-const followUpText = ref('')
-const analysisExpanded = ref(false)
-type Message = { role: 'user' | 'assistant'; content: string }
-const conversationLog = ref<Message[]>([])
-
 // Not gated on streamDone, unlike the other panels: the model leads with
 // SUMMARY, and the backend sends the verdict as soon as that block is
 // complete, usually seconds into a Region/Enterprise turn that can run for
 // minutes. The panel goes straight from skeleton to card.
-const { verdict: summary, analysisText, statusKey } = useVerdict(KEY)
+const {
+  isStreaming, streamDone, renderedContent, followUpText, analysisExpanded,
+  statusLine, reset, begin, sendFollowUp,
+  verdict: summary, analysisText, statusKey,
+} = usePanelStream(KEY, () => ({ mode: chatMode.value }))
+
+const statusText = computed(() => statusLine(`${titleText.value} · complete`))
 const summaryClass = computed(() => `summary-${statusKey.value}`)
 
 function positionPanel() {
@@ -98,32 +84,11 @@ function positionPanel() {
 
 watch(() => ui.activePanel, async (panel, prev) => {
   if (panel !== 'plant') return
-  if (prev !== 'plant') {
-    followUpText.value = ''
-    analysisExpanded.value = false
-    stopStream(KEY)
-  }
+  if (prev !== 'plant') reset()
   await nextTick()
   positionPanel()
-  const msgContent = PROMPTS.value[crumbLevel.value ?? 'plant'] ?? `Provide a status summary of the ${ui.activeSite} treatment plant.`
-  const initial: Message = { role: 'user', content: msgContent }
-  conversationLog.value = [initial]
-  stream(KEY, [initial], { mode: chatMode.value })
+  begin(PROMPTS.value[crumbLevel.value ?? 'plant'] ?? `Provide a status summary of the ${ui.activeSite} treatment plant.`)
 })
-
-function sendFollowUp() {
-  const text = followUpText.value.trim()
-  if (!text || isStreaming.value) return
-  followUpText.value = ''
-  analysisExpanded.value = false
-  const messages: Message[] = [
-    ...conversationLog.value,
-    { role: 'assistant', content: content.value },
-    { role: 'user', content: text },
-  ]
-  conversationLog.value = messages
-  stream(KEY, messages, { mode: chatMode.value })
-}
 </script>
 
 <template>
