@@ -4,10 +4,7 @@ import asyncio
 import json
 import logging
 import os
-import sqlite3
 import sys
-import uuid
-from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from urllib.parse import urlparse
 
@@ -55,6 +52,7 @@ import control
 import metrics
 import mcp_client
 import monitor as _monitor_mod
+import insights
 import multi_agent_loop
 import openai_loop
 import reactive_loop as _reactive_loop
@@ -1160,57 +1158,21 @@ async def insight_save_endpoint(request: Request):
             {"error": f"Unknown category '{category_id}'"}, status_code=400
         )
 
-    target = cat["target"]
-    requires_review = cat.get("requires_review", False)
-
-    if target in ("graph_observation", "specialist_memory"):
-        specialist = _specialist_for_node(node_id)
-        session_id = str(uuid.uuid4())
-
-    if requires_review:
-        now = datetime.now(timezone.utc).isoformat()
-        review_id = str(uuid.uuid4())
-        conn = sqlite3.connect(_METRICS_DB)
-        conn.execute(
-            """INSERT INTO insight_reviews
-               (id, node_id, category_id, category_label, target, note, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (review_id, node_id, category_id, cat["label"], target, note or None, now),
-        )
-        conn.commit()
-        conn.close()
-        return JSONResponse({"status": "queued", "review_id": review_id})
-
-    if target == "graph_observation":
-        await mcp_client.call_mcp_tool(
-            "memory__record_observation",
-            {
-                "session_id": session_id,
-                "equipment_id": node_id,
-                "text": note or f"Operator insight: {cat['label']}",
-                "confidence": 1.0,
-                "specialist": specialist or "operator",
-            },
-        )
-    elif target == "specialist_memory":
-        await mcp_client.call_mcp_tool(
-            "memory__append_specialist_memory",
-            {
-                "specialist": specialist or node_id,
-                "content": note or f"Operator insight ({cat['label']}) on {node_id}",
-            },
-        )
-    else:
-        audit.log(
-            "insight_saved",
+    try:
+        result = await insights.save(
             node_id=node_id,
-            category_id=category_id,
-            category_label=cat["label"],
-            target=target,
-            note=note or None,
+            category=cat,
+            note=note,
+            specialist=_specialist_for_node(node_id),
+            call_tool=mcp_client.call_mcp_tool,
+            db_path=_METRICS_DB,
         )
-
-    return JSONResponse({"status": "ok"})
+    except insights.SaveFailed as exc:
+        logger.error("insight for %s not saved: %s", node_id, exc)
+        return JSONResponse(
+            {"error": "insight not saved", "detail": str(exc)[:500]}, status_code=502
+        )
+    return JSONResponse(result)
 
 
 _INSTANCE_STR_FIELDS = ("ladybug_type_id", "area_id", "confidence_level")

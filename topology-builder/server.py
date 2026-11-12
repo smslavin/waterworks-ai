@@ -4,7 +4,7 @@ Tools:
   start_discovery          — begin async MQTT (+OPC-UA) crawl, returns discovery_id
   get_discovery_progress   — poll results for a discovery_id
   override_instance_type   — operator correction: reclassify an instance
-  generate_topology_yaml   — preview topology.yaml without committing
+  preview_discovered_topology — review document of a session's findings (not a loadable topology.yaml)
 
 Committing a reviewed topology to LadybugDB does NOT go through this server —
 chat-ui/backend.py's POST /api/topology/commit calls memory__seed_discovered_topology
@@ -15,6 +15,8 @@ import asyncio
 import os
 import time
 import uuid
+
+import yaml
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -170,13 +172,24 @@ async def override_instance_type(
     }
 
 
+_PREVIEW_HEADER = """\
+# Topology discovery preview — a review document, NOT a loadable topology.yaml.
+# fieldworks.topology.load() also needs facility, process area and equipment
+# type definitions (units, fault modes, descriptions) that discovery can't
+# observe. Commit the reviewed instances to LadybugDB instead (POST
+# /api/topology/commit), or write topology.yaml by hand from this.
+"""
+
+
 @mcp.tool(annotations=_READ)
-async def generate_topology_yaml(discovery_id: str) -> str:
-    """Generate a topology.yaml preview from the current session without committing."""
+async def preview_discovered_topology(discovery_id: str) -> str:
+    """Review document of a discovery session's findings, as YAML: each
+    instance with its area, type, confidence and tag bindings. Not a
+    loadable topology.yaml — see the header it starts with."""
     session = _get_session(discovery_id)
     if not session:
         return f"# Unknown or expired discovery_id: {discovery_id}"
-    return _generate_yaml("plant", "Plant", session["instances"])
+    return _preview_yaml(discovery_id, session)
 
 
 async def _run_discovery(
@@ -223,20 +236,29 @@ async def _run_discovery(
         session["error"] = str(e)
 
 
-def _generate_yaml(facility_id: str, facility_name: str, instances: list[dict]) -> str:
-    from collections import defaultdict
-
-    by_type: dict[str, list[str]] = defaultdict(list)
-    for inst in instances:
-        by_type[inst["equipment_type"]].append(inst["instance_id"])
-
-    lines = [f"site: Plant", f"facility: {facility_id}", ""]
-    lines.append("instances:")
-    for eq_type, inst_ids in by_type.items():
-        lines.append(f"  {eq_type}:")
-        for inst_id in inst_ids:
-            lines.append(f"    - id: {inst_id}")
-    return "\n".join(lines)
+def _preview_yaml(discovery_id: str, session: dict) -> str:
+    by_area: dict[str, list[dict]] = {}
+    for inst in session["instances"]:
+        by_area.setdefault(inst.get("area_id") or "unknown", []).append(
+            {
+                "id": inst["instance_id"],
+                "equipment_type": inst.get("equipment_type"),
+                "ladybug_type_id": inst.get("ladybug_type_id") or None,
+                "confidence": inst.get("confidence_level"),
+                "confidence_score": inst.get("confidence_score"),
+                "tags": {
+                    attr: info.get("tag")
+                    for attr, info in (inst.get("attributes") or {}).items()
+                },
+            }
+        )
+    doc = {
+        "discovery_id": discovery_id,
+        "broker_url": session.get("broker_url"),
+        "status": session.get("status"),
+        "areas": by_area,
+    }
+    return _PREVIEW_HEADER + yaml.safe_dump(doc, sort_keys=False)
 
 
 if __name__ == "__main__":

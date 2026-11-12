@@ -32,8 +32,11 @@ UV
   lamp_failure        Intensity drops to near-zero immediately; Running stays True.
 """
 
+import logging
 import random
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class FaultMode(str, Enum):
@@ -57,17 +60,34 @@ class FaultMode(str, Enum):
 from topology import load as _load_topology
 
 
+def unimplemented_fault_modes(topology) -> list[tuple[str, str]]:
+    """(equipment type, fault id) for each fault topology.yaml declares that
+    the simulator has no code for. Such a mode never appears in /fault-modes;
+    tests/test_simulator_fault_modes.py fails on any."""
+    known = {m.value for m in FaultMode}
+    return [
+        (eq_type.name, fault.id)
+        for eq_type in topology.equipment_types
+        for fault in eq_type.fault_modes
+        if fault.id not in known
+    ]
+
+
 def _build_type_fault_modes(topology) -> dict[str, list[FaultMode]]:
-    result = {}
-    for eq_type in topology.equipment_types:
-        modes = [FaultMode.NORMAL]
-        for fault in eq_type.fault_modes:
-            try:
-                modes.append(FaultMode(fault.id))
-            except ValueError:
-                pass  # fault in topology has no simulation code yet — skip silently
-        result[eq_type.name] = modes  # keyed by wire-format type name, e.g. "Pump"
-    return result
+    for type_name, fault_id in unimplemented_fault_modes(topology):
+        logger.warning(
+            "topology.yaml declares fault mode %r for %s but the simulator has no "
+            "code for it (simulator/faults.py); it won't be offered",
+            fault_id,
+            type_name,
+        )
+    known = {m.value for m in FaultMode}
+    return {
+        # keyed by wire-format type name, e.g. "Pump"
+        eq_type.name: [FaultMode.NORMAL]
+        + [FaultMode(f.id) for f in eq_type.fault_modes if f.id in known]
+        for eq_type in topology.equipment_types
+    }
 
 
 TYPE_FAULT_MODES: dict[str, list[FaultMode]] = _build_type_fault_modes(_load_topology())
@@ -102,30 +122,9 @@ class FaultState:
                 self._intensity = min(1.0, self._intensity + 0.016)  # ~60 ticks to ~20%
 
     def apply(self, attr: str, raw: float | bool) -> float | bool:
-        match self.mode:
-            case FaultMode.NORMAL:
-                return raw
-            case FaultMode.SUCTION_STARVATION:
-                return self._starvation(attr, raw)
-            case FaultMode.RUN_STATUS_FAULT:
-                return self._run_status(attr, raw)
-            case FaultMode.PRESSURE_DRIFT:
-                return self._pressure_drift(attr, raw)
-            case FaultMode.CAVITATION:
-                return self._cavitation(attr, raw)
-            case FaultMode.LEVEL_SENSOR_FAULT:
-                return self._level_sensor(attr, raw)
-            case FaultMode.TURBIDITY_SPIKE:
-                return self._turbidity_spike(attr, raw)
-            case FaultMode.DOSING_BLOCKAGE:
-                return self._dosing_blockage(attr, raw)
-            case FaultMode.TANK_EMPTY:
-                return self._tank_empty(attr, raw)
-            case FaultMode.LAMP_DEGRADATION:
-                return self._lamp_degradation(attr, raw)
-            case FaultMode.LAMP_FAILURE:
-                return self._lamp_failure(attr, raw)
-        return raw
+        if self.mode is FaultMode.NORMAL:
+            return raw
+        return getattr(self, _HANDLERS[self.mode])(attr, raw)
 
     # ── Pump faults ───────────────────────────────────────────────────────────
 
@@ -213,3 +212,20 @@ class FaultState:
         if attr == "Running":
             return True
         return raw
+
+
+# FaultState method that transforms each attribute's value, per mode. A new
+# mode needs a FaultMode member, an entry here, the method, and a tick()
+# case if it ramps; tests/test_simulator_fault_modes.py checks they agree.
+_HANDLERS: dict[FaultMode, str] = {
+    FaultMode.SUCTION_STARVATION: "_starvation",
+    FaultMode.RUN_STATUS_FAULT: "_run_status",
+    FaultMode.PRESSURE_DRIFT: "_pressure_drift",
+    FaultMode.CAVITATION: "_cavitation",
+    FaultMode.LEVEL_SENSOR_FAULT: "_level_sensor",
+    FaultMode.TURBIDITY_SPIKE: "_turbidity_spike",
+    FaultMode.DOSING_BLOCKAGE: "_dosing_blockage",
+    FaultMode.TANK_EMPTY: "_tank_empty",
+    FaultMode.LAMP_DEGRADATION: "_lamp_degradation",
+    FaultMode.LAMP_FAILURE: "_lamp_failure",
+}
