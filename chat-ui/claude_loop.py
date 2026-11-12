@@ -15,13 +15,13 @@ import audit
 import control
 import metrics
 import session_store
+from tool_dispatch import ToolCall
 import verdict
 from mcp_client import call_mcp_tool, list_mcp_tools
 from topology import load as _load_topology
 
 logger = logging.getLogger(__name__)
 
-TOOL_RESULT_MAX_CHARS = 8_000
 MAX_HISTORY_MESSAGES = 20  # ~10 conversation turns
 
 CONTEXT_WINDOW_TOKENS = int(os.environ.get("CONTEXT_WINDOW_TOKENS", "200000"))
@@ -45,8 +45,6 @@ _TYPE_ORDER = [et.name for et in _topo.equipment_types]
 _LABEL_OVERRIDES = {"UV": "UV", "Dosing": "Dosing", "StorageTank": "Storage Tanks"}
 _TYPE_LABELS = {k: _LABEL_OVERRIDES.get(k, k + "s") for k in _TYPE_ORDER}
 
-# Tool name as exposed by the aggregator (backend_name__tool_name)
-_PROPOSE_ACTION_TOOL = "control__propose_action"
 _ACTION_TIMEOUT = 300  # seconds to wait for operator decision
 
 
@@ -444,172 +442,23 @@ async def run_chat(
                     if block.type != "tool_use":
                         continue
                     tool_call_count += 1
-                    args = dict(block.input)
-                    _tool_calls_made.append((block.name, args))
-
-                    audit.log(
-                        "tool_call", session_id=session_id, tool=block.name, args=args
+                    call = ToolCall(
+                        block.name,
+                        dict(block.input),
+                        session_id=session_id,
+                        call_tool=call_mcp_tool,
+                        action_timeout=_ACTION_TIMEOUT,
                     )
-                    yield json.dumps(
-                        {"type": "tool_call", "tool": block.name, "args": args}
-                    )
-
-                    # ── propose_action intercept ───────────────────────────────
-                    if block.name == _PROPOSE_ACTION_TOOL:
-                        action_id = str(uuid.uuid4())
-                        yield json.dumps(
-                            {
-                                "type": "action_proposed",
-                                "action_id": action_id,
-                                "description": args.get("description", ""),
-                                "action_type": args.get("action_type", ""),
-                                "target": args.get("target", ""),
-                                "attribute": args.get("attribute", ""),
-                                "value": args.get("value", ""),
-                            }
-                        )
-                        fut = control.register(
-                            action_id,
-                            {
-                                "session_id": session_id,
-                                "action_type": args.get("action_type", ""),
-                                "target": args.get("target", ""),
-                                "attribute": args.get("attribute", ""),
-                                "value": args.get("value", ""),
-                            },
-                        )
-                        # Record the proposal now, before awaiting the operator's
-                        # answer — a restart or disconnect while awaiting must not
-                        # leave this action with no row at all.
-                        session_store.log_action_proposed(
-                            action_id=action_id,
-                            session_id=session_id,
-                            action_type=args.get("action_type", ""),
-                            target=args.get("target", ""),
-                            value=str(args.get("value", "")),
-                            description=args.get("description", ""),
-                        )
-                        try:
-                            decision = await asyncio.wait_for(
-                                fut, timeout=_ACTION_TIMEOUT
-                            )
-                        except asyncio.TimeoutError:
-                            decision = "timed_out"
-
-                        session_store.log_action_decision(
-                            action_id=action_id, decision=decision
-                        )
-                        audit.log(
-                            "action_decision",
-                            session_id=session_id,
-                            action_id=action_id,
-                            decision=decision,
-                        )
-                        yield json.dumps(
-                            {
-                                "type": "action_decision",
-                                "action_id": action_id,
-                                "decision": decision,
-                            }
-                        )
-
-                        if decision == "approved":
-                            result = (
-                                f"Action approved by operator. "
-                                f"Proceed with {args.get('action_type', 'action')} "
-                                f"on {args.get('target', 'target')}."
-                            )
-                        else:
-                            result = (
-                                f"Action denied by operator ({decision}). "
-                                f"No changes will be made to {args.get('target', 'target')}."
-                            )
-                        audit.log(
-                            "tool_result",
-                            session_id=session_id,
-                            tool=block.name,
-                            result=result,
-                        )
-                        yield json.dumps(
-                            {
-                                "type": "tool_result",
-                                "tool": block.name,
-                                "result": result,
-                            }
-                        )
-
-                    # ── Gated execution tools ───────────────────────────────────
-                    elif block.name in control.EXECUTION_TOOLS:
-                        granted_action_id = control.consume_grant(
-                            session_id, block.name, args
-                        )
-                        if granted_action_id is not None:
-                            result = await call_mcp_tool(block.name, args)
-                            if result.startswith("Error"):
-                                error_count += 1
-                            session_store.log_action_outcome(
-                                action_id=granted_action_id,
-                                outcome=(
-                                    f"failed: {result[:200]}"
-                                    if result.startswith("Error")
-                                    else "ok"
-                                ),
-                            )
-                        else:
-                            result = (
-                                "Refused: no matching operator approval for this "
-                                "exact action. Call propose_action again and use "
-                                "the exact same target/attribute/value to execute."
-                            )
-                            audit.log(
-                                "unapproved_execution_blocked",
-                                session_id=session_id,
-                                tool=block.name,
-                                args=args,
-                            )
-                        audit.log(
-                            "tool_result",
-                            session_id=session_id,
-                            tool=block.name,
-                            result=result,
-                        )
-                        yield json.dumps(
-                            {
-                                "type": "tool_result",
-                                "tool": block.name,
-                                "result": result,
-                            }
-                        )
-
-                    # ── Normal MCP tool call ────────────────────────────────────
-                    else:
-                        result = await call_mcp_tool(block.name, args)
-                        if result.startswith("Error"):
-                            error_count += 1
-                        audit.log(
-                            "tool_result",
-                            session_id=session_id,
-                            tool=block.name,
-                            result=result,
-                        )
-                        yield json.dumps(
-                            {
-                                "type": "tool_result",
-                                "tool": block.name,
-                                "result": result,
-                            }
-                        )
-
-                    stored = (
-                        result
-                        if len(result) <= TOOL_RESULT_MAX_CHARS
-                        else result[:TOOL_RESULT_MAX_CHARS] + "\n[truncated]"
-                    )
+                    _tool_calls_made.append((call.name, call.args))
+                    async for event in call.events():
+                        yield json.dumps(event)
+                    if call.is_error:
+                        error_count += 1
                     tool_results.append(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            "content": stored,
+                            "content": call.for_history(),
                         }
                     )
 

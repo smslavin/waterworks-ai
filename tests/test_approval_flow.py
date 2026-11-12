@@ -115,9 +115,11 @@ class _Model:
         self._turns = iter(script)
         self.messages = self
         self.offered: list[set[str]] = []  # tool names offered, per turn
+        self.sent: list[list[dict]] = []  # messages sent, per turn
 
     def _next(self, kwargs):
         self.offered.append({t["name"] for t in kwargs.get("tools", [])})
+        self.sent.append(kwargs.get("messages", []))
         return _message(next(self._turns, []))
 
     def stream(self, **kwargs):
@@ -405,3 +407,29 @@ def test_models_are_offered_the_approval_tools_but_no_raw_writes(
     assert {PROPOSE, SETPOINT, CLEAR, "audit__list_incidents"} <= offered
     assert "mqtt__write_tag" not in offered
     assert "influxdb__write_point" not in offered
+
+
+# ── one dispatcher for all three loops (gh-24) ─────────────────────────────
+
+
+def test_denial_reads_the_same_in_every_loop(monkeypatch, loop, aggregator):
+    """The copies had drifted: multi-agent said "No changes to X"."""
+    events, _ = _run(monkeypatch, loop, [[(PROPOSE, PROPOSAL)]], "denied")
+    results = [e["result"] for e in events if e["type"] == "tool_result"]
+    assert results == [
+        "Action denied by operator (denied). No changes will be made to Chlorine_01."
+    ]
+
+
+def test_long_tool_results_are_truncated_in_history(monkeypatch, loop, aggregator):
+    """Cascade's follow-up path used to send whole tool results back."""
+    aggregator.reply = "x" * 20_000
+    model = _Model([[("audit__list_incidents", {})]])
+    events, _ = _run(monkeypatch, loop, [], model=model)
+
+    history_result = model.sent[1][-1]["content"][-1]["content"]
+    assert history_result == "x" * 8_000 + "\n[truncated]"
+    # The UI event and the audit record keep the full result.
+    shown = [e for e in events if e["type"] == "tool_result"]
+    assert shown[0]["result"] == "x" * 20_000
+    assert [r["result"] for r in _audit("tool_result")] == ["x" * 20_000]
