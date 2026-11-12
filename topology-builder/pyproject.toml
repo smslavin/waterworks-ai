@@ -7,7 +7,7 @@ dependencies = [
     "paho-mqtt>=2.0",
     "pyyaml>=6.0",
     "python-dotenv",
-    "fieldworks-core[adapters]>=1.0.1",
+    "fieldworks-core[adapters]>=1.2.0",
 ]
 
 [tool.uv]

@@ -22,7 +22,6 @@ import json
 import logging
 import os
 import sqlite3
-import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,8 +32,7 @@ from mcp.types import ToolAnnotations
 
 load_dotenv()
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "audit_mcp")
 logger = logging.getLogger(__name__)

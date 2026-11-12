@@ -153,9 +153,9 @@ This is the single-plant view. For the full picture — multi-agent fan-out, rea
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (`brew install uv` or `pip install uv`)
 - **Rust/cargo** — for the MQTT/OPC-UA adapters ([fieldworks-adapters](https://github.com/fieldworks-build/fieldworks-adapters), Rust binaries). Install via [rustup](https://rustup.rs), then:
   ```bash
-  cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
+  cargo install mqtt-mcp opcua-mcp
   ```
-  Make sure `~/.cargo/bin` is on your `PATH` (rustup adds this automatically; Homebrew-installed Rust may not — `cargo install` warns if it's missing). The aggregator spawns these as subprocesses by name, so they need to resolve on `PATH`.
+  Make sure `~/.cargo/bin` is on your `PATH` (rustup adds this automatically; Homebrew-installed Rust may not — `cargo install` warns if it's missing). The aggregator spawns these as subprocesses by name, so they need to resolve on `PATH`. Version 1.0.5 or later is required: older binaries declare no MCP tool annotations, and chat-ui then hides their tools from models. Re-run the same command to upgrade.
 - **Anthropic API key** — or a local [Ollama](https://ollama.com) installation
 - Each service depends on [fieldworks-core](https://pypi.org/project/fieldworks-core/) (`pip install fieldworks-core`), pulled in automatically via `requirements.txt`
 
@@ -177,7 +177,7 @@ python3 -c "import os, base64; print('AUDIT_KEY=' + base64.b64encode(os.urandom(
 **One-time setup** — create virtualenvs and install frontend dependencies:
 
 ```bash
-cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
+cargo install mqtt-mcp opcua-mcp
 (cd simulator              && uv venv && uv pip install -r requirements.txt)
 (cd influxdb-mcp           && uv venv && uv pip install -r requirements.txt)
 (cd audit-mcp              && uv venv && uv pip install -r requirements.txt)
@@ -227,7 +227,7 @@ cd chat-ui/frontend && npm run build
 **Create virtualenvs and install frontend dependencies** — run from the repo root in PowerShell:
 
 ```powershell
-cargo install --git https://github.com/fieldworks-build/fieldworks-adapters mqtt-mcp opcua-mcp
+cargo install mqtt-mcp opcua-mcp
 foreach ($dir in @("simulator", "influxdb-mcp", "audit-mcp", "control-mcp", "memory-mcp", "topology-builder", "mcp-aggregator/server", "chat-ui", "mqtt-influx-bridge")) {
     Push-Location $dir; uv venv; uv pip install -r requirements.txt; Pop-Location
 }

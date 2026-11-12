@@ -57,12 +57,14 @@ def _tool(name, annotations=None):
             ),
             True,
         ),
-        # fieldworks-adapters declare nothing yet; known reads are listed.
-        (_tool("mqtt__read_tag"), False),
-        (_tool("mqtt__scan"), False),
-        (_tool("mqtt__connect"), False),
-        (_tool("mqtt__write_tag"), True),
-        (_tool("opcua__write_tag"), True),
+        # fieldworks-adapters >= 1.0.5 declare their hints (adapters#15).
+        (_tool("mqtt__read_tag", READ), False),
+        (_tool("mqtt__scan", READ), False),
+        (_tool("mqtt__connect", WRITE), False),
+        (_tool("mqtt__write_tag", DESTRUCTIVE), True),
+        (_tool("opcua__write_tag", DESTRUCTIVE), True),
+        # An older adapter binary declares nothing, so its reads are hidden too.
+        (_tool("mqtt__read_tag"), True),
     ],
     ids=lambda v: v["name"] if isinstance(v, dict) else str(v),
 )
@@ -75,8 +77,8 @@ def test_offered_keeps_approvable_writes_and_drops_the_rest():
         _tool("control__propose_action", READ),
         _tool("control__set_setpoint", DESTRUCTIVE),
         _tool("control__clear_fault", DESTRUCTIVE),
-        _tool("mqtt__read_tag"),
-        _tool("mqtt__write_tag"),
+        _tool("mqtt__read_tag", READ),
+        _tool("mqtt__write_tag", DESTRUCTIVE),
         _tool("influxdb__write_point", DESTRUCTIVE),
         _tool("memory__seed_discovered_topology", DESTRUCTIVE),
     ]
@@ -92,8 +94,8 @@ def test_offered_keeps_approvable_writes_and_drops_the_rest():
 def test_specialists_lose_the_raw_write_tools():
     """The specialist prefixes (mqtt__, influxdb__) used to pass these through."""
     tools = [
-        _tool("mqtt__read_tag"),
-        _tool("mqtt__write_tag"),
+        _tool("mqtt__read_tag", READ),
+        _tool("mqtt__write_tag", DESTRUCTIVE),
         _tool("influxdb__query", READ),
         _tool("influxdb__write_point", DESTRUCTIVE),
     ]

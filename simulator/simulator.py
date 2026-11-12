@@ -23,7 +23,6 @@ import json
 import logging
 import math
 import os
-import sys
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
@@ -48,8 +47,7 @@ INTERVAL = float(os.environ.get("PUBLISH_INTERVAL", 2.0))
 MQTT_ROOT = os.environ.get("PLANT_TOPIC_ROOT", "Plant/WTP")
 OPCUA_NS_URI = "urn:waterworks-ai:simulator"
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "simulator")
 logger = logging.getLogger("waterworks-simulator")

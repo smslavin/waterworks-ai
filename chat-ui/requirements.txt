@@ -11,4 +11,4 @@ influxdb-client>=1.43.0
 pyyaml
 paho-mqtt>=2.0
 
-fieldworks-core[memory]>=1.0.1
+fieldworks-core[memory]>=1.2.0

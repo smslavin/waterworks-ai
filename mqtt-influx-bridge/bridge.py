@@ -34,8 +34,7 @@ INFLUXDB_BUCKET = os.environ.get("INFLUXDB_BUCKET", "waterworks")
 MEASUREMENT = "wtp_process"
 FAULT_MEASUREMENT = "wtp_fault_events"
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "bridge")
 logger = logging.getLogger(__name__)

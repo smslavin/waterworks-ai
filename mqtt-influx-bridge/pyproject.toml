@@ -6,6 +6,7 @@ dependencies = [
     "paho-mqtt>=2.0",
     "influxdb-client>=1.40",
     "python-dotenv>=1.0",
+    "fieldworks-core>=1.2.0",
 ]
 
 [tool.uv]

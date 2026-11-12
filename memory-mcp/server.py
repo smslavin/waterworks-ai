@@ -26,7 +26,6 @@ import dataclasses
 import json
 import logging
 import os
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -35,8 +34,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))  # repo root
-from service_logging import setup_logging  # noqa: E402
+from fieldworks.service_logging import setup_logging  # noqa: E402
 
 setup_logging(__file__, "memory_mcp")
 logger = logging.getLogger(__name__)
