@@ -22,6 +22,7 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("anthropic")
+from anthropic.types.beta import BetaTextBlock, BetaToolUseBlock  # noqa: E402
 
 import audit  # noqa: E402
 import claude_loop  # noqa: E402
@@ -73,12 +74,14 @@ def _message(turn):
     )
     if not turn:
         return SimpleNamespace(
-            content=[SimpleNamespace(type="text", text="Done.")],
+            content=[BetaTextBlock.model_construct(type="text", text="Done.")],
             stop_reason="end_turn",
             usage=usage,
         )
     blocks = [
-        SimpleNamespace(type="tool_use", id=f"tu_{i}", name=name, input=dict(args))
+        BetaToolUseBlock.model_construct(
+            type="tool_use", id=f"tu_{i}", name=name, input=dict(args)
+        )
         for i, (name, args) in enumerate(turn)
     ]
     return SimpleNamespace(content=blocks, stop_reason="tool_use", usage=usage)
@@ -114,6 +117,7 @@ class _Model:
     def __init__(self, script):
         self._turns = iter(script)
         self.messages = self
+        self.beta = SimpleNamespace(messages=self)  # client.beta.messages
         self.offered: list[set[str]] = []  # tool names offered, per turn
         self.sent: list[list[dict]] = []  # messages sent, per turn
 

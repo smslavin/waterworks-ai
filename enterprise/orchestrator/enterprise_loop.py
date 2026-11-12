@@ -20,12 +20,13 @@ import anthropic
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "chat-ui"))
+import model_params
 from mcp_client import call_mcp_tool, list_mcp_tools
 from plant_registry import load_sites
 
 logger = logging.getLogger(__name__)
 
-MODEL = os.environ.get("ENTERPRISE_MODEL", "claude-sonnet-4-6")
+MODEL = os.environ.get("ENTERPRISE_MODEL", "claude-sonnet-5-5")
 DIAGNOSE_PLANT_MCP_URL = os.environ.get(
     "DIAGNOSE_PLANT_MCP_URL", "http://localhost:8200/sse"
 )
@@ -136,26 +137,19 @@ async def run_chat(
             )
             if tools:
                 stream_kwargs["tools"] = tools
+            stream_kwargs.update(model_params.request_params(MODEL, effort="medium"))
 
-            async with client.messages.stream(**stream_kwargs) as stream:
+            async with client.beta.messages.stream(**stream_kwargs) as stream:
                 async for text in stream.text_stream:
                     yield json.dumps({"type": "text", "text": text})
                 final = await stream.get_final_message()
 
+            if refusal := model_params.refusal_message(final):
+                yield json.dumps({"type": "error", "error": refusal})
+                return
+
             if final.stop_reason == "tool_use":
-                assistant_content = []
-                for block in final.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append(
-                            {
-                                "type": "tool_use",
-                                "id": block.id,
-                                "name": block.name,
-                                "input": dict(block.input),
-                            }
-                        )
+                assistant_content = model_params.assistant_turn(final.content)
 
                 tool_use_blocks = [b for b in final.content if b.type == "tool_use"]
                 for block in tool_use_blocks:

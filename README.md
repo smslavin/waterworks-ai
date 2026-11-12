@@ -802,7 +802,7 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `AUDIT_KEY` | _(empty)_ | Base64-encoded 32-byte AES key for audit log encryption. Unset = plaintext (dev only). |
 | `AUDIT_LOG_PATH` | `chat-ui/audit.jsonl` | Override the audit log file path. |
 | `REACTIVE_ENABLED` | `0` | Set to `1` to auto-start reactive monitoring on backend launch. Can also be toggled from the UI. |
-| `REACTIVE_MODEL` | `claude-haiku-4-5-20251001` | Model for Deadband agent and reactive specialist calls. |
+| `REACTIVE_MODEL` | `claude-haiku-4-5` | Model for Deadband agent and reactive specialist calls. |
 | `REACTIVE_MIN_DURATION` | `30` | Seconds a violation must persist before AnomalyMonitor fires. |
 | `REACTIVE_COOLDOWN` | `60` | Seconds before the same instance can trigger again after a full cascade. |
 | `MQTT_BROKER_URL` | `localhost:1883` | MQTT broker address for AnomalyMonitor. |

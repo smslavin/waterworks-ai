@@ -16,6 +16,7 @@ import anthropic
 import audit
 import control
 import metrics
+import model_params
 import session_store
 from tool_dispatch import TOOL_RESULT_MAX_CHARS, ToolCall
 import verdict
@@ -44,8 +45,8 @@ logger = logging.getLogger(__name__)
 # model ends its turn without ever emitting one.
 SPECIALIST_MAX_ROUNDS = 4
 
-SPECIALIST_MODEL = "claude-haiku-4-5-20251001"
-ORCHESTRATOR_MODEL = "claude-sonnet-4-6"
+SPECIALIST_MODEL = "claude-haiku-4-5"
+ORCHESTRATOR_MODEL = "claude-sonnet-5-5"
 
 # Tool name prefixes allowed per specialist. OPC-UA excluded from all specialists.
 _MQTT_PREFIXES = ("mqtt__",)
@@ -416,8 +417,9 @@ async def _run_specialist(
             )
             if api_tools:
                 kwargs["tools"] = api_tools
+            kwargs.update(model_params.request_params(SPECIALIST_MODEL, effort="low"))
 
-            async with client.messages.stream(**kwargs) as stream:
+            async with client.beta.messages.stream(**kwargs) as stream:
                 first_chunk = True
                 async for text in stream.text_stream:
                     if first_chunk and after_tool_call and text.strip():
@@ -452,19 +454,7 @@ async def _run_specialist(
                 break
 
             if final.stop_reason == "tool_use":
-                assistant_content = []
-                for block in final.content:
-                    if block.type == "text":
-                        assistant_content.append({"type": "text", "text": block.text})
-                    elif block.type == "tool_use":
-                        assistant_content.append(
-                            {
-                                "type": "tool_use",
-                                "id": block.id,
-                                "name": block.name,
-                                "input": dict(block.input),
-                            }
-                        )
+                assistant_content = model_params.assistant_turn(final.content)
 
                 tool_results = []
                 for block in final.content:
@@ -651,8 +641,9 @@ async def _cascade_rounds(
         )
         if api_tools:
             kwargs["tools"] = api_tools
+        kwargs.update(model_params.request_params(ORCHESTRATOR_MODEL, effort="medium"))
 
-        async with client.messages.stream(**kwargs) as stream:
+        async with client.beta.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 run.text += text
                 yield json.dumps({"type": "text", "text": text})
@@ -663,6 +654,10 @@ async def _cascade_rounds(
         run.cache_creation_input_tokens += final.usage.cache_creation_input_tokens or 0
         run.cache_read_input_tokens += final.usage.cache_read_input_tokens or 0
 
+        if refusal := model_params.refusal_message(final):
+            yield json.dumps({"type": "error", "error": refusal})
+            return
+
         tool_uses = [b for b in final.content if b.type == "tool_use"]
         if final.stop_reason != "tool_use" or not tool_uses:
             if any(kw in run.text.lower() for kw in _ACTION_KEYWORDS):
@@ -672,19 +667,7 @@ async def _cascade_rounds(
                 )
             return
 
-        assistant_content = []
-        for block in final.content:
-            if block.type == "text":
-                assistant_content.append({"type": "text", "text": block.text})
-            elif block.type == "tool_use":
-                assistant_content.append(
-                    {
-                        "type": "tool_use",
-                        "id": block.id,
-                        "name": block.name,
-                        "input": dict(block.input),
-                    }
-                )
+        assistant_content = model_params.assistant_turn(final.content)
 
         tool_results = []
         for block in tool_uses:

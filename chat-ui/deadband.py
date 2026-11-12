@@ -20,7 +20,7 @@ from fieldworks.agents.deadband import (
 )
 
 logger = logging.getLogger(__name__)
-DEADBAND_MODEL = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5-20251001")
+DEADBAND_MODEL = os.environ.get("REACTIVE_MODEL", "claude-haiku-4-5")
 
 DEADBAND_SYSTEM = build_deadband_system(_load_topology().facility.name)
 
