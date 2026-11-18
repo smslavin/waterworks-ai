@@ -123,3 +123,135 @@ supervise_stop() {
     echo "  [$label] stopped (pid $pid)"
     return 0
 }
+
+# ── Settings, ports, and startup checks ─────────────────────────────────────
+#
+# Services read their settings through python-dotenv, which never overrides
+# a variable already in the environment. env_value applies the same rule so
+# the scripts check the ports the services will actually bind: the shell
+# environment first, then the last matching line in $ENV_FILE (default
+# ./.env), then the given default.
+
+# env_value <var> <default>
+env_value() {
+    local var="$1" default="$2" value
+    if [[ -n "${!var+x}" ]]; then
+        echo "${!var}"
+        return 0
+    fi
+    value="$(grep -E "^[[:space:]]*(export[[:space:]]+)?${var}=" "${ENV_FILE:-.env}" 2>/dev/null | tail -1 | cut -d= -f2-)" || true
+    value="${value%%[[:space:]]#*}"                 # trailing comment
+    value="${value%"${value##*[![:space:]]}"}"       # trailing whitespace
+    value="${value%\"}"; value="${value#\"}"
+    value="${value%\'}"; value="${value#\'}"
+    echo "${value:-$default}"
+}
+
+# supervise_render <template> <out>
+# Replaces each ${VAR:-default} in <template> with env_value VAR default.
+# Every placeholder must carry a default, so a fresh checkout without the
+# variable in .env renders the stock value.
+supervise_render() {
+    local template="$1" out="$2" content full var default
+    content="$(<"$template")"
+    while [[ "$content" =~ \$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\} ]]; do
+        full="${BASH_REMATCH[0]}"
+        var="${BASH_REMATCH[1]}"
+        default="${BASH_REMATCH[2]}"
+        content="${content//"$full"/$(env_value "$var" "$default")}"
+    done
+    printf '%s\n' "$content" > "$out"
+}
+
+# port_listening <port> — true if something accepts TCP connections on
+# 127.0.0.1:<port>. bash's /dev/tcp needs no extra tools on macOS or Linux.
+port_listening() {
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
+# port_holder <port> — "pid N (command)" for the process listening on
+# <port>, or "an unknown process" if neither lsof nor ss can say.
+port_holder() {
+    local port="$1" pid=""
+    if command -v lsof >/dev/null 2>&1; then
+        pid="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1)" || true
+    elif command -v ss >/dev/null 2>&1; then
+        pid="$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)" || true
+    fi
+    if [[ -n "$pid" ]]; then
+        echo "pid $pid ($(ps -o comm= -p "$pid" 2>/dev/null || echo '?'))"
+    else
+        echo "an unknown process"
+    fi
+}
+
+# SUPERVISE_CHECKS: one "name|port" entry per service, port empty for
+# services that don't listen. Filled by supervise_expect.
+SUPERVISE_CHECKS=()
+
+# supervise_expect <name> [port]
+supervise_expect() {
+    SUPERVISE_CHECKS+=("$1|${2:-}")
+}
+
+# supervise_preflight — fails (status 1) and names the holder of every
+# expected port that's already taken. A service started onto a taken port
+# dies at once while the old process keeps answering, which looks healthy
+# from outside; refusing to start makes the conflict visible.
+supervise_preflight() {
+    local entry name port conflicts=0
+    for entry in "${SUPERVISE_CHECKS[@]}"; do
+        name="${entry%%|*}"; port="${entry#*|}"
+        [[ -z "$port" ]] && continue
+        if port_listening "$port"; then
+            echo "  [$name] port $port is already in use by $(port_holder "$port")"
+            conflicts=$((conflicts + 1))
+        fi
+    done
+    if [[ $conflicts -gt 0 ]]; then
+        echo "Stop whatever holds those ports (often a leftover from an earlier run: ./stop.sh, or kill the pid) and try again."
+        return 1
+    fi
+}
+
+# supervise_verify [timeout_seconds] — after launch, waits for every expected
+# service: OK once its port is listening (or, with no port, once it has
+# stayed up a few seconds), FAILED if its process exits or the timeout passes.
+# Prints the tail of the log for each failure. Status 1 if any failed.
+supervise_verify() {
+    local timeout="${1:-${SUPERVISE_VERIFY_TIMEOUT:-60}}" waited=0 failed=0
+    local pending=("${SUPERVISE_CHECKS[@]}") still entry name port pid
+    echo "Checking services..."
+    while [[ ${#pending[@]} -gt 0 ]]; do
+        still=()
+        for entry in "${pending[@]}"; do
+            name="${entry%%|*}"; port="${entry#*|}"
+            pid="$(sed -n '1p' ".pids/${name}.pid" 2>/dev/null)" || true
+            if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+                _supervise_failed "$name" "exited during startup"
+                failed=$((failed + 1))
+            elif [[ -n "$port" ]] && port_listening "$port"; then
+                echo "  [$name] OK (port $port)"
+            elif [[ -z "$port" && $waited -ge 3 ]]; then
+                echo "  [$name] OK (running)"
+            elif [[ $waited -ge $timeout ]]; then
+                _supervise_failed "$name" "not listening on port $port after ${timeout}s"
+                failed=$((failed + 1))
+            else
+                still+=("$entry")
+            fi
+        done
+        pending=("${still[@]+"${still[@]}"}")
+        [[ ${#pending[@]} -gt 0 ]] && { sleep 1; waited=$((waited + 1)); }
+    done
+    if [[ $failed -gt 0 ]]; then
+        echo "$failed service(s) FAILED to start — see above."
+        return 1
+    fi
+}
+
+_supervise_failed() {
+    local name="$1" reason="$2"
+    echo "  [$name] FAILED: $reason — last lines of logs/${name}.log:"
+    tail -n 5 "logs/${name}.log" 2>/dev/null | sed 's/^/      /'
+}
