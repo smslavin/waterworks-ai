@@ -55,6 +55,25 @@ supervise_stop "$PID_FILE" "$SERVICE"
 
 mkdir -p logs .pids
 
+case "$SERVICE" in
+    simulator)        PORT="$(env_value CONTROL_PORT 8090)" ;;
+    influxdb-mcp)     PORT="$(env_value INFLUXDB_MCP_PORT 8003)" ;;
+    audit-mcp)        PORT="$(env_value AUDIT_MCP_PORT 8004)" ;;
+    control-mcp)      PORT="$(env_value CONTROL_MCP_PORT 8005)" ;;
+    memory-mcp)       PORT="$(env_value MEMORY_MCP_PORT 8006)" ;;
+    topology-builder) PORT="$(env_value TOPOLOGY_BUILDER_PORT 8007)" ;;
+    aggregator)       PORT="$AGGREGATOR_PORT" ;;
+    chat-ui)          PORT="$(env_value CHAT_UI_PORT 8080)" ;;
+    *)                PORT="" ;;  # bridge and frontend don't have a fixed port
+esac
+supervise_expect "$SERVICE" "$PORT"
+# A port still held after the stop above belongs to something the pidfile
+# didn't cover — an orphan from an interrupted run, or another checkout.
+supervise_preflight || exit 1
+if [[ "$SERVICE" == aggregator ]]; then
+    supervise_render mcp-aggregator/backends.json mcp-aggregator/backends.rendered.json
+fi
+
 start_one() {
     supervise_start "$1" "$2" "$3" ".pids/${1}.pid"
 }
@@ -70,7 +89,7 @@ case "$SERVICE" in
     # BACKENDS_FILE and AGGREGATOR_PORT must be set explicitly — the aggregator's
     # own defaults resolve to the submodule's bundled example config, not this
     # checkout's real one. Matches start.sh.
-    aggregator)       start_one aggregator        mcp-aggregator/server "BACKENDS_FILE=../backends.json AGGREGATOR_PORT=${AGGREGATOR_PORT} uv run python server.py" ;;
+    aggregator)       start_one aggregator        mcp-aggregator/server "BACKENDS_FILE=../backends.rendered.json AGGREGATOR_PORT=${AGGREGATOR_PORT} uv run python server.py" ;;
     chat-ui)          start_one chat-ui           chat-ui               "uv run python backend.py" ;;
     frontend)         start_one frontend          chat-ui/frontend      "npm run dev" ;;
     *)
@@ -79,6 +98,8 @@ case "$SERVICE" in
         exit 1
         ;;
 esac
+
+supervise_verify || exit 1
 
 # ── Re-list the backend's tools on the aggregator ─────────────────────────────
 #

@@ -17,7 +17,8 @@ git submodule update --init --recursive
 
 # 2b. mqtt-mcp/opcua-mcp binaries (if not yet installed) — the aggregator spawns
 #     these itself as stdio subprocesses, no separate terminal needed for them:
-cargo install mqtt-mcp opcua-mcp
+cargo install mqtt-mcp
+cargo install opcua-mcp   # separately: the two-crate form can skip one
 
 # 3. Each service — run in separate terminals from its directory with uv:
 cd simulator         && uv run python simulator.py
@@ -27,12 +28,14 @@ cd audit-mcp         && uv run python server.py
 cd control-mcp       && uv run python server.py
 cd memory-mcp        && uv run python server.py
 cd topology-builder  && uv run python server.py
-cd mcp-aggregator/server && uv run python server.py
+cd mcp-aggregator/server && BACKENDS_FILE=../backends.rendered.json uv run python server.py   # rendered by start.sh / ./restart.sh aggregator
 cd chat-ui           && uv run python backend.py
 ```
 
 Chat UI: http://localhost:8080  
 Dashboard overview: open `dashboard.html` in browser.
+
+`./start.sh` does all of the above in one terminal. Before launching it refuses to start if any service port is already taken (naming the holder's pid — usually an orphan from an interrupted run); after launching it reports each service as OK or FAILED with the tail of `logs/<service>.log`. `./restart.sh <service>` runs the same checks for one service. Helpers live in `scripts/lib/supervise.sh` (`tests/test_supervise.py`).
 
 ## Port map
 
@@ -103,7 +106,9 @@ chat-ui/            backend.py, claude_loop.py, multi_agent_loop.py, openai_loop
                     mcp_client.py, session_store.py, control.py, metrics.py, audit.py,
                     providers.json, static/ (Vite build output — do not edit directly),
                     frontend/ (Vue 3 + Vite source — edit here, then npm run build)
-mcp-aggregator/     git submodule (server/) + backends.json
+mcp-aggregator/     git submodule (server/) + backends.json (a template: ${PORT_VAR:-default}
+                    placeholders that start.sh/restart.sh fill from .env into the untracked
+                    backends.rendered.json the aggregator actually reads)
                     mqtt/opcua entries are stdio — aggregator spawns the fieldworks-adapters
                     mqtt-mcp/opcua-mcp binaries itself (cargo-installed, not vendored here)
 topology.yaml       single source of truth: process units, fault modes, specialist scopes, alarm limits
@@ -242,7 +247,7 @@ Phases 0–13 complete. Phase 12 replaced the vanilla HTML/JS frontend with a Vu
 
 - `simulator/simulator.py` main loop — stable, don't refactor without a reason
 - `mcp-aggregator/server/` — this is a submodule; changes belong upstream
-- `backends.json` lives in `mcp-aggregator/` (not the submodule `server/` directory)
+- `backends.json` lives in `mcp-aggregator/` (not the submodule `server/` directory). It's a template — set per-plant ports in `.env`, never by editing it
 
 ## Smoke-testing services touches real data by default — redirect paths first
 

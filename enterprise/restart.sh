@@ -26,6 +26,16 @@ supervise_stop "$PID_FILE" "$SERVICE"
 
 mkdir -p logs .pids
 
+ENV_FILE=../.env
+case "$SERVICE" in
+    diagnose-plant-mcp)      PORT=8200 ;;
+    query-history-mcp)       PORT=8201 ;;
+    enterprise-orchestrator) PORT="$(env_value ENTERPRISE_PORT 8020)" ;;
+    *)                       PORT="" ;;
+esac
+supervise_expect "$SERVICE" "$PORT"
+supervise_preflight || exit 1
+
 start_one() {
     supervise_start "$1" "$2" "$3" ".pids/${1}.pid"
 }
@@ -40,3 +50,5 @@ case "$SERVICE" in
         exit 1
         ;;
 esac
+
+supervise_verify || exit 1

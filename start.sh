@@ -36,6 +36,26 @@ start_service() {
     supervise_start "$1" "$2" "$3" ".pids/${1}.pid"
 }
 
+# ── Expected services and their ports (this checkout's .env, then defaults) ──
+supervise_expect simulator        "$(env_value CONTROL_PORT 8090)"
+supervise_expect bridge
+supervise_expect influxdb-mcp     "$(env_value INFLUXDB_MCP_PORT 8003)"
+supervise_expect audit-mcp        "$(env_value AUDIT_MCP_PORT 8004)"
+supervise_expect control-mcp      "$(env_value CONTROL_MCP_PORT 8005)"
+supervise_expect memory-mcp       "$(env_value MEMORY_MCP_PORT 8006)"
+supervise_expect topology-builder "$(env_value TOPOLOGY_BUILDER_PORT 8007)"
+supervise_expect aggregator       "$AGGREGATOR_PORT"
+supervise_expect chat-ui          "$(env_value CHAT_UI_PORT 8080)"
+supervise_expect frontend   # Vite moves to the next free port when 5173 is taken
+
+echo "Checking ports..."
+supervise_preflight || exit 1
+
+# The aggregator gets this checkout's backend ports from .env, rendered into an
+# untracked copy of the tracked template — a second plant (M10) needs no edit
+# to a tracked file.
+supervise_render mcp-aggregator/backends.json mcp-aggregator/backends.rendered.json
+
 # ── Infrastructure ───────────────────────────────────────────────────────────
 echo "Starting infrastructure..."
 docker compose up -d --quiet-pull
@@ -51,21 +71,19 @@ start_service "audit-mcp"        "audit-mcp"          "uv run python server.py"
 start_service "control-mcp"      "control-mcp"        "uv run python server.py"
 start_service "memory-mcp"       "memory-mcp"         "uv run python server.py"
 start_service "topology-builder" "topology-builder"   "uv run python server.py"
-
-sleep 2  # give the backend MCP servers above a head start — aggregator discovery
-         # below is one-shot at startup with no retry; a backend not yet listening
-         # when discovery runs is silently skipped for the rest of the process
-
-# aggregator spawns mqtt-mcp/opcua-mcp itself as stdio subprocesses (see backends.json) —
-# no separate start_service entries for them. BACKENDS_FILE and AGGREGATOR_PORT must
-# be set explicitly: the aggregator's own defaults resolve to the submodule's bundled
-# example config, not this checkout's real one.
-start_service "aggregator" "mcp-aggregator/server" "BACKENDS_FILE=../backends.json AGGREGATOR_PORT=${AGGREGATOR_PORT} uv run python server.py"
+sleep 2  # head start for the backends; the aggregator retries any it misses
+# aggregator spawns mqtt-mcp/opcua-mcp itself as stdio subprocesses (see
+# backends.json) — no separate start_service entries for them. BACKENDS_FILE
+# and AGGREGATOR_PORT must be set explicitly: the aggregator's own defaults
+# resolve to the submodule's bundled example config, not this checkout's.
+start_service "aggregator" "mcp-aggregator/server" "BACKENDS_FILE=../backends.rendered.json AGGREGATOR_PORT=${AGGREGATOR_PORT} uv run python server.py"
 start_service "chat-ui"          "chat-ui"            "uv run python backend.py"
 start_service "frontend"         "chat-ui/frontend"   "npm run dev"
 
 echo ""
-echo "All services running. Chat UI (legacy) → http://localhost:8080  |  Vue UI → http://localhost:5173"
+supervise_verify || true   # keep whatever did start running; failures are listed above
+echo ""
+echo "Chat UI → http://localhost:$(env_value CHAT_UI_PORT 8080)  |  Vite dev UI → see logs/frontend.log"
 echo "Logs: logs/<service>.log  |  Ctrl-C to stop everything."
 echo ""
 

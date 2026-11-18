@@ -28,6 +28,14 @@ start_service() {
     supervise_start "$1" "$2" "$3" ".pids/${1}.pid"
 }
 
+# Enterprise services read the checkout's root .env (load_dotenv walks up).
+ENV_FILE=../.env
+supervise_expect diagnose-plant-mcp      8200
+supervise_expect query-history-mcp       8201
+supervise_expect enterprise-orchestrator "$(env_value ENTERPRISE_PORT 8020)"
+echo "Checking ports..."
+supervise_preflight || exit 1
+
 echo "Starting enterprise services..."
 start_service "diagnose-plant-mcp" "diagnose_plant_mcp" "uv run python server.py"
 start_service "query-history-mcp" "query_history_mcp" "uv run python server.py"
@@ -35,7 +43,9 @@ sleep 1  # give diagnose_plant_mcp a head start before the orchestrator's first 
 start_service "enterprise-orchestrator" "orchestrator" "uv run python backend.py"
 
 echo ""
-echo "Enterprise orchestrator → http://localhost:8020"
+supervise_verify || true   # keep whatever did start running
+echo ""
+echo "Enterprise orchestrator → http://localhost:$(env_value ENTERPRISE_PORT 8020)"
 echo "Logs: logs/<service>.log  |  Ctrl-C to stop everything."
 echo ""
 

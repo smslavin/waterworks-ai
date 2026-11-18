@@ -19,7 +19,8 @@
     (fieldworks-adapters) the aggregator spawns itself as stdio subprocesses.
     Install them once, outside this script, and make sure they're on the
     service account's PATH:
-      cargo install mqtt-mcp opcua-mcp
+      cargo install mqtt-mcp
+      cargo install opcua-mcp
     Since they no longer bind their own port, the graccess-mcp offset-port
     concern that used to apply to them (8011/8012) no longer exists.
 

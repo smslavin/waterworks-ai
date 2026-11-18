@@ -38,6 +38,8 @@ enterprise/orchestrator/logs/
 # start.sh output
 /logs/
 /.pids/
+# rendered from mcp-aggregator/backends.json with this checkout's .env ports
+mcp-aggregator/backends.rendered.json
 enterprise/logs/
 enterprise/.pids/
 

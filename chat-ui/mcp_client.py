@@ -262,7 +262,7 @@ async def list_mcp_tools(aggregator_url: str | None = None) -> list[dict]:
             logger.warning(
                 "Adapter tools without annotations, hidden from models: %s. "
                 "mqtt-mcp/opcua-mcp declare them from 1.0.5 on; reinstall "
-                "with: cargo install mqtt-mcp opcua-mcp",
+                "each separately: cargo install mqtt-mcp; cargo install opcua-mcp",
                 ", ".join(stale),
             )
         if _tool_generation.get(url, 0) == generation:
