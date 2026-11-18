@@ -25,6 +25,11 @@ interface DirectorySite {
 // popover is never empty even then.
 const directory = ref<Record<string, DirectorySite>>({})
 const loaded = ref(false)
+// Whether the enterprise layer answered. Without it only this plant can be
+// listed, and the popover says so rather than looking like a one-plant
+// enterprise (gh-68).
+const enterpriseReachable = ref(true)
+const enterpriseUrl = ref<string | null>(null)
 
 function alarmToStatus(state: AlarmState): AreaStatus {
   if (state === 'critical' || state === 'pending-approval') return 'crit'
@@ -87,11 +92,26 @@ const sitesInRegion = computed(() =>
   regions.value.find(r => r.name === viewingRegion.value)?.sites ?? []
 )
 
+interface SitesResponse {
+  enterprise: 'ok' | 'unreachable'
+  url?: string
+  sites: Record<string, DirectorySite>
+}
+
 async function loadDirectory() {
   try {
     const resp = await fetch('/api/sites')
-    if (resp.ok) directory.value = await resp.json()
-  } catch { /* enterprise layer unreachable — just show this plant */ }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    const body: SitesResponse = await resp.json()
+    directory.value = body.sites ?? {}
+    enterpriseReachable.value = body.enterprise !== 'unreachable'
+    enterpriseUrl.value = body.url ?? null
+  } catch {
+    // This plant's own backend didn't answer either; nothing to list.
+    directory.value = {}
+    enterpriseReachable.value = false
+    enterpriseUrl.value = null
+  }
   loaded.value = true
 }
 
@@ -166,6 +186,15 @@ function selectSite(site: Site) {
         <button class="site-nav-close" @click="ui.siteNavOpen = false">✕</button>
       </div>
 
+      <div
+        v-if="loaded && !enterpriseReachable"
+        class="site-nav-notice"
+        :title="enterpriseUrl ? `Tried ${enterpriseUrl}` : undefined"
+      >
+        Enterprise layer not running — other plants aren't listed.
+        Start it with <code>enterprise/start.sh</code>.
+      </div>
+
       <!-- Body: region list -->
       <div v-if="navLevel === 'region'" class="site-nav-body">
         <button
@@ -207,8 +236,11 @@ function selectSite(site: Site) {
             />
           </div>
         </button>
-        <div v-if="loaded && sitesInRegion.length <= 1" class="site-nav-empty">
-          No other sites reachable — check the enterprise layer is running.
+        <div
+          v-if="loaded && enterpriseReachable && sitesInRegion.length <= 1"
+          class="site-nav-empty"
+        >
+          No other sites in this region.
         </div>
       </div>
     </div>
@@ -307,6 +339,18 @@ function selectSite(site: Site) {
   font-size: 11px;
   line-height: 1.5;
   color: var(--color-text2);
+}
+
+.site-nav-notice {
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-warn);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.site-nav-notice code {
+  font-size: 10.5px;
 }
 
 .site-row.current {
