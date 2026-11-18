@@ -20,12 +20,16 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+from fieldworks.service_env import check_env_file
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from discovery import discover_mqtt_topics, discover_opcua_nodes
 from fieldworks.topology_builder.inference import infer_topology, load_template
 
+check_env_file(
+    Path(__file__).parent.parent / ".env"
+)  # before load_dotenv: see fieldworks.service_env
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 from fieldworks.service_logging import setup_logging  # noqa: E402

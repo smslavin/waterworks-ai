@@ -511,8 +511,9 @@ async def run_chat(
 
     except Exception as exc:
         error_count += 1
-        audit.log("error", session_id=session_id, error=str(exc))
-        yield json.dumps({"type": "error", "error": str(exc)})
+        message = model_params.error_text(exc)
+        audit.log("error", session_id=session_id, error=message)
+        yield json.dumps({"type": "error", "error": message})
 
     finally:
         latency_ms = int((time.monotonic() - start_ts) * 1000)

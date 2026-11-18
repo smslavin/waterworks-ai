@@ -203,4 +203,4 @@ async def run_chat(
             return
     except Exception as exc:
         logger.exception("Enterprise orchestrator stream error")
-        yield json.dumps({"type": "error", "error": str(exc)})
+        yield json.dumps({"type": "error", "error": model_params.error_text(exc)})

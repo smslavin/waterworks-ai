@@ -28,13 +28,15 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 from aiohttp import web
 from asyncua import Server, ua
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
+from fieldworks.service_env import check_env_file
 
 from faults import FaultMode, FaultState, TYPE_FAULT_MODES
 from generators import OscillatingBool
 from instances import INSTANCES
 from topology import load as _load_topology
 
+check_env_file(find_dotenv())  # before load_dotenv: see fieldworks.service_env
 load_dotenv()
 
 MQTT_BROKER = os.environ.get("MQTT_BROKER_URL", "localhost")
