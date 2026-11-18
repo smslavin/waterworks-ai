@@ -644,7 +644,7 @@ async def _cascade_rounds(
         kwargs.update(model_params.request_params(ORCHESTRATOR_MODEL, effort="medium"))
 
         async with client.beta.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
+            async for text in model_params.visible_text(stream):
                 run.text += text
                 yield json.dumps({"type": "text", "text": text})
             final = await stream.get_final_message()

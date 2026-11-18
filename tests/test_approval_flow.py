@@ -97,6 +97,18 @@ class _Stream:
     async def __aexit__(self, *exc):
         return False
 
+    def __aiter__(self):
+        # Raw stream events, as model_params.visible_text reads them.
+        async def gen():
+            for block in self._message.content:
+                if block.type == "text":
+                    yield SimpleNamespace(
+                        type="content_block_delta",
+                        delta=SimpleNamespace(type="text_delta", text=block.text),
+                    )
+
+        return gen()
+
     @property
     def text_stream(self):
         async def gen():

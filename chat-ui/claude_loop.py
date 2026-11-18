@@ -398,7 +398,7 @@ async def run_chat(
                             elif not _in_thinking and hasattr(delta, "text"):
                                 yield json.dumps({"type": "text", "text": delta.text})
                 else:
-                    async for text in stream.text_stream:
+                    async for text in model_params.visible_text(stream):
                         yield json.dumps({"type": "text", "text": text})
 
                 final = await stream.get_final_message()

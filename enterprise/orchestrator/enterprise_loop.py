@@ -140,7 +140,7 @@ async def run_chat(
             stream_kwargs.update(model_params.request_params(MODEL, effort="medium"))
 
             async with client.beta.messages.stream(**stream_kwargs) as stream:
-                async for text in stream.text_stream:
+                async for text in model_params.visible_text(stream):
                     yield json.dumps({"type": "text", "text": text})
                 final = await stream.get_final_message()
 
