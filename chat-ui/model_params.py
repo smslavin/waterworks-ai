@@ -15,6 +15,9 @@ from __future__ import annotations
 
 ADAPTIVE_MODEL_PREFIXES = ("claude-opus-5", "claude-sonnet-5", "claude-fable-5")
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Returns the notes the model writes between tool calls as short summaries in
+# thinking blocks, while keeping its reasoning hidden (gh-72).
+UPDATES_BETA = "thinking-display-updates-2026-08-18"
 # Thinking counts toward max_tokens; a limit sized for a no-thinking reply
 # cuts replies off. Every caller streams, so a large limit can't time out.
 ADAPTIVE_MAX_TOKENS = 32000
@@ -29,7 +32,8 @@ def request_params(model: str, *, effort: str, show_thinking: bool = False) -> d
 
     `effort` is set explicitly because Opus 5.5 defaults to `medium` and
     Sonnet 5.5 to `high`. `show_thinking` returns a readable summary of the
-    reasoning (the default display leaves thinking text empty).
+    reasoning (the default display leaves thinking text empty); otherwise only
+    the between-tool progress notes come back, for visible_text() to show.
     """
     if not is_adaptive(model):
         return {}
@@ -41,7 +45,31 @@ def request_params(model: str, *, effort: str, show_thinking: bool = False) -> d
     }
     if show_thinking:
         params["thinking"] = {"type": "adaptive", "display": "summarized"}
+    else:
+        params["thinking"] = {"type": "adaptive", "display": "updates"}
+        params["betas"] = [FALLBACK_BETA, UPDATES_BETA]
     return params
+
+
+async def visible_text(stream):
+    """The text a user should see from a streaming response, as it arrives:
+    every text delta, plus the progress notes the 5.x models return in
+    `thinking` blocks under display="updates", each followed by a blank line.
+    Older models never send thinking deltas here, so this is text_stream for
+    them. Don't use it with display="summarized" — that's reasoning, which
+    the UI shows separately."""
+    in_note = False
+    async for event in stream:
+        if event.type == "content_block_delta":
+            delta = event.delta
+            if delta.type == "text_delta":
+                yield delta.text
+            elif delta.type == "thinking_delta" and delta.thinking:
+                in_note = True
+                yield delta.thinking
+        elif event.type == "content_block_stop" and in_note:
+            in_note = False
+            yield "\n\n"
 
 
 def assistant_turn(content) -> list[dict]:
