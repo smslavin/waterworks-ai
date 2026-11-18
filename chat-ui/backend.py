@@ -285,24 +285,55 @@ async def plant_status_endpoint(request: Request):
     return JSONResponse(status or {})
 
 
+# Last known reachability of the enterprise orchestrator, so its absence is
+# logged once per outage rather than on every SiteNav open.
+_enterprise_reachable: bool | None = None
+
+
 async def sites_endpoint(request: Request):
     """Proxy to the enterprise orchestrator's /api/sites (itself a thin read
     of enterprise.yaml — see enterprise/orchestrator/backend.py). Proxied
     rather than fetched directly by the browser so the orchestrator's URL
-    stays server-side config, not a second CORS surface. Empty dict (not an
-    error status) when the enterprise layer isn't running — SiteNav.vue falls
-    back to showing just this plant."""
+    stays server-side config, not a second CORS surface.
+
+    Returns {"enterprise": "ok", "sites": {...}}, or, when the orchestrator
+    doesn't answer, {"enterprise": "unreachable", "url": ..., "sites": {}} —
+    a 200 either way. SiteNav.vue says the enterprise layer isn't running
+    instead of silently listing only this plant (gh-68)."""
     import httpx
 
+    global _enterprise_reachable
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.get(
                 f"{ENTERPRISE_ORCHESTRATOR_URL}/api/sites", timeout=3.0
             )
             resp.raise_for_status()
-            return JSONResponse(resp.json())
-    except Exception:
-        return JSONResponse({})
+            sites = resp.json()
+    except Exception as exc:
+        if _enterprise_reachable is not False:
+            logger.warning(
+                "Enterprise orchestrator not reachable at %s (%s) — SiteNav "
+                "lists only this plant. Start it with enterprise/start.sh, or "
+                "set ENTERPRISE_ORCHESTRATOR_URL.",
+                ENTERPRISE_ORCHESTRATOR_URL,
+                exc,
+            )
+        _enterprise_reachable = False
+        return JSONResponse(
+            {
+                "enterprise": "unreachable",
+                "url": ENTERPRISE_ORCHESTRATOR_URL,
+                "sites": {},
+            }
+        )
+    if _enterprise_reachable is False:
+        logger.info(
+            "Enterprise orchestrator reachable again at %s",
+            ENTERPRISE_ORCHESTRATOR_URL,
+        )
+    _enterprise_reachable = True
+    return JSONResponse({"enterprise": "ok", "sites": sites})
 
 
 async def chat_endpoint(request: Request):

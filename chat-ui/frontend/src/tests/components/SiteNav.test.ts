@@ -11,10 +11,17 @@ const DIRECTORY = {
   wtp2: { name: 'Eastside', region: 'Metro Region', chat_ui_url: 'http://localhost:8010' },
 }
 
-function mockSitesFetch(directory: Record<string, unknown> = DIRECTORY) {
+function mockSitesFetch(
+  directory: Record<string, unknown> = DIRECTORY,
+  enterprise: 'ok' | 'unreachable' = 'ok',
+) {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => directory,
+    json: async () => ({
+      enterprise,
+      sites: directory,
+      ...(enterprise === 'unreachable' ? { url: 'http://localhost:8020' } : {}),
+    }),
   }))
 }
 
@@ -70,11 +77,46 @@ describe('SiteNav', () => {
   })
 
   it('falls back to just this plant when the directory fetch fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('enterprise layer down')))
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('backend down')))
     const { container } = renderNav(true)
     await flushPromises()
     expect(container.querySelectorAll('.site-row')).toHaveLength(1)
-    expect(container.querySelector('.site-nav-empty')).toBeTruthy()
+    expect(container.querySelector('.site-nav-notice')).toBeTruthy()
+  })
+
+  it('says the enterprise layer is down instead of looking like a one-plant enterprise', async () => {
+    mockSitesFetch({}, 'unreachable')
+    const { container } = renderNav(true)
+    await flushPromises()
+    expect(container.querySelectorAll('.site-row')).toHaveLength(1)
+    const notice = container.querySelector('.site-nav-notice')
+    expect(notice?.textContent).toContain('Enterprise layer not running')
+    expect(notice?.getAttribute('title')).toBe('Tried http://localhost:8020')
+    expect(container.querySelector('.site-nav-empty')).toBeNull()
+  })
+
+  it('keeps the enterprise notice in the region view', async () => {
+    mockSitesFetch({}, 'unreachable')
+    const { container } = renderNav(true)
+    await flushPromises()
+    await fireEvent.click(container.querySelector('.site-nav-back')!)
+    expect(container.querySelector('.site-nav-notice')).toBeTruthy()
+  })
+
+  it('shows no enterprise notice when the layer answers', async () => {
+    const { container } = renderNav(true)
+    await flushPromises()
+    expect(container.querySelector('.site-nav-notice')).toBeNull()
+  })
+
+  it('distinguishes a region with one plant from an unreachable enterprise', async () => {
+    mockSitesFetch({ wtp: DIRECTORY.wtp })
+    const { container } = renderNav(true)
+    await flushPromises()
+    expect(container.querySelector('.site-nav-notice')).toBeNull()
+    expect(container.querySelector('.site-nav-empty')?.textContent).toContain(
+      'No other sites in this region',
+    )
   })
 
   it('shows region list when back button is clicked', async () => {
