@@ -524,7 +524,7 @@ async def _run_specialist(
     except Exception as exc:
         error_count += 1
         logger.error("Specialist %s failed: %s", name, exc)
-        full_text = f"Specialist encountered an error: {exc}"
+        full_text = f"Specialist encountered an error: {model_params.error_text(exc)}"
 
     status, confidence = _parse_findings(full_text)
     if status == "Unknown" and full_text and "error" not in full_text.lower():
@@ -745,7 +745,7 @@ async def _run_cascade_only(
             yield chunk
     except Exception as exc:
         logger.exception("Cascade-only stream error: %s", exc)
-        yield json.dumps({"type": "error", "error": str(exc)})
+        yield json.dumps({"type": "error", "error": model_params.error_text(exc)})
 
     _log_cascade_turn(
         run,
@@ -943,7 +943,7 @@ async def run_multi_agent(
 
     except Exception as exc:
         logger.exception("Orchestrator failed")
-        yield json.dumps({"type": "error", "error": str(exc)})
+        yield json.dumps({"type": "error", "error": model_params.error_text(exc)})
 
     _log_cascade_turn(
         run,

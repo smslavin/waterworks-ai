@@ -26,7 +26,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
+from fieldworks.service_env import check_env_file
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from mcp.server import MCPServer
@@ -34,6 +35,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from typing_extensions import TypedDict
 
+check_env_file(find_dotenv())  # before load_dotenv: see fieldworks.service_env
 load_dotenv()
 
 from fieldworks.service_logging import setup_logging  # noqa: E402

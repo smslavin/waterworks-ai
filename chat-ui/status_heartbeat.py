@@ -89,6 +89,10 @@ async def _generate_narrative() -> str:
             continue
         if event.get("type") == "text":
             full_text += event.get("text", "")
+        elif event.get("type") == "error":
+            # e.g. a rejected API key: keep the last good status rather than
+            # caching a partial narrative (_tick logs this and retries).
+            raise RuntimeError(event.get("error", "diagnosis failed"))
     return full_text
 
 

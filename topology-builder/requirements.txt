@@ -3,4 +3,4 @@ paho-mqtt>=2.0
 pyyaml>=6.0
 python-dotenv
 
-fieldworks-core[adapters]>=1.2.0
+fieldworks-core[adapters]>=1.3.0

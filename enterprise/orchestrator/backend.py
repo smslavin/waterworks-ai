@@ -15,8 +15,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import uvicorn
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
+from fieldworks.service_env import check_env_file
 
+check_env_file(find_dotenv())  # before load_dotenv: see fieldworks.service_env
 load_dotenv()
 
 from sse_starlette.sse import EventSourceResponse

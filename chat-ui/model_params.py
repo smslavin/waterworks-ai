@@ -13,6 +13,13 @@ the beta endpoint behaves like the regular one.
 
 from __future__ import annotations
 
+import logging
+
+import anthropic
+from fieldworks.service_env import env_source
+
+logger = logging.getLogger(__name__)
+
 ADAPTIVE_MODEL_PREFIXES = ("claude-opus-5", "claude-sonnet-5", "claude-fable-5")
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # Returns the notes the model writes between tool calls as short summaries in
@@ -88,4 +95,36 @@ def refusal_message(final) -> str | None:
     category = getattr(details, "category", None)
     return "The model declined this request" + (
         f" (safety category: {category})." if category else "."
+    )
+
+
+_reported_keys: set[str] = set()
+
+
+def error_text(exc: Exception) -> str:
+    """User-facing text for a failed Claude call.
+
+    A rejected API key (gh-67) is logged once per key with where
+    ANTHROPIC_API_KEY was set — a .env line or the shell — since a duplicate
+    line or a stale export is the usual cause. The UI text names only the
+    key's last four characters, no paths."""
+    if not isinstance(exc, anthropic.AuthenticationError):
+        return str(exc)
+    try:
+        key = exc.response.request.headers.get("x-api-key", "")
+    except Exception:
+        key = ""
+    ending = f"ending ...{key[-4:]}" if len(key) >= 8 else "which is empty"
+    if key not in _reported_keys:
+        _reported_keys.add(key)
+        logger.error(
+            "Anthropic rejected the API key %s (401). ANTHROPIC_API_KEY comes "
+            "from %s. Check that .env has a single ANTHROPIC_API_KEY line and "
+            "that no older key is exported in the shell that starts this service.",
+            ending,
+            env_source("ANTHROPIC_API_KEY") or "nowhere (it is unset)",
+        )
+    return (
+        f"Anthropic rejected this plant's API key ({ending}). "
+        "The service log says where the key was set."
     )

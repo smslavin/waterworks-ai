@@ -18,9 +18,11 @@ import sys
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
+from fieldworks.service_env import check_env_file
 from influxdb_client import InfluxDBClient, Point, WriteOptions
 
+check_env_file(find_dotenv())  # before load_dotenv: see fieldworks.service_env
 load_dotenv()
 
 MQTT_HOST = os.environ.get("MQTT_BROKER_URL", "localhost")

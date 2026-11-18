@@ -27,12 +27,14 @@ import sys
 from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
+from fieldworks.service_env import check_env_file
 from mcp.server import MCPServer
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from plant_registry import get_site, load_sites
 
+check_env_file(find_dotenv())  # before load_dotenv: see fieldworks.service_env
 load_dotenv()
 
 from fieldworks.service_logging import setup_logging  # noqa: E402

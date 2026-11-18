@@ -31,7 +31,11 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from dotenv import load_dotenv
+from fieldworks.service_env import check_env_file
 
+check_env_file(
+    Path(__file__).parent.parent / ".env"
+)  # before load_dotenv: see fieldworks.service_env
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 from fieldworks.service_logging import setup_logging  # noqa: E402
