@@ -1,4 +1,4 @@
-"""chat-ui/verdict.py: the one parser for FINDINGS/SUMMARY blocks (gh-25).
+"""chat-ui/verdict.py: annotate() and the session status built on the framework parser (gh-25).
 
 Five parsers used to disagree. The reproducible case from gh-25: a model
 that bolds its labels and leaves a blank line before "Key points:" rendered
@@ -35,85 +35,13 @@ FINDINGS = (
 )
 
 
-def test_summary_block():
-    v = verdict.parse(SUMMARY)
-    assert v["kind"] == "summary"
-    assert v["status"] == "Fault Detected"
-    assert v["overview"] == "RawWater_01 shows suction starvation."
-    assert v["points"] == ["Flow near zero", "Pressure dropping"]
-    assert v["confidence"] is None
-    assert v["block"] == SUMMARY.split("\n\n")[0]
+def test_parse_is_the_frameworks():
+    """Templates and parser are fieldworks.agents.verdict's (spec Part III);
+    their cases, including the gh-25 inputs, are tested in fieldworks-core."""
+    from fieldworks.agents import verdict as fw
 
-
-def test_findings_block():
-    v = verdict.parse(FINDINGS)
-    assert (v["kind"], v["status"], v["confidence"]) == (
-        "findings",
-        "Anomaly Detected",
-        0.72,
-    )
-    assert v["points"] == ["Vibration elevated", "Flow steady"]
-    assert v["block"] == FINDINGS[FINDINGS.index("FINDINGS:") :]
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        # gh-25: bold labels and a blank line before the list
-        "SUMMARY:\n**Status:** Fault Detected\n**Overview:** Starving.\n\n"
-        "**Key points:**\n- Flow near zero\n\nMore",
-        "SUMMARY:\n**Status: Fault Detected**\n**Overview: Starving.**\n"
-        "Key points:\n- Flow near zero\n",
-        "**SUMMARY:**\nstatus: fault detected.\noverview: Starving.\n"
-        "key points:\n* Flow near zero\n",
-        "SUMMARY:\r\nStatus: Fault Detected\r\nOverview: Starving.\r\n"
-        "Key points:\r\n- Flow near zero\r\n",
-    ],
-    ids=["bold-labels-blank-line", "bold-lines", "lowercase-star-bullets", "crlf"],
-)
-def test_formatting_variants_parse_the_same(text):
-    v = verdict.parse(text)
-    assert (v["status"], v["overview"], v["points"]) == (
-        "Fault Detected",
-        "Starving.",
-        ["Flow near zero"],
-    )
-
-
-def test_summary_without_points():
-    v = verdict.parse("SUMMARY:\nStatus: Normal\nOverview: Quiet.\n\nRest of answer.")
-    assert v["points"] == [] and v["overview"] == "Quiet."
-
-
-def test_unknown_status_is_kept_verbatim():
-    v = verdict.parse("SUMMARY:\nStatus: Degraded\nOverview: Hmm.\n")
-    assert v["status"] == "Degraded"
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "Just chatting, nothing to report.",
-        "SUMMARY:\nOverview: no status line\n",
-        "FINDINGS:\nStatus: Normal\nKey observations:\n- missing confidence\n",
-        "SUMMARY:\nStatus: Normal\n",  # no overview
-    ],
-)
-def test_incomplete_or_absent_blocks(text):
-    assert verdict.parse(text) is None
-
-
-def test_last_block_wins():
-    first = "FINDINGS:\nStatus: Normal\nConfidence: 0.5\nKey observations:\n- a\n\n"
-    v = verdict.parse(first + FINDINGS)
-    assert v["status"] == "Anomaly Detected"
-
-
-def test_streaming_waits_for_the_block_to_close():
-    open_list = "SUMMARY:\nStatus: Normal\nOverview: Ok.\nKey points:\n- partial"
-    assert verdict.parse(open_list, final=False) is None
-    assert verdict.parse(open_list, final=True)["points"] == ["partial"]
-    assert verdict.parse(open_list + "\n\nMore", final=False)["points"] == ["partial"]
+    assert verdict.parse is fw.parse
+    assert verdict.SUMMARY_BLOCK is fw.SUMMARY_BLOCK
 
 
 # ── annotate(): one verdict event on the stream ────────────────────────────

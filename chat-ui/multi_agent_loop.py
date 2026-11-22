@@ -188,7 +188,9 @@ def _build_specialists(topology) -> list[dict]:
             "label": "Historian",
             "unit_names": [],
             "tool_prefixes": _HISTORIAN_TOOL_PREFIXES,
-            "system": _HISTORIAN_SYSTEM,
+            # Area specialists get the FINDINGS instruction from core's
+            # build_specialist_prompt(); the Historian's prompt is ours.
+            "system": _HISTORIAN_SYSTEM + "\n\n" + verdict.FINDINGS_INSTRUCTION,
         }
     )
     return specialists
@@ -239,37 +241,13 @@ Use these when the operator asks about pending reviews, saved insights, or the i
 queue. Do NOT use audit__list_incidents or audit__query_history for this — those query
 diagnostic sessions, not the insight review queue."""
 
-_SUMMARY_FORMAT = (
-    """
-
-── Synthesis output format ─────────────────────────────────────────────────────
-START your synthesis with this block, before any detailed breakdown — the
-specialist findings are already in front of you, so lead with the conclusion
-rather than building up to it:
-"""
-    + verdict.SUMMARY_BLOCK
-    + """
-
-Detailed reasoning, tables, and recommendations belong after this block, not
-before it — the block must never be pushed to the end where it risks being cut
-off by the response length limit.
-
-Omit this block for a simple conversational follow-up that isn't really a status
-overview of the area or plant."""
-)
-
 _topology = _load_topology()
 SPECIALISTS = _build_specialists(_topology)
 _ORCHESTRATOR_SYSTEM = (
     _fw_build_orchestrator_system(_fw_build_specialists(_topology), _topology)
     + _HISTORIAN_MENTION
     + _CONTROL_ACTION_GUIDANCE
-    + _SUMMARY_FORMAT
 )
-
-_FINDINGS_FORMAT = """
-End your response with this block exactly:
-""" + verdict.FINDINGS_BLOCK
 
 _SPECIALIST_TOOL_GUIDANCE = """
 ── Tool selection ─────────────────────────────────────────────────────────────
@@ -374,7 +352,6 @@ async def _run_specialist(
     system_text = config["system"] + (_SPECIALIST_TOOL_GUIDANCE if has_mqtt else "")
     if running_state:
         system_text += f"\n\nCurrent running state: {running_state}"
-    system_text += _FINDINGS_FORMAT
 
     # ── Inject accumulated cross-session memory ───────────────────────────────
     try:
