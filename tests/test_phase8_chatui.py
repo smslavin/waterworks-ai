@@ -114,12 +114,19 @@ def test_historian_has_no_unit_names(specialists):
 # ── system prompt content ──────────────────────────────────────────────────────
 
 
-def test_system_prompts_do_not_contain_findings_block(specialists):
-    """_FINDINGS_FORMAT must not be pre-embedded — _run_specialist() appends it."""
+def test_every_specialist_prompt_carries_the_findings_block_once(specialists):
+    """Core's build_specialist_prompt() embeds FINDINGS for area specialists;
+    the Historian's prompt adds it here. Nothing appends a second copy."""
     for s in specialists:
         assert (
-            "FINDINGS:\nStatus:" not in s["system"]
-        ), f"{s['name']} system prompt contains FINDINGS block — will be doubled by _run_specialist()"
+            s["system"].count("FINDINGS:\nStatus:") == 1
+        ), f"{s['name']} system prompt should carry the FINDINGS block exactly once"
+
+
+def test_orchestrator_prompt_carries_the_summary_block_once():
+    import multi_agent_loop
+
+    assert multi_agent_loop._ORCHESTRATOR_SYSTEM.count("SUMMARY:\nStatus:") == 1
 
 
 def test_system_prompts_do_not_contain_tool_guidance(specialists):

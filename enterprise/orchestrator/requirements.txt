@@ -6,5 +6,5 @@ sse-starlette
 python-dotenv
 httpx
 pyyaml
-fieldworks-core>=1.4.0
+fieldworks-core>=1.5.0
 cryptography>=41.0
