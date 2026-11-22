@@ -45,6 +45,7 @@ import pages.audit
 import pages.metrics
 import openai_loop
 import reactive_loop as _reactive_loop
+import recent_alerts
 import session_store
 import verdict
 import status_heartbeat
@@ -54,6 +55,24 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 MCP_AGGREGATOR_URL = os.environ.get("MCP_AGGREGATOR_URL", "http://localhost:8100/sse")
 SIMULATOR_CONTROL = os.environ.get("SIMULATOR_CONTROL_URL", "http://localhost:8090")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+# Hand-written read-only PWA (gh-6), not Vite output — edit it in place.
+MOBILE_DIR = os.path.join(os.path.dirname(__file__), "mobile")
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    """StaticFiles that makes the browser revalidate every time.
+
+    The mobile files have no content hash in their names (unlike Vite's
+    static/ output), and with only Last-Modified to go on, iOS Safari kept
+    serving a stale app.js across reloads. no-cache still allows the cached
+    copy; it just costs a 304 round trip to confirm it."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 _METRICS_DB = os.environ.get(
     "METRICS_DB_PATH", os.path.join(os.path.dirname(__file__), "metrics.db")
 )
@@ -95,6 +114,7 @@ def broadcast_alert(event: dict) -> int:
     callers (see reactive_loop.py's _collect_text) can detect and log the
     "reactive mode with no subscriber" case instead of assuming delivery
     just because nothing raised."""
+    recent_alerts.record(event)  # before delivery: stamps the event's ts
     for q in _alert_subs:
         q.put_nowait(event)
     return len(_alert_subs)
@@ -827,7 +847,45 @@ async def insight_save_endpoint(request: Request):
         return JSONResponse(
             {"error": "insight not saved", "detail": str(exc)[:500]}, status_code=502
         )
+    if result.get("status") == "queued":
+        # Lets the mobile page (gh-6) refresh its review list live. The
+        # desktop's useReactive ignores it: no instance_id, so it never
+        # reaches the alarm handling there.
+        broadcast_alert(
+            {
+                "type": "insight_review_created",
+                "review_id": result["review_id"],
+                "node_id": node_id,
+                "category_label": cat["label"],
+            }
+        )
     return JSONResponse(result)
+
+
+@auth.require
+async def reviews_endpoint(request: Request):
+    """Unresolved insight reviews, read-only, for the mobile page (gh-6)."""
+    try:
+        reviews = insights.list_pending(_METRICS_DB)
+    except insights.ReadFailed as exc:
+        logger.error("review queue not read: %s", exc)
+        return JSONResponse(
+            {"error": "review queue unavailable", "detail": str(exc)[:500]},
+            status_code=502,
+        )
+    return JSONResponse({"reviews": reviews})
+
+
+@auth.require
+async def recent_alerts_endpoint(request: Request):
+    """What the mobile page missed while disconnected (gh-6): alerts newest
+    first, plus control actions still awaiting approval on the desktop."""
+    return JSONResponse(
+        {
+            "alerts": recent_alerts.recent(),
+            "pending_actions": recent_alerts.pending_actions(),
+        }
+    )
 
 
 _INSTANCE_STR_FIELDS = ("ladybug_type_id", "area_id", "confidence_level")
@@ -932,12 +990,19 @@ routes = [
     Route("/api/topology/commit", topology_commit_endpoint, methods=["POST"]),
     Route("/api/insight/categories", insight_categories_endpoint),
     Route("/api/insight", insight_save_endpoint, methods=["POST"]),
+    Route("/api/reviews", reviews_endpoint),
+    Route("/api/alerts/recent", recent_alerts_endpoint),
     Route("/api/reactive", reactive_status_endpoint),
     Route("/api/reactive/toggle", reactive_toggle_endpoint, methods=["POST"]),
     Route("/api/events", events_endpoint),
     Route("/audit", audit_page_endpoint),
     Route("/metrics", metrics_page_endpoint),
     Mount("/static", StaticFiles(directory=STATIC_DIR), name="static"),
+    Mount(
+        "/mobile",
+        _RevalidatedStaticFiles(directory=MOBILE_DIR, html=True),
+        name="mobile",
+    ),
 ]
 
 app = Starlette(routes=routes, lifespan=lifespan)

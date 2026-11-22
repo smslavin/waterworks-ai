@@ -232,9 +232,11 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
             audit.log("reactive_warning_complete", instance_id=instance_id)
 
         else:  # critical
-            content = await _run_cascade(
-                anomaly, reason, model, broadcast_fn, cascade_id=cascade_id
-            )
+            # Alarm first, diagnosis after, as for warnings. Cascade can
+            # block for up to _ACTION_APPROVAL_TIMEOUT on a proposed action,
+            # and holding the alarm until then hid the most urgent alerts
+            # for minutes, most of all from the read-only mobile page (gh-6),
+            # which can't answer the approval.
             broadcast_fn(
                 {
                     "type": "reactive_critical",
@@ -243,6 +245,17 @@ async def _handle_anomaly(anomaly: dict, aggregator_url: str, model: str, broadc
                     "value": anomaly["current_value"],
                     "normal_range": anomaly["normal_range"],
                     "reason": reason,
+                    "content": None,
+                }
+            )
+            content = await _run_cascade(
+                anomaly, reason, model, broadcast_fn, cascade_id=cascade_id
+            )
+            broadcast_fn(
+                {
+                    "type": "reactive_critical_update",
+                    "instance_id": instance_id,
+                    "attribute": anomaly["attribute"],
                     "content": content,
                 }
             )

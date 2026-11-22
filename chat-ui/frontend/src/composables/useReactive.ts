@@ -106,8 +106,9 @@ export function useReactive() {
     }
     if (type === 'action_decision') return // frontend already resolves its own queue
 
-    // Warning diagnostic arrives in a follow-up update event — patch content onto the existing alarm
-    if (type === 'reactive_warning_update') {
+    // Warning and critical diagnoses both arrive in a follow-up update event,
+    // after the alarm itself — patch content onto the existing alarm
+    if (type === 'reactive_warning_update' || type === 'reactive_critical_update') {
       const id = `${String(evt.instance_id ?? '')}_${String(evt.attribute ?? 'unknown')}`
       const content = evt.content ? String(evt.content) : ''
       if (content) alarm.setAlarmContent(id, content)
