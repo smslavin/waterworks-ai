@@ -222,7 +222,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fieldworks-core", specifier = ">=1.3.0" },
+    { name = "fieldworks-core", specifier = ">=1.4.0" },
     { name = "httpx" },
     { name = "mcp", extras = ["cli"], specifier = ">=2.0" },
     { name = "python-dotenv" },
@@ -231,15 +231,15 @@ requires-dist = [
 
 [[package]]
 name = "fieldworks-core"
-version = "1.3.0"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d4/a4/7deddf0aa634a35afc02d427c8613ba659ec3174723f74b313ae193a608c/fieldworks_core-1.3.0.tar.gz", hash = "sha256:1a5d544e79410ecac3cf5824511175e7adc1a0d01bdd94da921a89bf4d2d4fa5", size = 78726, upload-time = "2026-11-18T22:05:51.205Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/28/b129502b5b101be1b3d4fabab015189252c6d48769f38aa52d4c6e33e14d/fieldworks_core-1.4.0.tar.gz", hash = "sha256:58f2d95794cee9091a8d76596411f4bdc159d672276ad7ac19395711fbb84836", size = 90250, upload-time = "2026-11-22T20:46:13.297Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8c/01/901528d07da9e346457180e4a29fd09d2c322d232daa939e59643aae6b63/fieldworks_core-1.3.0-py3-none-any.whl", hash = "sha256:f1fbfbc3a7fa31d88b98e6bba1899a44ed19fb83ca6fb8e2b9510c1e4d7a4c89", size = 65893, upload-time = "2026-11-18T22:05:49.78Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/16/bccac4dd7b1324dbb17867e983b590b1790f17d04b71b8a0fe6ff8fed8a8/fieldworks_core-1.4.0-py3-none-any.whl", hash = "sha256:c017490c569a1749aa8c02b1417af7cfbc791bced6ff2881baf0adbc834dd199", size = 75986, upload-time = "2026-11-22T20:46:12.232Z" },
 ]
 
 [[package]]

@@ -1,51 +1,54 @@
-"""Loads enterprise.yaml and maps site_id -> plant metadata (chat_ui_url, etc.).
+"""Locates and loads enterprise.yaml through fieldworks.enterprise (spec Part V).
 
-Read fresh on every call rather than cached at import time — enterprise.yaml
-is a small, infrequently-read file, and re-reading it means a site added
-while services are running is picked up without a restart.
+fieldworks-core owns the schema and its rules: a site missing a required
+field is an error, not a site to skip, and site_id is unique across every
+region. This module only resolves which file to read (ENTERPRISE_FILE, else
+the repo root's enterprise.yaml).
+
+Read fresh on every call rather than cached at import time — it's one small
+YAML file, and re-reading means a site added while services are running is
+picked up without a restart. The cross-file check (each topology_file's
+facility.site_id) opens every topology, so it runs once, in start.sh, via
+`fieldworks validate-enterprise`.
 """
 
 import os
 from pathlib import Path
 
-import yaml
+from fieldworks.enterprise import EnterpriseConfig, RegisteredSite, load
 
 _DEFAULT_PATH = Path(__file__).parent.parent / "enterprise.yaml"
 
 
-def _resolve_path(path: str | Path | None = None) -> Path:
+def enterprise_path(path: str | Path | None = None) -> Path:
     return (
         Path(path) if path else Path(os.environ.get("ENTERPRISE_FILE", _DEFAULT_PATH))
     )
 
 
-def load_sites(path: str | Path | None = None) -> dict[str, dict]:
-    """Return {site_id: {name, region, topology_file, chat_ui_url,
-    aggregator_url}}, flattened across every region in enterprise.yaml. Sites
-    without a chat_ui_url (e.g. a region listed with no sites yet) are
-    skipped. aggregator_url may be absent (only query_history_mcp needs it —
-    see enterprise.yaml's header comment for why that's a deliberate, scoped
-    exception to diagnose_plant_mcp's chat-ui-only guarantee, not a general
-    relaxation of it)."""
-    with open(_resolve_path(path)) as f:
-        data = yaml.safe_load(f) or {}
-
-    sites: dict[str, dict] = {}
-    for region in data.get("regions", []) or []:
-        for site in region.get("sites", []) or []:
-            site_id = site.get("site_id")
-            chat_ui_url = site.get("chat_ui_url")
-            if not site_id or not chat_ui_url:
-                continue
-            sites[site_id] = {
-                "name": site.get("name", site_id),
-                "region": region.get("name", region.get("id", "")),
-                "topology_file": site.get("topology_file"),
-                "chat_ui_url": chat_ui_url,
-                "aggregator_url": site.get("aggregator_url"),
-            }
-    return sites
+def load_enterprise(path: str | Path | None = None) -> EnterpriseConfig:
+    """Raises ValueError if enterprise.yaml breaks a Part V structural rule."""
+    return load(enterprise_path(path))
 
 
-def get_site(site_id: str, path: str | Path | None = None) -> dict | None:
-    return load_sites(path).get(site_id)
+def load_sites(path: str | Path | None = None) -> dict[str, RegisteredSite]:
+    return load_enterprise(path).sites()
+
+
+def get_site(site_id: str, path: str | Path | None = None) -> RegisteredSite | None:
+    return load_enterprise(path).get_site(site_id)
+
+
+def sites_json(path: str | Path | None = None) -> dict[str, dict]:
+    """{site_id: {name, region, topology_file, chat_ui_url, aggregator_url}} —
+    the /api/sites shape SiteNav reads."""
+    return {
+        site_id: {
+            "name": site.name,
+            "region": site.region_name,
+            "topology_file": site.topology_file,
+            "chat_ui_url": site.chat_ui_url,
+            "aggregator_url": site.aggregator_url,
+        }
+        for site_id, site in load_sites(path).items()
+    }

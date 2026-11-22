@@ -36,6 +36,14 @@ supervise_expect enterprise-orchestrator "$(env_value ENTERPRISE_PORT 8020)"
 echo "Checking ports..."
 supervise_preflight || exit 1
 
+# spec Part V's full rule set: required fields, unique site_ids, and each
+# site's topology_file declaring the same facility.site_id. The services
+# re-read enterprise.yaml per request but skip the cross-file check, so it
+# runs here, once, before anything starts.
+ENTERPRISE_YAML="$(env_value ENTERPRISE_FILE "$PWD/../enterprise.yaml")"
+echo "Validating $ENTERPRISE_YAML..."
+(cd orchestrator && uv run --quiet fieldworks validate-enterprise "$ENTERPRISE_YAML") || exit 1
+
 echo "Starting enterprise services..."
 start_service "diagnose-plant-mcp" "diagnose_plant_mcp" "uv run python server.py"
 start_service "query-history-mcp" "query_history_mcp" "uv run python server.py"

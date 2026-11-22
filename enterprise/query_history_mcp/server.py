@@ -23,7 +23,6 @@ ENTERPRISE_FILE  Path to enterprise.yaml (default: ../enterprise.yaml)
 FASTMCP_PORT     Port to bind             (default: 8201)
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -33,10 +32,17 @@ from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
 from fieldworks.service_env import check_env_file
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "chat-ui"))
 from mcp_client import call_mcp_tool
+from fieldworks.enterprise import (
+    RegisteredSite,
+    SiteUnavailable,
+    UnknownSiteError,
+    federated_read,
+)
 from plant_registry import load_sites
 
 check_env_file(find_dotenv())  # before load_dotenv: see fieldworks.service_env
@@ -50,45 +56,41 @@ logger = logging.getLogger(__name__)
 mcp = MCPServer("query-history-mcp")
 
 
-async def _query_one_plant(
-    site_id: str, site: dict, start: str, end: str, equipment: str
-) -> list[dict]:
-    aggregator_url = site.get("aggregator_url")
-    if not aggregator_url:
-        logger.warning(
-            "query_enterprise_history(%s): no aggregator_url in enterprise.yaml, skipping",
-            site_id,
-        )
-        return []
-    try:
-        raw = await call_mcp_tool(
-            "audit__query_history",
-            {"start": start, "end": end, "equipment": equipment},
-            aggregator_url,
-        )
-        data = json.loads(raw)
-    except Exception as exc:
-        logger.warning("query_enterprise_history(%s) failed: %s", site_id, exc)
-        return []
+# A plant's audit history query is a local SQLite read; anything slower than
+# this is a plant in trouble, reported as unavailable rather than waited on.
+PLANT_TIMEOUT_SECONDS = 30
 
+
+async def _query_one_plant(
+    site_id: str, site: RegisteredSite, start: str, end: str, equipment: str
+) -> list[dict]:
+    if not site.aggregator_url:
+        raise SiteUnavailable("no aggregator_url in enterprise.yaml")
+    raw = await call_mcp_tool(
+        "audit__query_history",
+        {"start": start, "end": end, "equipment": equipment},
+        site.aggregator_url,
+    )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # call_mcp_tool reports transport failures as an "Error ..." string.
+        raise SiteUnavailable(raw[:200]) from None
     sessions = data.get("sessions") if isinstance(data, dict) else None
     if not isinstance(sessions, list):
-        logger.warning(
-            "query_enterprise_history(%s): unexpected response shape: %s",
-            site_id,
-            raw[:200],
-        )
-        return []
+        raise SiteUnavailable(f"unexpected response shape: {raw[:200]}")
     return sessions
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=True, open_world_hint=True))
 async def query_enterprise_history(
     start: str, end: str, site_id: str = "", equipment: str = ""
 ) -> str:
     """Cross-plant diagnostic session history for a time range, merged from
     every registered plant's own audit-mcp (federated read — each plant's
     metrics.db stays authoritative for its own rows, nothing is replicated).
+    Plants that didn't answer are listed under "unavailable": their history
+    is unknown, not empty.
 
     Args:
         start:     ISO datetime string for range start (e.g. "2026-08-09T00:00:00Z")
@@ -98,36 +100,32 @@ async def query_enterprise_history(
                    through to each plant's own query_history.
     """
     sites = load_sites()
-    if site_id:
-        if site_id not in sites:
-            known = ", ".join(sorted(sites.keys())) or "(none registered)"
-            return json.dumps(
-                {"error": f"unknown site_id '{site_id}'. Known sites: {known}."}
-            )
-        sites = {site_id: sites[site_id]}
-
     if not sites:
         return json.dumps(
             {"sessions": [], "message": "No sites registered in enterprise.yaml."}
         )
 
-    per_plant_results = await asyncio.gather(
-        *(
-            _query_one_plant(sid, site, start, end, equipment)
-            for sid, site in sites.items()
+    async def fetch(sid: str, site: RegisteredSite) -> list[dict]:
+        return await _query_one_plant(sid, site, start, end, equipment)
+
+    try:
+        result = await federated_read(
+            sites, fetch, site_id=site_id or None, timeout=PLANT_TIMEOUT_SECONDS
         )
-    )
-    merged: list[dict] = []
-    for sessions in per_plant_results:
-        merged.extend(sessions)
-    merged.sort(key=lambda s: s.get("ts", ""))
+    except UnknownSiteError as exc:
+        return json.dumps({"error": str(exc)})
+
+    for sid, reason in result.unavailable.items():
+        logger.warning("query_enterprise_history(%s) unavailable: %s", sid, reason)
 
     return json.dumps(
         {
             "range": {"start": start, "end": end},
             "site_id": site_id or "all",
             "equipment": equipment or "all",
-            "sessions": merged,
+            "sessions": result.records,
+            "unavailable": result.unavailable,
+            "complete": result.complete,
         },
         indent=2,
         default=str,
