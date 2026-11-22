@@ -29,7 +29,15 @@ from pathlib import Path
 import httpx
 from dotenv import find_dotenv, load_dotenv
 from fieldworks.service_env import check_env_file
+from fieldworks.agents import (
+    ENTERPRISE_TOOLS,
+    format_plant_status,
+    format_plant_summary,
+    format_plant_unknown,
+    format_unknown_site,
+)
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from plant_registry import get_site, load_sites
@@ -60,43 +68,26 @@ class _PlantSideError(Exception):
     (this call's own deadline), so each gets its own message to the caller."""
 
 
-def _format_summary(verdict: dict | None, full_text: str) -> str:
-    """A plant's answer for the enterprise orchestrator: its verdict block
-    when it sent one, else the raw (truncated) text for conversational
-    replies that don't warrant a SUMMARY block.
-
-    The plant's chat-ui parses the block itself (chat-ui/verdict.py) and
-    sends it as a "verdict" event; matching the text again here was one of
-    five parsers that had drifted apart (gh-25).
-    """
-    if verdict is None:
-        return full_text.strip()[:2000] or "(empty response)"
-    lines = [f"Status: {verdict['status']}"]
-    if verdict.get("overview"):
-        lines.append(f"Overview: {verdict['overview']}")
-    if verdict.get("confidence") is not None:
-        lines.append(f"Confidence: {verdict['confidence']}")
-    if verdict.get("points"):
-        lines.append("Key points:")
-        lines.extend(f"- {p}" for p in verdict["points"])
-    return "\n".join(lines)
+# Tool descriptions are the framework's (fieldworks.agents.ENTERPRISE_TOOLS),
+# so the orchestrator's prompt and its tools describe the same contract.
+# Read-only: neither tool can change anything at a plant (spec Part V).
+_DESCRIPTIONS = {t["name"]: t["description"] for t in ENTERPRISE_TOOLS}
+_READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 
 
-@mcp.tool()
+def _unknown_site(site_id: str) -> str:
+    return format_unknown_site(site_id, load_sites().keys())
+
+
+@mcp.tool(description=_DESCRIPTIONS["diagnose_plant"], annotations=_READ)
 async def diagnose_plant(site_id: str, query: str) -> str:
-    """Ask one plant's own multi-agent diagnostic system a question and return
-    its synthesized status summary.
-
-    Args:
-        site_id: Plant identifier from enterprise.yaml, e.g. "wtp" or "wtp2".
-        query:   Natural-language diagnostic question for that plant.
-    """
+    """Model-facing description: ENTERPRISE_TOOLS. Streams the plant's own
+    /api/chat and returns its parsed verdict (chat-ui/verdict.py)."""
     site = get_site(site_id)
     if site is None:
-        known = ", ".join(sorted(load_sites().keys())) or "(none registered)"
-        return f"Error: unknown site_id '{site_id}'. Known sites: {known}."
+        return _unknown_site(site_id)
 
-    chat_ui_url = site["chat_ui_url"]
+    chat_ui_url = site.chat_ui_url
 
     verdict: dict | None = None
 
@@ -152,46 +143,33 @@ async def diagnose_plant(site_id: str, query: str) -> str:
             PLANT_TIMEOUT_SECONDS,
             chat_ui_url,
         )
-        return (
-            f"Plant '{site_id}' did not respond within {PLANT_TIMEOUT_SECONDS}s — "
-            "treat its status as unknown, not confirmed normal."
+        return format_plant_unknown(
+            site_id, f"did not respond within {PLANT_TIMEOUT_SECONDS}s"
         )
     except _PlantSideError as exc:
-        return f"Error from plant '{site_id}': {exc}"
+        return format_plant_unknown(site_id, f"the plant reported an error: {exc}")
     except httpx.HTTPError as exc:
         logger.warning(
             "diagnose_plant(%s) request to %s failed: %s", site_id, chat_ui_url, exc
         )
-        return f"Error reaching plant '{site_id}' at {chat_ui_url}: {exc}"
+        return format_plant_unknown(site_id, f"could not reach {chat_ui_url}: {exc}")
 
     response_text = "".join(full_text)
     if not response_text:
-        return f"Plant '{site_id}' returned no response."
-    return f"[{site_id}] " + _format_summary(verdict, response_text)
+        return format_plant_unknown(site_id, "the plant returned no response")
+    return format_plant_summary(site_id, verdict, response_text)
 
 
-@mcp.tool()
+@mcp.tool(description=_DESCRIPTIONS["get_plant_status"], annotations=_READ)
 async def get_plant_status(site_id: str) -> str:
-    """Get one plant's last-known status — a pre-computed rollup refreshed
-    periodically in the background (see status_heartbeat.py on each
-    plant's own chat-ui), not a live diagnosis. Near-instant: this is a
-    plain database read on the plant's side, not a fresh multi-agent
-    run. Use this for overview/status questions ("what's the status of
-    X", "is everything okay across the enterprise"). Use diagnose_plant
-    instead when the question calls for genuine drill-down into a
-    specific issue, since that runs a fresh live diagnosis — this can be
-    up to roughly an hour stale (bounded by STATUS_HEARTBEAT_MAX_STALE_TICKS
-    on that plant), whereas diagnose_plant is always current but slow.
-
-    Args:
-        site_id: Plant identifier from enterprise.yaml, e.g. "wtp" or "wtp2".
-    """
+    """Model-facing description: ENTERPRISE_TOOLS. Reads the plant's
+    status_heartbeat.py rollup — a DB read, up to roughly an hour stale
+    (STATUS_HEARTBEAT_MAX_STALE_TICKS on that plant)."""
     site = get_site(site_id)
     if site is None:
-        known = ", ".join(sorted(load_sites().keys())) or "(none registered)"
-        return f"Error: unknown site_id '{site_id}'. Known sites: {known}."
+        return _unknown_site(site_id)
 
-    chat_ui_url = site["chat_ui_url"]
+    chat_ui_url = site.chat_ui_url
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(f"{chat_ui_url}/api/plant-status")
@@ -201,7 +179,7 @@ async def get_plant_status(site_id: str) -> str:
         logger.warning(
             "get_plant_status(%s) request to %s failed: %s", site_id, chat_ui_url, exc
         )
-        return f"Error reaching plant '{site_id}' at {chat_ui_url}: {exc}"
+        return format_plant_unknown(site_id, f"could not reach {chat_ui_url}: {exc}")
 
     if not data or not data.get("narrative"):
         return (
@@ -210,9 +188,8 @@ async def get_plant_status(site_id: str) -> str:
             "disabled for this plant. Try diagnose_plant for a live answer."
         )
 
-    return (
-        f"[{site_id}] Status: {data['status_level']} "
-        f"(as of {data['narrative_updated_at']})\n{data['narrative']}"
+    return format_plant_status(
+        site_id, data["status_level"], data["narrative_updated_at"], data["narrative"]
     )
 
 

@@ -80,6 +80,16 @@ enterprise/diagnose_plant_mcp (:8200)  — thin HTTP proxy: forwards to each
 each plant's chat-ui (per plant_registry.py → enterprise.yaml)
 ```
 
+The plant-agnostic half comes from fieldworks-core ≥ 1.4.0 (spec Part V):
+`fieldworks.enterprise` loads and validates `enterprise.yaml` and runs
+`query_history_mcp`'s fan-out (`federated_read`, which names every plant
+that didn't answer); `fieldworks.agents` supplies the orchestrator's
+prompt, tool descriptions and answer formatting. What stays here is
+deployment code: the MCP servers, the HTTP transport to each plant, and the
+orchestrator's agentic loop and model client — fieldworks-core takes no
+model-provider dependency. The orchestrator writes its own audit log,
+`enterprise/orchestrator/audit.jsonl`, never a plant's.
+
 ## Request lifecycle: a diagnostic question
 
 1. **Operator asks a question** in the chat-ui frontend. The frontend opens

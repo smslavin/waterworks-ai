@@ -28,7 +28,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 import enterprise_loop
-from plant_registry import load_sites
+from plant_registry import sites_json
 
 from fieldworks.service_logging import setup_logging  # noqa: E402
 
@@ -56,7 +56,7 @@ async def chat_endpoint(request: Request):
 
 
 async def sites_endpoint(request: Request):
-    return JSONResponse(load_sites())
+    return JSONResponse(sites_json())
 
 
 routes = [

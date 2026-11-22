@@ -15,7 +15,7 @@ dependencies = [
     "influxdb-client>=1.43.0",
     "pyyaml",
     "paho-mqtt>=2.0",
-    "fieldworks-core[memory]>=1.3.0",
+    "fieldworks-core[memory]>=1.4.0",
 ]
 
 [tool.uv]

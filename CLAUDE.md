@@ -114,10 +114,14 @@ mcp-aggregator/     git submodule (server/) + backends.json (a template: ${PORT_
                     mqtt/opcua entries are stdio — aggregator spawns the fieldworks-adapters
                     mqtt-mcp/opcua-mcp binaries itself (cargo-installed, not vendored here)
 topology.yaml       single source of truth: process units, fault modes, specialist scopes, alarm limits
-enterprise.yaml     M10: regions -> sites (site_id, topology_file, chat_ui_url) — read by
+enterprise.yaml     M10: regions -> sites (site_id, topology_file, chat_ui_url) — schema and
+                    rules are fieldworks.enterprise's (spec Part V); read by
                     enterprise/plant_registry.py, not by any single plant's own process
 enterprise/         M10 multi-plant layer — shared across every plant, not per-checkout:
-                    plant_registry.py            site_id -> chat_ui_url lookup
+                    plant_registry.py            which enterprise.yaml to read (ENTERPRISE_FILE);
+                                                  loading/validation is fieldworks.enterprise.load —
+                                                  a site missing a required field is an error,
+                                                  never skipped (gh-83)
                     diagnose_plant_mcp/server.py MCPServer: diagnose_plant(site_id, query) +
                                                   get_plant_status(site_id) — thin HTTP client
                                                   of each plant's own chat-ui /api/chat and
@@ -127,11 +131,18 @@ enterprise/         M10 multi-plant layer — shared across every plant, not per
                                                   federated read across every plant's own
                                                   audit-mcp (calls each plant's aggregator
                                                   directly; audit data doesn't need
-                                                  diagnose_plant_mcp's stricter guarantee)
-                    orchestrator/                Starlette app + Cascade-shaped loop whose
-                                                  only tool is diagnose_plant
+                                                  diagnose_plant_mcp's stricter guarantee).
+                                                  Fan-out is fieldworks.enterprise.federated_read:
+                                                  plants that didn't answer come back under
+                                                  "unavailable", never as an empty history
+                    orchestrator/                Starlette app + Cascade-shaped loop; tools are
+                                                  diagnose_plant + get_plant_status only. Prompt
+                                                  is fieldworks.agents.build_enterprise_system;
+                                                  sessions audited to orchestrator/audit.jsonl
                     start.sh/stop.sh/restart.sh  separate from each plant checkout's own —
-                                                  run once, not per plant
+                                                  run once, not per plant. start.sh runs
+                                                  `fieldworks validate-enterprise` first (each
+                                                  topology_file's facility.site_id must match)
 data/               ladybugdb/, duckdb/, specialist-memory/ are gitignored (generated
                     state); knowledge-docs/ is committed source content — facility
                     docs ingested by memory-mcp's KnowledgeClient
@@ -183,7 +194,7 @@ Key observations:
 ```
 If the block is missing, `multi_agent_loop.py` makes a cheap follow-up call with assistant prefill `"FINDINGS:\nStatus:"` to force it. Do not remove this fallback.
 
-**One parser:** `chat-ui/verdict.py` holds the FINDINGS/SUMMARY templates the prompts embed and the only parser for them. `backend.py` wraps every `/api/chat` stream in `verdict.annotate()`, which emits one `{"type": "verdict", kind, status, confidence, overview, points, block}` event as soon as a block is complete. The panels (`useVerdict`), `session_store.extract_status_single`, specialist status and `diagnose_plant_mcp` all read that instead of matching text — five separate regexes had drifted apart (gh-25). The enterprise orchestrator runs in its own process and keeps its own copy of the SUMMARY template.
+**One parser:** `chat-ui/verdict.py` holds the FINDINGS/SUMMARY templates the prompts embed and the only parser for them. `backend.py` wraps every `/api/chat` stream in `verdict.annotate()`, which emits one `{"type": "verdict", kind, status, confidence, overview, points, block}` event as soon as a block is complete. The panels (`useVerdict`), `session_store.extract_status_single`, specialist status and `diagnose_plant_mcp` all read that instead of matching text — five separate regexes had drifted apart (gh-25). The enterprise orchestrator runs in its own process; its SUMMARY template comes from fieldworks-core (`fieldworks.agents.enterprise.SUMMARY_BLOCK`), so the labels this parser reads now live in two repos — keep them in step.
 
 ## Approval flow (control-mcp)
 
@@ -207,7 +218,7 @@ Approval alone does not execute anything — the grant is what does, and it's bo
 
 ## Audit log
 
-`chat-ui/audit.jsonl` — AES-256-GCM per record, HMAC-SHA256 hash chain keyed under `AUDIT_KEY` (base64 32 bytes). Unset is allowed (plaintext, dev mode, logs a WARNING); set-but-invalid (bad base64, wrong length, `cryptography` not installed) raises at import rather than silently falling back to plaintext. `AUDIT_REQUIRE_ENCRYPTION=1` refuses to start without a valid key. The first record of every process is `audit_log_opened` naming the active mode.
+`chat-ui/audit.jsonl` — AES-256-GCM per record, HMAC-SHA256 hash chain keyed under `AUDIT_KEY` (base64 32 bytes). Unset is allowed (plaintext, dev mode, logs a WARNING); set-but-invalid (bad base64, wrong length, `cryptography` not installed) raises at import rather than silently falling back to plaintext. `AUDIT_REQUIRE_ENCRYPTION=1` refuses to start without a valid key. The first record of every process is `audit_log_opened` naming the active mode. The enterprise orchestrator reuses this module with its own file, `enterprise/orchestrator/audit.jsonl` (`ENTERPRISE_AUDIT_LOG_PATH` overrides): it forces `AUDIT_LOG_PATH` before importing `audit`, so a root `.env` that points `AUDIT_LOG_PATH` at a plant's log can't redirect enterprise sessions into it (`tests/test_m10_orchestrator_audit.py`).
 
 Rotate with `rotate_log()` (never `clear_log()`) — the new file's first record carries the archived file's final hash as its `prev`, so the chain spans the rotation; `python audit_verify.py <log> --prev-file <archive>` checks it end to end, or without `--prev-file` for a single file (record 1's non-empty `prev` is itself the tell that this isn't a from-scratch complete log). `verify()` also checks `seq` for gaps, catching a record deleted from the middle even if whoever edited the file forgot to re-chain it — deletions off the *end* of a file aren't detectable this way (nothing references what's missing); that needs an external anchor and is out of scope.
 

@@ -33,19 +33,23 @@ def enterprise_file(tmp_path):
     path.write_text(
         yaml.dump(
             {
+                "enterprise": {"name": "Test Utility"},
                 "regions": [
                     {
                         "id": "metro",
+                        "name": "Metro Region",
                         "sites": [
                             {
                                 "site_id": "wtp",
                                 "name": "Waterworks",
+                                "topology_file": "topology.yaml",
                                 "chat_ui_url": "http://localhost:8080",
                                 "aggregator_url": "http://localhost:8100/sse",
                             },
                             {
                                 "site_id": "wtp2",
                                 "name": "Eastside",
+                                "topology_file": "topology-wtp2.yaml",
                                 "chat_ui_url": "http://localhost:8010",
                                 "aggregator_url": "http://localhost:8110/sse",
                             },
@@ -109,6 +113,8 @@ def test_merges_sessions_from_both_plants(enterprise_file, monkeypatch):
     site_ids = {s["site_id"] for s in result["sessions"]}
     assert site_ids == {"wtp", "wtp2"}
     assert len(result["sessions"]) == 2
+    assert result["unavailable"] == {}
+    assert result["complete"] is True
 
 
 def test_sessions_sorted_by_timestamp_across_plants(enterprise_file, monkeypatch):
@@ -191,9 +197,12 @@ def test_unknown_site_id_returns_clean_error(enterprise_file, monkeypatch):
         )
     )
     assert "unknown site_id" in result["error"].lower()
+    assert "wtp, wtp2" in result["error"]
 
 
-def test_one_plant_failing_does_not_break_the_other(enterprise_file, monkeypatch):
+def test_one_plant_failing_is_named_not_dropped(enterprise_file, monkeypatch):
+    """Part V: a plant that didn't answer reads as unknown, never as an
+    empty history (gh-83)."""
     monkeypatch.setenv("ENTERPRISE_FILE", str(enterprise_file))
 
     async def _fake(name, args, aggregator_url):
@@ -221,9 +230,11 @@ def test_one_plant_failing_does_not_break_the_other(enterprise_file, monkeypatch
     )
     assert len(result["sessions"]) == 1
     assert result["sessions"][0]["site_id"] == "wtp2"
+    assert result["unavailable"] == {"wtp": "ConnectionError: plant unreachable"}
+    assert result["complete"] is False
 
 
-def test_malformed_plant_response_is_skipped_not_fatal(enterprise_file, monkeypatch):
+def test_malformed_plant_response_is_reported_not_fatal(enterprise_file, monkeypatch):
     monkeypatch.setenv("ENTERPRISE_FILE", str(enterprise_file))
     monkeypatch.setattr(
         qh_server,
@@ -254,3 +265,49 @@ def test_malformed_plant_response_is_skipped_not_fatal(enterprise_file, monkeypa
     )
     assert len(result["sessions"]) == 1
     assert result["sessions"][0]["session_id"] == "ok"
+    assert result["unavailable"] == {"wtp": "not valid json"}
+
+
+def test_site_without_aggregator_url_is_reported_unavailable(tmp_path, monkeypatch):
+    path = tmp_path / "enterprise.yaml"
+    path.write_text(
+        yaml.dump(
+            {
+                "enterprise": {"name": "Test Utility"},
+                "regions": [
+                    {
+                        "id": "metro",
+                        "name": "Metro Region",
+                        "sites": [
+                            {
+                                "site_id": "wtp",
+                                "name": "Waterworks",
+                                "topology_file": "topology.yaml",
+                                "chat_ui_url": "http://localhost:8080",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setenv("ENTERPRISE_FILE", str(path))
+    result = json.loads(
+        asyncio.run(qh_server.query_enterprise_history("2026-08-09", "2026-08-10"))
+    )
+    assert result["sessions"] == []
+    assert result["unavailable"] == {"wtp": "no aggregator_url in enterprise.yaml"}
+
+
+def test_plant_error_string_is_reported_unavailable(enterprise_file, monkeypatch):
+    """call_mcp_tool reports transport failures as an "Error ..." string."""
+    monkeypatch.setenv("ENTERPRISE_FILE", str(enterprise_file))
+    monkeypatch.setattr(
+        qh_server,
+        "call_mcp_tool",
+        _fake_call_mcp_tool({"http://localhost:8100/sse": "Error: connection refused"}),
+    )
+    result = json.loads(
+        asyncio.run(qh_server.query_enterprise_history("2026-08-09", "2026-08-10"))
+    )
+    assert result["unavailable"] == {"wtp": "Error: connection refused"}

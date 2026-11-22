@@ -20,9 +20,20 @@ import anthropic
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "chat-ui"))
-import model_params
-from mcp_client import call_mcp_tool, list_mcp_tools
-from plant_registry import load_sites
+# The orchestrator keeps its own audit log (spec Part V: its sessions fall
+# under the Part III audit contract). Forced, not defaulted: the checkout's
+# root .env may set AUDIT_LOG_PATH for a plant's chat-ui, and an enterprise
+# session must never land in a plant's log. Set before importing audit,
+# which reads it at import time.
+os.environ["AUDIT_LOG_PATH"] = os.environ.get(
+    "ENTERPRISE_AUDIT_LOG_PATH", str(Path(__file__).parent / "audit.jsonl")
+)
+
+import audit  # noqa: E402
+import model_params  # noqa: E402
+from fieldworks.agents import build_enterprise_system  # noqa: E402
+from mcp_client import call_mcp_tool, list_mcp_tools  # noqa: E402
+from plant_registry import load_enterprise  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -38,75 +49,26 @@ MAX_HISTORY_MESSAGES = 20
 
 
 def _build_system_prompt() -> str:
-    sites = load_sites()
-    if sites:
-        site_lines = "\n".join(
-            f"  - {site_id}: {info['name']} ({info['region']})"
-            for site_id, info in sorted(sites.items())
-        )
-    else:
-        site_lines = "  (no sites registered in enterprise.yaml)"
-    return f"""You are the enterprise-level diagnostics coordinator for a multi-plant
-water utility. You have no direct access to sensor data, MQTT, InfluxDB, or
-any single plant's tools — you have exactly two tools, both scoped to one
-plant at a time via site_id:
-
-  get_plant_status(site_id)  Pre-computed rollup, refreshed periodically in
-                              the background on that plant's own side. Near-
-                              instant. Can be up to roughly an hour stale.
-  diagnose_plant(site_id, query)  Fresh live multi-agent diagnosis. Always
-                              current, but takes real time (multiple
-                              specialists actually querying that plant's
-                              sensors) — noticeably slower.
-
-Registered plants:
-{site_lines}
-
-Default to get_plant_status for overview/status questions ("what's the
-status", "is everything okay", "any issues right now") — that's what most
-questions at this level actually are, and it's the fast path for exactly
-that reason. Reach for diagnose_plant only when the question calls for
-genuine drill-down that a periodic rollup can't answer: investigating a
-specific piece of equipment in depth, verifying something get_plant_status
-flagged, or when the operator explicitly asks for a fresh/live check
-rather than the last known status. If get_plant_status comes back with no
-status recorded yet for a plant, fall back to diagnose_plant for that one.
-
-For a question about one specific plant, call the appropriate tool once
-for that plant. For a cross-plant or "all plants" question, call it once
-per relevant plant and synthesize a single answer that clearly attributes
-each finding to the correct site_id. Do not guess at another plant's status
-without calling one of these tools for it — you have no other source of
-truth. When you used get_plant_status, mention in your answer that this
-reflects each plant's last periodic check (not a live query) so the
-operator knows how fresh it is — that's exactly why get_plant_status'
-own response includes an "as of" timestamp per plant.
-
-── Diagnostic output format ───────────────────────────────────────────────────
-Start every status-overview response with this block, before any detailed
-per-plant breakdown — you already have everything you called diagnose_plant
-for this turn, so lead with the conclusion rather than building up to it:
-SUMMARY:
-Status: Normal | Anomaly Detected | Fault Detected
-Overview: [one or two plain-language sentences covering every plant you checked]
-Key points:
-- [one bullet per plant with anything notable — omit the list entirely if there is nothing notable]
-
-Status must reflect the single most severe status among every plant
-checked (one plant "Fault Detected" makes the overall Status "Fault
-Detected" even if every other plant is Normal). Detailed per-plant
-reasoning belongs after this block, not before it — the block must never
-be pushed to the end where it risks being cut off by the response length
-limit.
-
-Omit the block entirely for follow-up conversational replies that are not
-a fresh status overview."""
+    """fieldworks-core owns the orchestrator's contract (prompt, tool
+    schemas, SUMMARY block); this deployment only says what kind of
+    enterprise it is."""
+    return build_enterprise_system(load_enterprise(), kind="water utility")
 
 
 async def run_chat(
     messages: list[dict], *, api_key: str | None = None
 ) -> AsyncIterator[str]:
     session_id = str(uuid.uuid4())
+    user_message = next(
+        (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
+    )
+    audit.log(
+        "session_start",
+        session_id=session_id,
+        model=f"enterprise/{MODEL}",
+        user_message=user_message,
+    )
+    response_text: list[str] = []
     client = anthropic.AsyncAnthropic(api_key=api_key)
 
     mcp_tools = await list_mcp_tools(DIAGNOSE_PLANT_MCP_URL)
@@ -141,10 +103,12 @@ async def run_chat(
 
             async with client.beta.messages.stream(**stream_kwargs) as stream:
                 async for text in model_params.visible_text(stream):
+                    response_text.append(text)
                     yield json.dumps({"type": "text", "text": text})
                 final = await stream.get_final_message()
 
             if refusal := model_params.refusal_message(final):
+                audit.log("error", session_id=session_id, error=refusal)
                 yield json.dumps({"type": "error", "error": refusal})
                 return
 
@@ -153,6 +117,13 @@ async def run_chat(
 
                 tool_use_blocks = [b for b in final.content if b.type == "tool_use"]
                 for block in tool_use_blocks:
+                    audit.log(
+                        "tool_call",
+                        session_id=session_id,
+                        tool=block.name,
+                        args=dict(block.input),
+                        site_id=block.input.get("site_id"),
+                    )
                     yield json.dumps(
                         {
                             "type": "tool_call",
@@ -180,6 +151,13 @@ async def run_chat(
                 for block, result in zip(tool_use_blocks, results):
                     if len(result) > TOOL_RESULT_MAX_CHARS:
                         result = result[:TOOL_RESULT_MAX_CHARS] + "... [truncated]"
+                    audit.log(
+                        "tool_result",
+                        session_id=session_id,
+                        tool=block.name,
+                        result=result,
+                        site_id=block.input.get("site_id"),
+                    )
 
                     yield json.dumps(
                         {"type": "tool_result", "tool": block.name, "result": result}
@@ -199,8 +177,10 @@ async def run_chat(
                 continue
 
             # end_turn or any other stop_reason (max_tokens, etc.) — done.
+            audit.log("response", session_id=session_id, text="".join(response_text))
             yield json.dumps({"type": "done", "session_id": session_id})
             return
     except Exception as exc:
         logger.exception("Enterprise orchestrator stream error")
+        audit.log("error", session_id=session_id, error=str(exc))
         yield json.dumps({"type": "error", "error": model_params.error_text(exc)})
