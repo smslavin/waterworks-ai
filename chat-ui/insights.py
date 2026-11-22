@@ -98,3 +98,30 @@ async def _call(call_tool, name: str, args: dict) -> None:
     result = await call_tool(name, args)
     if result.startswith("Error"):
         raise SaveFailed(result)
+
+
+class ReadFailed(Exception):
+    """The review queue could not be read; the message says why."""
+
+
+def list_pending(db_path: str) -> list[dict]:
+    """Every unresolved insight review, newest first.
+
+    Read straight from insight_reviews, the table save() queues into, so the
+    mobile page (gh-6) doesn't depend on the aggregator or audit-mcp being
+    up. Unlike audit__list_pending_reviews there is no age window: a review
+    that has waited ten days is still waiting.
+    """
+    try:
+        with closing(sqlite3.connect(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """SELECT id, node_id, category_id, category_label, target,
+                          note, created_at
+                   FROM insight_reviews
+                   WHERE resolved_at IS NULL
+                   ORDER BY created_at DESC"""
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise ReadFailed(f"could not read the review queue: {exc}") from exc
+    return [dict(r) for r in rows]

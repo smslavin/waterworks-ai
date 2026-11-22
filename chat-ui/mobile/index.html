@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Waterworks Mobile</title>
+  <meta name="theme-color" content="#0f1720" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f7fa" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Waterworks">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+  <header class="bar">
+    <div>
+      <h1 id="site-name">Waterworks</h1>
+      <p id="region-name" class="muted"></p>
+    </div>
+    <span id="conn" class="conn" data-state="connecting" title="Live alert stream">connecting</span>
+  </header>
+
+  <form id="token-form" class="card token" hidden>
+    <label for="token-input">API token</label>
+    <p class="muted">This plant is exposed beyond localhost, so it needs its <code>WATERWORKS_API_TOKEN</code>.</p>
+    <input id="token-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+    <button type="submit">Save</button>
+  </form>
+
+  <main>
+    <section id="actions-section" hidden>
+      <h2>Awaiting approval <span id="action-count" class="count"></span></h2>
+      <p class="muted">Cascade is holding its diagnosis until someone approves or denies on the desktop. Unanswered proposals time out after 5 minutes.</p>
+      <ul id="actions" class="list"></ul>
+    </section>
+
+    <section>
+      <h2>Alerts <span id="alert-count" class="count"></span></h2>
+      <p id="alerts-empty" class="muted empty">No recent alerts. Alerts only appear while reactive mode is on.</p>
+      <ul id="alerts" class="list"></ul>
+    </section>
+
+    <section>
+      <h2>Pending reviews <span id="review-count" class="count"></span></h2>
+      <p id="reviews-status" class="muted empty">Loading…</p>
+      <ul id="reviews" class="list"></ul>
+    </section>
+  </main>
+
+  <template id="alert-tpl">
+    <li class="card alert">
+      <div class="row">
+        <span class="sev"></span>
+        <strong class="node"></strong>
+        <time class="muted when"></time>
+      </div>
+      <p class="reading"></p>
+      <p class="reason muted clamp"></p>
+      <details class="diag" hidden>
+        <summary>Diagnosis</summary>
+        <div class="content"></div>
+      </details>
+      <p class="pending muted" hidden>Diagnosis running…</p>
+    </li>
+  </template>
+
+  <template id="action-tpl">
+    <li class="card action">
+      <div class="row">
+        <strong class="what"></strong>
+        <time class="muted when"></time>
+      </div>
+      <p class="desc clamp"></p>
+      <p class="muted">Approve or deny on the desktop.</p>
+    </li>
+  </template>
+
+  <template id="review-tpl">
+    <li class="card review">
+      <div class="row">
+        <span class="tag"></span>
+        <strong class="node"></strong>
+        <time class="muted when"></time>
+      </div>
+      <p class="note clamp"></p>
+    </li>
+  </template>
+
+  <script src="app.js?v=3"></script>
+</body>
+</html>
