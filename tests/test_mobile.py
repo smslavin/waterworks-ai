@@ -333,3 +333,43 @@ def test_mobile_unchanged_file_is_a_304(client):
         "/mobile/app.js", headers={"If-None-Match": first.headers["etag"]}
     )
     assert again.status_code == 304
+
+
+# ── /api/events gate (gh-78) ──────────────────────────────────────────────────
+
+
+class _StreamRequest:
+    def __init__(self, headers=None, query=None):
+        self.headers = headers or {}
+        self.query_params = query or {}
+
+
+def _open_events(request):
+    """Call the endpoint directly: TestClient would block reading an endless
+    SSE stream. Unsubscribe whatever queue it registered."""
+    before = list(backend._alert_subs)
+    resp = asyncio.run(backend.events_endpoint(request))
+    backend._alert_subs[:] = before
+    return resp
+
+
+def test_events_refused_without_token_when_exposed(exposed, client):
+    assert client.get("/api/events").status_code == 401
+    assert client.get("/api/events?token=wrong").status_code == 401
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        _StreamRequest(headers={"authorization": "Bearer test-secret"}),
+        _StreamRequest(query={"token": "test-secret"}),
+    ],
+    ids=["bearer", "query"],
+)
+def test_events_accept_bearer_or_query_token_when_exposed(exposed, request_):
+    assert _open_events(request_).status_code == 200
+
+
+def test_events_open_without_token_on_loopback(monkeypatch):
+    monkeypatch.setattr(auth, "EXPOSED", False)
+    assert _open_events(_StreamRequest()).status_code == 200

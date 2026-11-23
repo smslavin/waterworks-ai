@@ -583,8 +583,13 @@ async def reactive_toggle_endpoint(request: Request):
         return JSONResponse({"enabled": False, "changed": True})
 
 
+@auth.require
 async def events_endpoint(request: Request):
-    """SSE stream for reactive alerts — all three severity tiers."""
+    """SSE stream for reactive alerts — all three severity tiers — and the
+    action_proposed / action_decision events of reactive Cascade sessions.
+    Gated (gh-78): proposals carry the full text of a control action. The
+    desktop sends the bearer header; the mobile page's EventSource, which
+    can't set headers, sends ?token=."""
     q: asyncio.Queue = asyncio.Queue()
     _alert_subs.append(q)
 

@@ -4,6 +4,9 @@ import { useAlarmStore } from '@/stores/alarm'
 import { useTopologyStore } from '@/stores/topology'
 import type { AlarmState } from '@/stores/topology'
 import { useApprovalStore, type BackendActionProposal } from '@/stores/approval'
+import { authFetch } from '@/lib/api'
+
+const RECONNECT_MS = 5000
 
 export function useReactive() {
   const ui = useUIStore()
@@ -55,10 +58,37 @@ export function useReactive() {
     eventController = null
   }
 
+  // /api/events only reaches subscribers connected when an event fires. A
+  // proposal made while this page was closed or reconnecting would otherwise
+  // sit unseen until it timed out (gh-81), so load whatever is still waiting
+  // each time the stream (re)opens. Runs after the subscription exists, so
+  // nothing falls between the two; the store drops duplicates.
+  async function loadPendingActions() {
+    try {
+      const resp = await authFetch('/api/alerts/recent')
+      if (!resp.ok) return
+      const data = await resp.json() as { pending_actions?: BackendActionProposal[] }
+      for (const proposal of data.pending_actions ?? []) {
+        approval.pushFromBackend(proposal)
+      }
+    } catch { /* backend unreachable — the stream's reconnect retries */ }
+  }
+
+  function scheduleReconnect() {
+    setTimeout(() => {
+      // Skip if the stream was stopped, or another connection already started.
+      if (eventController === null || !eventController.signal.aborted) return
+      eventController = new AbortController()
+      void consumeAlertStream(eventController.signal)
+    }, RECONNECT_MS)
+  }
+
   async function consumeAlertStream(signal: AbortSignal) {
     try {
-      const resp = await fetch('/api/events', { signal })
-      if (!resp.ok || !resp.body) return
+      // Gated when chat-ui is exposed (gh-78): send the token.
+      const resp = await authFetch('/api/events', { signal })
+      if (!resp.ok || !resp.body) throw new Error(`/api/events: ${resp.status}`)
+      void loadPendingActions()
 
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
@@ -80,14 +110,12 @@ export function useReactive() {
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
-      // Reconnect after 5 s unless stream was explicitly stopped (eventController === null)
-      setTimeout(() => {
-        if (eventController !== null) {
-          eventController = new AbortController()
-          void consumeAlertStream(eventController.signal)
-        }
-      }, 5000)
     }
+    // The stream ended: a network error, a refused connection, or the server
+    // closing it (a chat-ui restart). Reconnect unless it was stopped.
+    if (signal.aborted || eventController === null) return
+    eventController.abort()
+    scheduleReconnect()
   }
 
   function handleAlertEvent(evt: Record<string, unknown>) {
@@ -104,7 +132,12 @@ export function useReactive() {
       approval.pushFromBackend(evt as unknown as BackendActionProposal)
       return
     }
-    if (type === 'action_decision') return // frontend already resolves its own queue
+    // A decision made elsewhere (another desktop, or the 300 s timeout)
+    // closes the dialog here too; for this page's own answers it's a no-op.
+    if (type === 'action_decision') {
+      approval.remove(String(evt.action_id ?? ''))
+      return
+    }
 
     // Warning and critical diagnoses both arrive in a follow-up update event,
     // after the alarm itself — patch content onto the existing alarm
