@@ -77,3 +77,20 @@ def require(handler):
         return await handler(request, *args, **kwargs)
 
     return wrapped
+
+
+# Who approved an action, as far as this deployment can tell (spec Part I,
+# Operator identity; gh-82). Neither case authenticates a person, so
+# neither names one: exposed, an approval proves someone held the shared
+# token; on loopback, which checks no token, it proves someone could reach
+# the host. Recorded with every operator decision and granted execution.
+EXPOSED_OPERATOR_ID = "shared-token"
+LOOPBACK_OPERATOR_ID = "local-console"
+
+
+def approver() -> dict[str, str]:
+    """operator_id and auth_method for an operator decision made now."""
+    return {
+        "operator_id": EXPOSED_OPERATOR_ID if EXPOSED else LOOPBACK_OPERATOR_ID,
+        "auth_method": "shared_credential",
+    }

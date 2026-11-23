@@ -139,18 +139,83 @@ def test_recover_abandoned_actions_leaves_resolved_rows_alone(store):
     assert row["outcome"] == "ok"
 
 
-def test_operator_id_column_is_gone_on_a_fresh_db(store):
+def _cols(db_path):
+    conn = sqlite3.connect(db_path)
+    return [row[1] for row in conn.execute("PRAGMA table_info(action_events)")]
+
+
+def _propose(action_id="a1"):
+    session_store.log_action_proposed(
+        action_id=action_id,
+        session_id="s1",
+        action_type="setpoint_adjustment",
+        target="Chlorine_01",
+        value="2.8",
+        description="Reduce chlorine dose",
+    )
+
+
+# ── operator_id and auth_method (gh-82, spec Part I/III) ─────────────────────
+
+
+def test_a_pending_row_names_no_one(store):
+    _propose()
+    row = _row(store, "a1")
+    assert (row["operator_id"], row["auth_method"]) == (None, None)
+
+
+def test_the_decision_records_who_decided(store):
+    _propose()
+    session_store.log_action_decision(
+        action_id="a1",
+        decision="approved",
+        operator_id="shared-token",
+        auth_method="shared_credential",
+    )
+    row = _row(store, "a1")
+    assert (row["decision"], row["operator_id"], row["auth_method"]) == (
+        "approved",
+        "shared-token",
+        "shared_credential",
+    )
+
+
+@pytest.mark.parametrize(
+    "operator_id,auth_method",
+    [
+        ("operator_01", "password"),  # not an auth method the spec knows
+        ("trust-mode:supervised", "shared_credential"),  # claims trust mode
+        ("", "shared_credential"),  # names no one
+    ],
+)
+def test_a_dishonest_approver_is_refused_before_writing(
+    store, operator_id, auth_method
+):
+    _propose()
+    with pytest.raises(ValueError):
+        session_store.log_action_decision(
+            action_id="a1",
+            decision="approved",
+            operator_id=operator_id,
+            auth_method=auth_method,
+        )
+    assert _row(store, "a1")["decision"] == "pending"
+
+
+def test_fresh_db_has_nullable_operator_columns(store):
     conn = sqlite3.connect(store)
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(action_events)")}
-    assert "operator_id" not in cols
+    info = {r[1]: r for r in conn.execute("PRAGMA table_info(action_events)")}
+    for col in ("operator_id", "auth_method"):
+        _, _, _, notnull, default, _ = info[col]
+        assert (notnull, default) == (0, None)
 
 
-def test_operator_id_column_is_dropped_from_a_pre_existing_db(tmp_path, monkeypatch):
-    """A metrics.db created before this fix has operator_id TEXT NOT NULL
-    DEFAULT 'operator_01' — a hardcoded fake identity in a compliance table.
-    _init_db() must drop it, not just stop writing to it (leaving the fake
-    default silently applied to every future row would be worse than
-    dropping the column outright)."""
+def test_placeholder_operator_column_is_replaced_in_a_pre_existing_db(
+    tmp_path, monkeypatch
+):
+    """A metrics.db from before the first fix has operator_id TEXT NOT NULL
+    DEFAULT 'operator_01', a placeholder person on every row. _init_db()
+    drops that column, fake values and all, and adds the honest one."""
     db_path = str(tmp_path / "metrics.db")
     conn = sqlite3.connect(db_path)
     conn.executescript("""
@@ -166,6 +231,8 @@ def test_operator_id_column_is_dropped_from_a_pre_existing_db(tmp_path, monkeypa
             decision     TEXT,
             outcome      TEXT    DEFAULT 'pending'
         );
+        INSERT INTO action_events (ts, session_id, decision)
+            VALUES ('2026-01-01', 's0', 'approved');
     """)
     conn.commit()
     conn.close()
@@ -174,16 +241,26 @@ def test_operator_id_column_is_dropped_from_a_pre_existing_db(tmp_path, monkeypa
     monkeypatch.setattr(session_store, "_SITE_ID", "wtp")
     session_store._init_db()
 
-    conn = sqlite3.connect(db_path)
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(action_events)")}
-    assert "operator_id" not in cols
-    assert "action_id" in cols
+    assert {"operator_id", "auth_method", "action_id"} <= set(_cols(db_path))
+    (old,) = session_store.get_action_events()
+    assert old["operator_id"] is None  # the fake 'operator_01' is gone
 
 
-def test_add_and_drop_column_migrations_are_idempotent(store):
+def test_recorded_operators_survive_a_restart(store):
+    _propose()
+    session_store.log_action_decision(
+        action_id="a1",
+        decision="denied",
+        operator_id="local-console",
+        auth_method="shared_credential",
+    )
+    session_store._init_db()
+    assert _row(store, "a1")["operator_id"] == "local-console"
+
+
+def test_column_migrations_are_idempotent(store):
     session_store._init_db()
     session_store._init_db()
-    conn = sqlite3.connect(store)
-    cols = [row[1] for row in conn.execute("PRAGMA table_info(action_events)")]
-    assert cols.count("action_id") == 1
-    assert "operator_id" not in cols
+    cols = _cols(store)
+    for col in ("action_id", "operator_id", "auth_method"):
+        assert cols.count(col) == 1

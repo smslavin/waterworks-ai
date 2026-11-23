@@ -322,6 +322,16 @@ def test_approved_exact_call_executes_once_and_records_ok(
     assert len(executed) == 1 and executed[0]["result"] == '{"ok": true}'
     assert any(e["type"] == "action_proposed" for e in events)
 
+    # Who approved, honestly (gh-82): loopback checks no token, so the
+    # approval proves only access to the host. The row, the decision
+    # record and the write execution all say so.
+    who = ("local-console", "shared_credential")
+    assert (row["operator_id"], row["auth_method"]) == who
+    (decided,) = _audit("action_decision")
+    assert (decided["operator_id"], decided["auth_method"]) == who
+    assert (executed[0]["operator_id"], executed[0]["auth_method"]) == who
+    assert executed[0]["action_id"] == row["action_id"]
+
 
 def test_grant_is_spent_by_the_first_execution(monkeypatch, loop, aggregator):
     _run(
@@ -372,6 +382,10 @@ def test_denied_action_cannot_execute(monkeypatch, loop, aggregator):
     row = _only_action()
     assert (row["decision"], row["outcome"]) == ("denied", "not_executed")
     assert [r["decision"] for r in _audit("action_decision")] == ["denied"]
+    assert (row["operator_id"], row["auth_method"]) == (
+        "local-console",
+        "shared_credential",
+    )
     assert len(_audit("unapproved_execution_blocked")) == 1
 
 
@@ -387,6 +401,9 @@ def test_unanswered_proposal_times_out_and_cannot_execute(
     row = _only_action()
     assert (row["decision"], row["outcome"]) == ("timed_out", "not_executed")
     assert [r["decision"] for r in _audit("action_decision")] == ["timed_out"]
+    # Nobody decided a timeout, so nobody is named.
+    assert (row["operator_id"], row["auth_method"]) == (None, None)
+    assert "operator_id" not in _audit("action_decision")[0]
     assert control._pending == {}  # nothing left for a late answer to approve
 
 

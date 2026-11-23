@@ -22,6 +22,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 import audit
+import auth
 import control
 import session_store
 
@@ -53,6 +54,9 @@ class ToolCall:
         self._call_tool = call_tool
         self._timeout = action_timeout
         self._audit_fields = audit_fields or {}
+        # Set on a granted control write: spec Part III wants operator_id on
+        # write executions, not just on the approval.
+        self._executed_by: dict[str, str] = {}
         self.result = ""
         self.is_error = False
 
@@ -72,7 +76,9 @@ class ToolCall:
             self.result = await self._call_tool(self.name, self.args)
             self.is_error = self.result.startswith("Error")
 
-        self._audit("tool_result", tool=self.name, result=self.result)
+        self._audit(
+            "tool_result", tool=self.name, result=self.result, **self._executed_by
+        )
         yield {"type": "tool_result", "tool": self.name, "result": self.result}
 
     def for_history(self) -> str:
@@ -114,8 +120,11 @@ class ToolCall:
         except asyncio.TimeoutError:
             decision = "timed_out"
 
-        session_store.log_action_decision(action_id=action_id, decision=decision)
-        self._audit("action_decision", action_id=action_id, decision=decision)
+        # A timeout has no decider; anything else came through the approval
+        # endpoint, so record who that can prove (gh-82).
+        who = auth.approver() if decision != "timed_out" else {}
+        session_store.log_action_decision(action_id=action_id, decision=decision, **who)
+        self._audit("action_decision", action_id=action_id, decision=decision, **who)
         yield {"type": "action_decision", "action_id": action_id, "decision": decision}
 
         if decision == "approved":
@@ -141,6 +150,7 @@ class ToolCall:
             )
             self._audit("unapproved_execution_blocked", tool=self.name, args=self.args)
             return
+        self._executed_by = {"action_id": action_id, **auth.approver()}
         self.result = await self._call_tool(self.name, self.args)
         self.is_error = self.result.startswith("Error")
         session_store.log_action_outcome(
