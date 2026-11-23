@@ -32,13 +32,14 @@ const Host = defineComponent({ setup() { useReactive(); return () => h('div') } 
 describe('useReactive alert stream', () => {
   let streams: ReturnType<typeof sseStream>[]
   let pending: object[]
-  let fetchMock: ReturnType<typeof vi.fn>
+  type FetchLike = (url: string, init?: RequestInit) => Promise<unknown>
+  let fetchMock: ReturnType<typeof vi.fn<FetchLike>>
 
   beforeEach(() => {
     setActivePinia(createPinia())
     streams = []
     pending = [PROPOSAL]
-    fetchMock = vi.fn(async (url: string) => {
+    fetchMock = vi.fn<FetchLike>(async (url: string) => {
       if (url === '/api/events') {
         const s = sseStream()
         streams.push(s)
