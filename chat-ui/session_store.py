@@ -12,6 +12,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 import verdict
+from fieldworks.trust.identity import check_approver
 from topology import load as _load_topology
 
 _DB_PATH = os.environ.get(
@@ -139,6 +140,13 @@ def _drop_column_if_present(c: sqlite3.Connection, table: str, column: str) -> N
             )
 
 
+def _column_default(c: sqlite3.Connection, table: str, column: str) -> str | None:
+    for row in c.execute(f"PRAGMA table_info({table})"):  # nosec B608
+        if row["name"] == column:
+            return row["dflt_value"]
+    return None
+
+
 def _init_db() -> None:
     with _lock, _conn() as c:
         c.executescript("""
@@ -165,7 +173,9 @@ def _init_db() -> None:
                 description  TEXT,
                 decision     TEXT,
                 outcome      TEXT    DEFAULT 'pending',
-                site_id      TEXT    NOT NULL DEFAULT 'wtp'
+                site_id      TEXT    NOT NULL DEFAULT 'wtp',
+                operator_id  TEXT,
+                auth_method  TEXT
             );
             CREATE TABLE IF NOT EXISTS plant_status (
                 site_id              TEXT PRIMARY KEY,
@@ -182,7 +192,13 @@ def _init_db() -> None:
             c, "action_events", "site_id", "site_id TEXT NOT NULL DEFAULT 'wtp'"
         )
         _add_column_if_missing(c, "action_events", "action_id", "action_id TEXT")
-        _drop_column_if_present(c, "action_events", "operator_id")
+        # The original operator_id was NOT NULL DEFAULT 'operator_01', a
+        # placeholder person on every row. Drop that column only, then add
+        # the honest one (gh-82): NULL until someone decides.
+        if _column_default(c, "action_events", "operator_id") == "'operator_01'":
+            _drop_column_if_present(c, "action_events", "operator_id")
+        _add_column_if_missing(c, "action_events", "operator_id", "operator_id TEXT")
+        _add_column_if_missing(c, "action_events", "auth_method", "auth_method TEXT")
         c.commit()
 
 
@@ -261,24 +277,44 @@ def log_action_proposed(
         logger.warning("action_event (proposed) write failed: %s", exc)
 
 
-def log_action_decision(*, action_id: str, decision: str) -> None:
+def log_action_decision(
+    *,
+    action_id: str,
+    decision: str,
+    operator_id: str | None = None,
+    auth_method: str | None = None,
+) -> None:
     """Record the operator's decision on a previously-proposed action. A
     denial also settles outcome='not_executed' immediately — nothing will
     execute after a denial. An approval leaves outcome='pending' for
     log_action_outcome to fill in once (if) the execution tool actually
-    runs — 'approved' alone doesn't mean it happened."""
+    runs — 'approved' alone doesn't mean it happened.
+
+    operator_id/auth_method name who decided (auth.approver()); a timeout
+    has no one, so it passes neither. Given, they must pass fieldworks-core's
+    check_approver (spec Part III), which raises before anything is written."""
+    if operator_id is not None or auth_method is not None:
+        check_approver(
+            decision=decision,
+            operator_id=operator_id or "",
+            auth_method=auth_method or "",
+        )
     try:
         with _lock, _conn() as c:
             if decision == "approved":
                 c.execute(
-                    "UPDATE action_events SET decision = ? WHERE action_id = ?",
-                    (decision, action_id),
+                    """UPDATE action_events
+                       SET decision = ?, operator_id = ?, auth_method = ?
+                       WHERE action_id = ?""",
+                    (decision, operator_id, auth_method, action_id),
                 )
             else:
                 c.execute(
-                    """UPDATE action_events SET decision = ?, outcome = 'not_executed'
+                    """UPDATE action_events
+                       SET decision = ?, outcome = 'not_executed',
+                           operator_id = ?, auth_method = ?
                        WHERE action_id = ?""",
-                    (decision, action_id),
+                    (decision, operator_id, auth_method, action_id),
                 )
             c.commit()
     except Exception as exc:

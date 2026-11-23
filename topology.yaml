@@ -4,6 +4,9 @@ facility:
   description: Simulated municipal water treatment plant (waterworks-ai reference demo)
   timezone: America/Chicago
   units_system: metric
+  # The approval flow always intercepts, so this is the only mode
+  # waterworks-ai honors; chat-ui logs it at startup (spec Part III).
+  trust_mode: supervised
 
 process_areas:
   - id: intake

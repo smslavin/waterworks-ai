@@ -32,6 +32,17 @@ def _is_error_result(e: dict) -> bool:
     return isinstance(result, str) and result.startswith("Error")
 
 
+def _approver(e: dict) -> str:
+    """Who decided, as the deployment recorded it (gh-82); empty for a
+    timeout or a record from before operator_id came back."""
+    if not e.get("operator_id"):
+        return ""
+    return (
+        f'<span class="args">by {esc(e["operator_id"])} '
+        f'({esc(e.get("auth_method", ""))})</span>'
+    )
+
+
 def _entry(e: dict) -> str:
     ts, event = _ts(e), e.get("event", "")
     if event == "tool_call":
@@ -66,6 +77,7 @@ def _entry(e: dict) -> str:
   <span class="ts">{ts}</span>
   <span class="badge {badge}">action {esc(decision)}</span>
   <span class="tool-name">{esc(e.get('action_id'))}</span>
+  {_approver(e)}
 </div>"""
     if event.startswith("reactive_"):
         parts = []

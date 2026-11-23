@@ -156,7 +156,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "cryptography" },
-    { name = "fieldworks-core", extra = ["memory"] },
+    { name = "fieldworks-core", extra = ["memory", "trust"] },
     { name = "httpx" },
     { name = "influxdb-client" },
     { name = "mcp" },
@@ -173,7 +173,7 @@ dependencies = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40.0" },
     { name = "cryptography", specifier = ">=41.0" },
-    { name = "fieldworks-core", extras = ["memory"], specifier = ">=1.5.0" },
+    { name = "fieldworks-core", extras = ["memory", "trust"], specifier = ">=1.6.0" },
     { name = "httpx" },
     { name = "influxdb-client", specifier = ">=1.43.0" },
     { name = "mcp", specifier = ">=2.0" },
@@ -285,15 +285,15 @@ wheels = [
 
 [[package]]
 name = "fieldworks-core"
-version = "1.5.0"
+version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/ae/9eb8ee020a78b11ee52d7c85c579f41b5cf52260259b5374648bc6c4e3b2/fieldworks_core-1.5.0.tar.gz", hash = "sha256:5e32bc8578d11a1394815552b34e4560f85db471ebbef94590b473a6d089bbf5", size = 94732, upload-time = "2026-11-22T21:17:57.277Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/ce/a6009b9704dfdedd8363b6edceedf079e2ece626303afdb8bd81f0fc532e/fieldworks_core-1.6.0.tar.gz", hash = "sha256:5052f8153c462113e276aeaa1d05d8e1d2e384d5052033a0e2a6c8c1a38dbd7e", size = 98878, upload-time = "2026-11-23T22:45:34.771Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/86/4767f6deb085244cd6777a448eae8439a71c3f9c24a4b32f30c621bd1500/fieldworks_core-1.5.0-py3-none-any.whl", hash = "sha256:e6985c47a662683525efe4c51386ee97e078f84cacb09be2056ef275f56172ed", size = 79212, upload-time = "2026-11-22T21:17:56.147Z" },
+    { url = "https://files.pythonhosted.org/packages/4e/45/2663a5b51097e6c38d93e7b2e69052e2a1bfea85ef626d656755863ca215/fieldworks_core-1.6.0-py3-none-any.whl", hash = "sha256:17862ca30626bdc1e523e6ed2627156c27f056bcb9c4baf698a401b8246a35c6", size = 82378, upload-time = "2026-11-23T22:45:33.6Z" },
 ]
 
 [package.optional-dependencies]
@@ -302,6 +302,9 @@ memory = [
     { name = "influxdb-client" },
     { name = "ladybug" },
     { name = "pytz" },
+]
+trust = [
+    { name = "cryptography" },
 ]
 
 [[package]]

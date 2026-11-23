@@ -765,6 +765,29 @@ async def _mqtt_health_check_loop() -> None:
 
 
 @asynccontextmanager
+def _log_trust_mode() -> None:
+    """Spec Part III: every trust mode configuration is logged on startup.
+    waterworks-ai's approval flow always intercepts, which is SUPERVISED,
+    so that is the mode it records. A topology asking for another mode is
+    named in the record and warned about, never silently honored."""
+    facility = _topology.facility
+    configured = facility.trust_mode
+    if configured != "supervised":
+        logger.warning(
+            "topology.yaml sets facility.trust_mode=%s, but waterworks-ai "
+            "implements only supervised; running supervised",
+            configured,
+        )
+    audit.log(
+        "trust_mode_configured",
+        trust_mode="SUPERVISED",
+        configured_trust_mode=configured.upper(),
+        trust_mode_notes=facility.trust_mode_notes,
+        autonomous_notify_channel=facility.autonomous_notify_channel,
+        site_id=SITE_ID,
+    )
+
+
 async def lifespan(app):
     if auth.EXPOSED:
         logger.warning(
@@ -786,6 +809,8 @@ async def lifespan(app):
             "token-gated. Set BIND_HOST to reach this from another device.",
             auth.BIND_HOST,
         )
+
+    _log_trust_mode()
 
     recovered = session_store.recover_abandoned_actions()
     if recovered:
