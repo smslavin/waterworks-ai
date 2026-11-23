@@ -16,6 +16,7 @@ import PlantPanel from '@/components/panels/PlantPanel.vue'
 import StatusBar from '@/components/statusbar/StatusBar.vue'
 import ApprovalPanel from '@/components/approval/ApprovalPanel.vue'
 import ConfigShell from '@/components/config/ConfigShell.vue'
+import { authFetch } from '@/lib/api'
 
 const ui = useUIStore()
 const topo = useTopologyStore()
@@ -56,7 +57,7 @@ onMounted(async () => {
 
   if (_carryParams.get('reactive') === '1') {
     try {
-      const resp = await fetch('/api/reactive/toggle', {
+      const resp = await authFetch('/api/reactive/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enable: true }),

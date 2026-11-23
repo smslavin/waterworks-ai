@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useUIStore } from '@/stores/ui'
 import type { FlyoutKey } from '@/stores/ui'
-import { authFetch } from '@/lib/api'
+import { apiToken, authFetch } from '@/lib/api'
 
 const ui = useUIStore()
 
@@ -29,12 +29,20 @@ const FLYOUT_ICONS: { key: NonNullable<FlyoutKey>; label: string; path: string }
   },
 ]
 
+// Gated pages opened in a new tab can't take a header: pass the token in
+// the URL, as the pages themselves do for their own links.
+function openGated(path: string) {
+  const token = apiToken()
+  const url = token ? `${path}?token=${encodeURIComponent(token)}` : path
+  window.open(url, '_blank', 'noopener')
+}
+
 function openAuditLog() {
-  window.open('/audit', '_blank', 'noopener')
+  openGated('/audit')
 }
 
 function openMetrics() {
-  window.open('/metrics', '_blank', 'noopener')
+  openGated('/metrics')
 }
 
 function openGrafana() {

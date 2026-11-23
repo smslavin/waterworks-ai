@@ -3,6 +3,7 @@ import { useChatStore, type Verdict } from '@/stores/chat'
 import { useUIStore } from '@/stores/ui'
 import { useApprovalStore, type BackendActionProposal } from '@/stores/approval'
 import { useTopologyStore } from '@/stores/topology'
+import { authFetch } from '@/lib/api'
 
 export interface SSEMessage {
   role: 'user' | 'assistant'
@@ -29,7 +30,7 @@ export function useSSE() {
     controllers[key] = controller
 
     try {
-      const resp = await fetch('/api/chat', {
+      const resp = await authFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

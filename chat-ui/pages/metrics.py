@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from pages import asset, esc
 
 
@@ -35,8 +37,11 @@ def _card(label: str, value) -> str:
     )
 
 
-def render(summary: dict, turns: list[dict]) -> str:
+def render(summary: dict, turns: list[dict], token: str | None = None) -> str:
+    """The page for these totals and turns. `token`, when the app is exposed,
+    is carried into the page's JSON and audit-log links."""
     s = summary
+    token_qs = esc(f"?token={quote(token, safe='')}") if token else ""
     cards = "\n".join(
         [
             _card("Sessions", s.get("total_sessions") or 0),
@@ -59,7 +64,7 @@ def render(summary: dict, turns: list[dict]) -> str:
 </head>
 <body>
 <h1>Waterworks AI — Metrics</h1>
-<div class="meta">Last 100 turns &nbsp;·&nbsp; <a href="/api/metrics">JSON</a> &nbsp;·&nbsp; <a href="/audit">Audit log</a></div>
+<div class="meta">Last 100 turns &nbsp;·&nbsp; <a href="/api/metrics{token_qs}">JSON</a> &nbsp;·&nbsp; <a href="/audit{token_qs}">Audit log</a></div>
 <div class="controls">
   <button class="btn" id="theme-toggle" onclick="toggleTheme()">🌙 Dark mode</button>
 </div>

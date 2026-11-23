@@ -11,6 +11,17 @@ by the SPA's own fetch calls) or a `?token=` query param (used by plain
 page navigations and links, e.g. /audit and /api/audit/download, which
 can't set custom headers). Gated server-rendered pages must propagate the
 presented token into any links/hrefs they emit so navigation keeps working.
+
+What's gated: every route that changes state (chat, actions, faults,
+reactive toggle, insights, topology commit, audit rotation) and every route
+that reads operator content or control actions (audit, metrics with its
+user_message column, the reactive event stream, recent alerts, reviews).
+What stays open, deliberately: the SPA shell and the read-only plant
+description it boots from (/api/site, /api/topology, /api/sites,
+/api/plant-status, /api/models, /api/health, /api/insight/categories,
+/api/reactive) and the simulator's fault status (/api/fault/status,
+/api/fault/modes). None of those carries operator input or proposed
+actions, and the page needs them before it can attach a token.
 """
 
 import functools

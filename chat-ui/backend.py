@@ -358,6 +358,7 @@ async def sites_endpoint(request: Request):
     return JSONResponse({"enterprise": "ok", "sites": sites})
 
 
+@auth.require
 async def chat_endpoint(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
@@ -545,12 +546,19 @@ async def audit_page_endpoint(request: Request):
     return HTMLResponse(pages.audit.render(audit.read_log(), token))
 
 
+@auth.require
 async def metrics_page_endpoint(request: Request):
+    # Gated: the turns table holds each operator question (user_message).
+    # Carry the token into the page's links, as /audit does.
+    token = auth.presented(request) if auth.EXPOSED else None
     return HTMLResponse(
-        pages.metrics.render(metrics.get_summary(), metrics.get_recent_turns(100))
+        pages.metrics.render(
+            metrics.get_summary(), metrics.get_recent_turns(100), token
+        )
     )
 
 
+@auth.require
 async def metrics_api_endpoint(request: Request):
     return JSONResponse(
         {
@@ -564,6 +572,7 @@ async def reactive_status_endpoint(request: Request):
     return JSONResponse({"enabled": _reactive_loop.is_running()})
 
 
+@auth.require
 async def reactive_toggle_endpoint(request: Request):
     body = await request.json()
     enable = bool(body.get("enable", False))
@@ -818,6 +827,7 @@ async def insight_categories_endpoint(request: Request):
     return JSONResponse(result)
 
 
+@auth.require
 async def insight_save_endpoint(request: Request):
     body = await request.json()
     node_id = body.get("nodeId", "")
