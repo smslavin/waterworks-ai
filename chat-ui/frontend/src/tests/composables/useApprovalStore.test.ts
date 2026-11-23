@@ -112,6 +112,25 @@ describe('useApprovalStore', () => {
     })
   })
 
+  describe('remove', () => {
+    it('drops the proposal without answering it', () => {
+      const approvals = useApprovalStore()
+      useUIStore().approvalOpen = true
+      approvals.push(MOCK)
+      approvals.remove('ap1')
+      expect(approvals.queue).toHaveLength(0)
+      expect(useUIStore().approvalOpen).toBe(false)
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it('ignores an id it does not hold', () => {
+      const approvals = useApprovalStore()
+      approvals.push(MOCK)
+      approvals.remove('other')
+      expect(approvals.queue).toHaveLength(1)
+    })
+  })
+
   describe('resolve — unknown id', () => {
     it('is a no-op for unknown id', async () => {
       const approvals = useApprovalStore()

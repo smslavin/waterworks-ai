@@ -84,6 +84,14 @@ export const useApprovalStore = defineStore('approval', () => {
     // the same node, or is silently consumed if the operator has moved elsewhere.
   }
 
+  // Drop a proposal the backend has already settled, without answering it.
+  function remove(id: string) {
+    if (!queue.value.some(a => a.id === id)) return
+    queue.value = queue.value.filter(a => a.id !== id)
+    const ui = useUIStore()
+    ui.approvalOpen = queue.value.length > 0
+  }
+
   function dismiss(id: string) {
     // Closing without an explicit choice is treated as a denial so the
     // backend future resolves immediately instead of riding out the 300s
@@ -91,5 +99,5 @@ export const useApprovalStore = defineStore('approval', () => {
     void resolve(id, 'deny')
   }
 
-  return { queue, current, hasPending, push, pushFromBackend, resolve, dismiss }
+  return { queue, current, hasPending, push, pushFromBackend, resolve, remove, dismiss }
 })
