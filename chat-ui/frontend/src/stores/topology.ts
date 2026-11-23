@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, reactive, computed } from 'vue'
+import { authFetch } from '@/lib/api'
 
 export type ConfidenceLevel = 'verified' | 'inferred' | 'suspect'
 export type AlarmState = 'normal' | 'warning' | 'critical' | 'pending-approval'
@@ -236,7 +237,7 @@ export const useTopologyStore = defineStore('topology', () => {
     node.saveCount++
     if (note) node.note = note
     try {
-      await fetch('/api/insight', {
+      await authFetch('/api/insight', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodeId: id, categoryId, note }),

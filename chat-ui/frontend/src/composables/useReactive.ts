@@ -33,7 +33,7 @@ export function useReactive() {
     if (!ui.multiAgent) return
     const desired = !ui.reactiveOn
     try {
-      const resp = await fetch('/api/reactive/toggle', {
+      const resp = await authFetch('/api/reactive/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enable: desired }),
@@ -172,7 +172,7 @@ export function useReactive() {
     if (!enabled) {
       stopAlertStream()
       try {
-        await fetch('/api/reactive/toggle', {
+        await authFetch('/api/reactive/toggle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enable: false }),
