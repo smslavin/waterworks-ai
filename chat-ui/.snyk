@@ -1,0 +1,17 @@
+# Snyk (https://snyk.io) policy file. osv-scanner, which CI runs on every
+# PR, has no entry for this advisory.
+version: v1.25.0
+ignore:
+  SNYK-PYTHON-INFLUXDBCLIENT-8422793:
+    - '*':
+        reason: >-
+          CVE-2024-30896 is an InfluxDB server authorization flaw: a holder
+          of a valid allAccess token in an org that also has an operator
+          token can list tokens and escalate. Nothing in the influxdb-client
+          library is defective, so no fixed release will exist. This
+          service holds one scoped token and exposes no token listing.
+          Mitigation is on the server: keep allAccess tokens out of the org
+          that holds the operator token.
+        expires: 2027-05-26T00:00:00.000Z
+        created: 2026-11-26T00:00:00.000Z
+patch: {}
