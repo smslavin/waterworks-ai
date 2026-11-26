@@ -148,6 +148,19 @@ def test_mobile_index_is_served(client):
     assert client.get("/mobile/app.js").status_code == 200
 
 
+def test_mobile_page_can_reach_other_plants(client):
+    """gh-79: a plant row fed by /api/sites, which needs no token, so the
+    page can list plants before this plant's token is entered. Each link is
+    a full navigation to that plant's own /mobile/, never a cross-origin
+    fetch."""
+    assert 'id="sites"' in client.get("/mobile/").text
+    js = client.get("/mobile/app.js").text
+    assert "fetch('/api/sites'" in js
+    assert "url.pathname = '/mobile/'" in js
+    assert "url.hostname = location.hostname" in js
+    assert client.get("/api/sites").status_code == 200
+
+
 def test_manifest_icons_exist():
     manifest = json.loads((MOBILE / "manifest.json").read_text())
     for icon in manifest["icons"]:

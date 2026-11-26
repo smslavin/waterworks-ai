@@ -3,7 +3,7 @@
 // Bump CACHE when a shell file changes so installed copies pick it up.
 'use strict';
 
-const CACHE = 'waterworks-mobile-v4';
+const CACHE = 'waterworks-mobile-v5';
 const SHELL = [
   './',
   'index.html',

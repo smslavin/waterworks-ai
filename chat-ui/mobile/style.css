@@ -155,3 +155,31 @@ main { padding: 0 16px 32px; max-width: 720px; margin: 0 auto; }
 }
 .token button { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 code { font-size: 0.85em; }
+
+/* Plant switcher (gh-79): one chip per plant, scrolling sideways when
+   there are more than fit. */
+.sites {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+.sites::-webkit-scrollbar { display: none; }
+.site {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+.site[aria-current="page"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
