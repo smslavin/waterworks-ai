@@ -36,7 +36,11 @@ GENERATED = _ENV_VAR not in os.environ
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
-EXPOSED = BIND_HOST not in _LOOPBACK_HOSTS
+# A reverse proxy on this host (Tailscale Serve, Caddy) reaches chat-ui on
+# loopback, so BIND_HOST alone would switch the gate off for everyone the
+# proxy lets in. WATERWORKS_REQUIRE_TOKEN=1 keeps it on (gh-80).
+REQUIRE_TOKEN = os.environ.get("WATERWORKS_REQUIRE_TOKEN", "0") == "1"
+EXPOSED = BIND_HOST not in _LOOPBACK_HOSTS or REQUIRE_TOKEN
 
 
 def token() -> str:

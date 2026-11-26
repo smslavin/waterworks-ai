@@ -12,3 +12,4 @@ pyyaml
 paho-mqtt>=2.0
 
 fieldworks-core[memory,trust]>=1.6.0
+pywebpush>=2.0

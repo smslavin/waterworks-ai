@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <header class="bar">
@@ -35,6 +35,11 @@
   </form>
 
   <main>
+    <section id="push" class="card push" hidden>
+      <p id="push-status" class="muted"></p>
+      <button id="push-btn" type="button"></button>
+    </section>
+
     <section id="actions-section" hidden>
       <h2>Awaiting approval <span id="action-count" class="count"></span></h2>
       <p class="muted">Cascade is holding its diagnosis until someone approves or denies on the desktop. Unanswered proposals time out after 5 minutes.</p>
@@ -93,6 +98,6 @@
     </li>
   </template>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
