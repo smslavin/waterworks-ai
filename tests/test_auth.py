@@ -85,3 +85,49 @@ def test_presented_prefers_header_over_query_param():
     }
     request = Request(scope)
     assert auth.presented(request) == "from-header"
+
+
+# ── Token kept out of the access log ─────────────────────────────────────────
+
+import logging  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        ("/mobile/?token=abc", "/mobile/?token=[redacted]"),
+        ("/api/events?token=a-b_c&x=1", "/api/events?token=[redacted]&x=1"),
+        ("/audit?x=1&token=abc", "/audit?x=1&token=[redacted]"),
+        ("/api/health", "/api/health"),
+        ("/api/x?mytoken=keep", "/api/x?mytoken=keep"),
+    ],
+)
+def test_redact(path, expected):
+    assert auth.redact(path) == expected
+
+
+def test_access_log_record_is_redacted():
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("100.1.2.3:0", "GET", "/mobile/?token=secret", "1.1", 200),
+        None,
+    )
+    assert auth.RedactTokenFilter().filter(record)
+    assert "secret" not in record.getMessage()
+    assert "token=[redacted]" in record.getMessage()
+
+
+def test_redact_access_log_attaches_once():
+    access = logging.getLogger("uvicorn.access")
+    before = list(access.filters)
+    try:
+        auth.redact_access_log()
+        auth.redact_access_log()
+        added = [f for f in access.filters if isinstance(f, auth.RedactTokenFilter)]
+        assert len(added) == 1
+    finally:
+        access.filters[:] = before
