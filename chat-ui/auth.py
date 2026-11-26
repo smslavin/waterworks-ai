@@ -25,7 +25,9 @@ actions, and the page needs them before it can attach a token.
 """
 
 import functools
+import logging
 import os
+import re
 import secrets
 
 import starlette.responses
@@ -98,3 +100,35 @@ def approver() -> dict[str, str]:
         "operator_id": EXPOSED_OPERATOR_ID if EXPOSED else LOOPBACK_OPERATOR_ID,
         "auth_method": "shared_credential",
     }
+
+
+# ── Keep the token out of the access log ─────────────────────────────────────
+#
+# Plain navigations and the mobile page's EventSource can only send the
+# token as ?token=, and uvicorn's access log prints every request path, so
+# the token landed in logs/chat-ui.log in plain text.
+
+_TOKEN_IN_QUERY = re.compile(r"([?&]token=)[^&#\s]*")
+
+
+def redact(path: str) -> str:
+    return _TOKEN_IN_QUERY.sub(r"\1[redacted]", path)
+
+
+class RedactTokenFilter(logging.Filter):
+    """Rewrites the request path in uvicorn.access records. uvicorn passes
+    (client_addr, method, full_path, http_version, status_code) as args."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            record.args = (*args[:2], redact(args[2]), *args[3:])
+        return True
+
+
+def redact_access_log() -> None:
+    """Attach the filter once. Call after uvicorn configures logging (the
+    app's lifespan): its dictConfig runs at server start."""
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, RedactTokenFilter) for f in access.filters):
+        access.addFilter(RedactTokenFilter())

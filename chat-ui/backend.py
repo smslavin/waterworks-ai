@@ -791,6 +791,7 @@ def _log_trust_mode() -> None:
 
 
 async def lifespan(app):
+    auth.redact_access_log()
     if auth.EXPOSED:
         logger.warning(
             "BIND_HOST=%s — bound off loopback. The approval endpoint, audit "
