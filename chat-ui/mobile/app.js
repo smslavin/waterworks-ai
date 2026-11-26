@@ -73,17 +73,70 @@ setInterval(() => {
 
 // ── Site ─────────────────────────────────────────────────────────────────────
 
+let siteId = null; // this plant's site_id, from /api/site
+
 async function loadSite() {
   try {
     const resp = await fetch('/api/site');
     if (!resp.ok) return;
     const site = await resp.json();
+    siteId = site.site_id || null;
     if (site.site_name) {
       $('site-name').textContent = site.site_name;
       document.title = `${site.site_name} Mobile`;
     }
     $('region-name').textContent = site.region_name || '';
   } catch { /* keep the default header */ }
+}
+
+// ── Other plants (gh-79) ─────────────────────────────────────────────────────
+
+// enterprise.yaml writes chat_ui_url as http://localhost:<port>, right for
+// the backends that read it on the plants' host but not for a phone, whose
+// localhost is itself. Keep the plant's port and reach it through whatever
+// host got the phone here, as the desktop's SiteNav does.
+function plantMobileUrl(chatUiUrl) {
+  const url = new URL(chatUiUrl);
+  url.hostname = location.hostname;
+  url.pathname = '/mobile/';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
+
+// Each plant is its own origin with its own token, so a plant visited for
+// the first time asks for its token once, then remembers it.
+async function loadSites() {
+  let body;
+  try {
+    const resp = await fetch('/api/sites', { cache: 'no-store' });
+    if (!resp.ok) return;
+    body = await resp.json();
+  } catch {
+    return; // no enterprise layer: this plant stands alone
+  }
+  const sites = Object.entries(body.sites || {});
+  const nav = $('sites');
+  if (body.enterprise !== 'ok' || sites.length < 2) {
+    nav.hidden = true;
+    return;
+  }
+  sites.sort(([, a], [, b]) =>
+    `${a.region || ''}\u0000${a.name}`.localeCompare(`${b.region || ''}\u0000${b.name}`));
+  nav.replaceChildren(...sites.map(([id, site]) => {
+    const here = id === siteId;
+    const el = document.createElement(here ? 'span' : 'a');
+    el.className = 'site';
+    el.textContent = site.name || id;
+    el.title = site.region || '';
+    if (here) {
+      el.setAttribute('aria-current', 'page');
+    } else {
+      try { el.href = plantMobileUrl(site.chat_ui_url); } catch { return el; }
+    }
+    return el;
+  }));
+  nav.hidden = false;
 }
 
 // ── Reviews ──────────────────────────────────────────────────────────────────
@@ -313,6 +366,7 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => { /* works without it */ });
 }
 
-loadSite();
+// Sites after site: the list marks this plant by the site_id /api/site gives.
+loadSite().then(loadSites);
 loadReviews();
 connect();
