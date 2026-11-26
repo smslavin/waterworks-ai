@@ -27,3 +27,17 @@ def _reset_event_loop_policy():
         asyncio.set_event_loop(asyncio.new_event_loop())
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _loopback_auth_by_default(monkeypatch):
+    """chat-ui loads the developer's .env at import, so a local
+    WATERWORKS_REQUIRE_TOKEN=1 or BIND_HOST (set for Tailscale Serve, gh-80)
+    would switch the token gate on for every test that expects the loopback
+    default. Start each test there; tests that want the gate set it."""
+    try:
+        import auth
+    except ImportError:
+        return
+    monkeypatch.setattr(auth, "EXPOSED", False)
+    monkeypatch.setattr(auth, "REQUIRE_TOKEN", False)
