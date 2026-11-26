@@ -2,7 +2,8 @@
 # WaterWorks AI
 
 [![Tests](https://github.com/smslavin/waterworks-ai/actions/workflows/test.yml/badge.svg)](https://github.com/smslavin/waterworks-ai/actions/workflows/test.yml)
-[![Tests](https://github.com/smslavin/waterworks-ai/actions/workflows/release.yml/badge.svg)](https://github.com/smslavin/waterworks-ai/actions/workflows/release.yml)
+[![Release](https://github.com/smslavin/waterworks-ai/actions/workflows/release.yml/badge.svg)](https://github.com/smslavin/waterworks-ai/actions/workflows/release.yml)
+[![Dependency vulnerabilities](https://github.com/smslavin/waterworks-ai/actions/workflows/osv-scanner.yml/badge.svg)](https://github.com/smslavin/waterworks-ai/actions/workflows/osv-scanner.yml)
 ![Python](https://img.shields.io/badge/python-3.11+-3776ab?logo=python&logoColor=white)
 ![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white)
 ![InfluxDB](https://img.shields.io/badge/InfluxDB-2.x-22ADF6?logo=influxdb&logoColor=white)
@@ -34,6 +35,7 @@ Everything in this stack is open source. No proprietary historians, SCADA platfo
 - [Context management](#context-management)
 - [Multi-agent diagnostic mode](#multi-agent-diagnostic-mode)
 - [Reactive alarms](#reactive-alarms)
+- [Mobile page](#mobile-page)
 - [Enterprise / multi-plant mode](#enterprise--multi-plant-mode)
 - [Agent memory](#agent-memory)
 - [Configuration](#configuration)
@@ -438,6 +440,8 @@ When the AI calls `propose_action`, the backend intercepts it before it reaches 
 
 Both outcomes are recorded in `action_events` with equal fidelity. *"AI proposed increasing chlorine setpoint, operator denied"* is compliance-relevant data. Denials are not second-class events.
 
+Each decision also records who made it, in terms the deployment can stand behind. Nothing here signs in a person, so the record never names one. It says `shared-token` when chat-ui is exposed (the approval proves someone held `WATERWORKS_API_TOKEN`) and `local-console` on loopback (it proves someone could reach the host), both with `auth_method: shared_credential`. A timed-out proposal names no one. At startup chat-ui writes a `trust_mode_configured` record: the approval flow always waits for an operator, so it says `SUPERVISED`.
+
 ### Setpoint ramping
 
 Setpoint changes use a first-order lag rather than an instantaneous clamp. Each simulator tick moves the published value 10% of the remaining distance toward the target. The value approaches exponentially and snaps when within 0.01 units. This matches physical process behavior where actuators don't jump instantly to a new setpoint.
@@ -636,6 +640,35 @@ The Reactive pill in the header starts and stops the monitor and Deadband loop a
 
 ---
 
+## Mobile page
+
+A read-only page for a phone at `/mobile/`. It shows reactive alarms with their diagnoses, control actions awaiting approval on the desktop, and insight reviews waiting in the queue, all updated live. A phone that slept or reloaded catches up on the last 50 alarms and every pending approval. Approving and resolving stay on the desktop.
+
+### Opening it
+
+chat-ui binds to loopback by default, so a phone can't reach it until you choose how to expose it:
+
+- **Same LAN:** set `BIND_HOST=0.0.0.0` and open `http://<computer-ip>:8080/mobile/?token=<WATERWORKS_API_TOKEN>` once. The page keeps the token and removes it from the address bar.
+- **Tailscale (needed for notifications):** enable HTTPS certificates for your tailnet, run `tailscale serve --bg 8080`, set `WATERWORKS_REQUIRE_TOKEN=1`, and open `https://<computer>.<tailnet>.ts.net/mobile/?token=…` from a phone on the tailnet. Serve forwards to chat-ui on loopback, which would otherwise switch the token check off for the whole tailnet.
+
+Once the token is set, every route that changes state or returns operator content requires it. The access log records it as `token=[redacted]`.
+
+### Other plants
+
+With the enterprise layer running, a row of plant chips under the header links to each plant's own mobile page. Each plant is its own origin with its own token, so a plant asks for its token the first time you open it.
+
+### Notifications
+
+The installed page can notify you of a critical alarm, a control action awaiting approval, and a newly queued review. Web Push needs HTTPS, so use the Tailscale setup above, then:
+
+1. Set `VAPID_SUBJECT` in `.env` to a contact for this deployment: `mailto:you@example.com` or `https://your.host`.
+2. On an iPhone (iOS 16.4 or later), open the page in Safari, choose **Add to Home Screen**, and open it from there.
+3. Tap **Enable notifications**.
+
+A notification for a waiting approval expires after 5 minutes, the same as the approval itself. The VAPID key pair is generated on first use at `chat-ui/vapid_private.pem`.
+
+---
+
 ## Enterprise / multi-plant mode
 
 M10 adds a layer above one or more plant checkouts for cross-plant questions.
@@ -809,6 +842,11 @@ All configuration lives in `.env`. Copy `.env.example` to get started. The defau
 | `REACTIVE_MIN_DURATION` | `30` | Seconds a violation must persist before AnomalyMonitor fires. |
 | `REACTIVE_COOLDOWN` | `60` | Seconds before the same instance can trigger again after a full cascade. |
 | `MQTT_BROKER_URL` | `localhost:1883` | MQTT broker address for AnomalyMonitor. |
+| `BIND_HOST` | `127.0.0.1` | chat-ui listen address. Anything but loopback requires `WATERWORKS_API_TOKEN`. |
+| `WATERWORKS_API_TOKEN` | _(generated at startup)_ | Shared token for gated routes when chat-ui is exposed. Pin it so a phone's saved token survives restarts. |
+| `WATERWORKS_REQUIRE_TOKEN` | `0` | Set to `1` behind a reverse proxy on the same host (Tailscale Serve, Caddy) to keep the token check on. |
+| `VAPID_SUBJECT` | _(empty)_ | Contact for Web Push services, `mailto:` or `https://host`. Notifications stay off until it is set. |
+| `VAPID_KEY_PATH` | `chat-ui/vapid_private.pem` | Where the Web Push key pair is generated and kept. |
 
 > **Note:** `INFLUXDB_TOKEN` and the other `DOCKER_INFLUXDB_INIT_*` values are only used on a fresh volume. After the first `docker compose up` they are baked in. Reset with `docker compose down -v`.
 
@@ -836,7 +874,7 @@ waterworks-ai/
 │   ├── topology.py         Loader for topology.yaml (memory-mcp layer)
 │   └── requirements.txt
 ├── chat-ui/                Starlette/SSE backend + Vue 3 frontend
-│   ├── backend.py          Routes: /api/chat, /api/health, /api/fault, /api/action/respond
+│   ├── backend.py          Routes: /api/chat, /api/health, /api/fault, /api/action/respond, /api/push/*
 │   ├── topology.py         Loader for topology.yaml (chat-ui layer)
 │   ├── claude_loop.py      Claude API streaming loop — MCP tools, propose_action intercept
 │   ├── multi_agent_loop.py Fan-out to specialist agents + orchestrator; memory injection + recording
@@ -848,6 +886,10 @@ waterworks-ai/
 │   ├── mcp_client.py       MCP aggregator client (pooled session + per-url tool cache, cleared on tools/list_changed)
 │   ├── session_store.py    session_summaries + action_events tables in metrics.db
 │   ├── control.py          asyncio Future registry for the operator approval flow
+│   ├── auth.py             Token gate, approver identity, access-log redaction
+│   ├── recent_alerts.py    Last 50 alarms + pending approvals, for clients that reconnect
+│   ├── push.py             Web Push: VAPID key, subscriptions, notifications
+│   ├── mobile/             Read-only mobile PWA (plain JS, no build step)
 │   ├── metrics.py          ai_metrics → InfluxDB + SQLite per turn
 │   ├── audit.py            JSONL audit log — AES-256-GCM encrypted, hash-chained, append-only
 │   ├── audit_verify.py     CLI: verify chain integrity or decrypt for forensic export
