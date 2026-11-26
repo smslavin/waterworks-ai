@@ -1,0 +1,37 @@
+# Known vulnerabilities in every lockfile (each service's uv.lock, the
+# frontend's package-lock.json). Fails on any finding. Runs on pull
+# requests, on main, and weekly, since new advisories land against code
+# that hasn't changed.
+#
+# To accept a finding deliberately, add it to osv-scanner.toml at the repo
+# root with a reason: https://google.github.io/osv-scanner/configuration/
+name: Dependency vulnerabilities
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false # mcp-aggregator and mcp-servers are scanned in their own repos
+
+      - name: Scan lockfiles
+        run: |
+          mkdir -p "$RUNNER_TEMP/osv"
+          docker run --rm -v "$PWD":/src:ro -v "$RUNNER_TEMP/osv":/out \
+            ghcr.io/google/osv-scanner:v2.3.2 scan source --recursive \
+            --format markdown --output /out/report.md /src || status=$?
+          cat "$RUNNER_TEMP/osv/report.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/osv/report.md"
+          exit "${status:-0}"
