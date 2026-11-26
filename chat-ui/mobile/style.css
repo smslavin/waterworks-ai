@@ -183,3 +183,17 @@ code { font-size: 0.85em; }
   color: var(--accent);
   font-weight: 600;
 }
+
+/* Web Push control (gh-80) */
+.push { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.push p { margin: 0; }
+.push button {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.875rem;
+}

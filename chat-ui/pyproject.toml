@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.40.0",
     "cryptography>=41.0",
+    "pywebpush>=2.0",
     "openai>=1.0.0",
     "mcp>=2.0",
     "starlette",

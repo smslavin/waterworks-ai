@@ -14,6 +14,7 @@ chat-ui/audit.*.jsonl
 enterprise/orchestrator/audit.jsonl
 enterprise/orchestrator/audit.*.jsonl
 chat-ui/metrics.db
+chat-ui/vapid_private.pem
 roadmap.md
 
 # Data directories (LadybugDB, DuckDB, specialist memory) — root only.

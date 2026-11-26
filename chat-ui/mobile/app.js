@@ -366,7 +366,103 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => { /* works without it */ });
 }
 
+// ── Notifications (gh-80) ────────────────────────────────────────────────────
+//
+// Web Push needs a secure context (HTTPS, e.g. through Tailscale Serve) and,
+// on iOS 16.4+, the page added to the homescreen. Where neither holds, say
+// so instead of offering a button that can't work.
+
+function pushSupported() {
+  return window.isSecureContext && 'serviceWorker' in navigator
+    && 'PushManager' in window && 'Notification' in window;
+}
+
+function keyBytes(b64url) {
+  const b64 = (b64url + '='.repeat((4 - (b64url.length % 4)) % 4))
+    .replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+async function postJson(path, body) {
+  const resp = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`${path}: ${resp.status}`);
+}
+
+function showPush(status, button, onClick) {
+  $('push').hidden = false;
+  $('push-status').textContent = status;
+  const btn = $('push-btn');
+  btn.hidden = !button;
+  btn.textContent = button || '';
+  btn.onclick = onClick || null;
+}
+
+async function enablePush() {
+  try {
+    if (await Notification.requestPermission() !== 'granted') {
+      showPush('Notifications are blocked. Allow them in Settings to turn them on.');
+      return;
+    }
+    const keyResp = await fetch('/api/push/key', { headers: authHeaders() });
+    if (keyResp.status === 503) {
+      // The plant isn't configured for push; say what it needs.
+      const { error } = await keyResp.json();
+      showPush(`Notifications aren't set up on this plant: ${error}.`);
+      return;
+    }
+    if (!keyResp.ok) throw new Error(`/api/push/key: ${keyResp.status}`);
+    const { public_key: key } = await keyResp.json();
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: keyBytes(key),
+    });
+    await postJson('/api/push/subscribe', sub.toJSON());
+  } catch (err) {
+    showPush(`Could not turn on notifications (${err.message}).`, 'Try again', enablePush);
+    return;
+  }
+  refreshPush();
+}
+
+async function disablePush() {
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) {
+    await postJson('/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+    await sub.unsubscribe();
+  }
+  refreshPush();
+}
+
+async function refreshPush() {
+  if (!pushSupported()) {
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || navigator.standalone;
+    showPush(window.isSecureContext && !standalone
+      ? 'To get notifications, add this page to your Home Screen and open it from there.'
+      : 'Notifications need this page served over HTTPS (see CLAUDE.md, Tailscale Serve).');
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub && Notification.permission === 'granted') {
+    // Re-register in case the plant lost it (a new metrics.db, say).
+    postJson('/api/push/subscribe', sub.toJSON()).catch(() => {});
+    showPush('Notifications on: critical alarms, approvals waiting, new reviews.',
+      'Turn off', disablePush);
+  } else {
+    showPush('Get notified of critical alarms and approvals waiting.',
+      'Enable notifications', enablePush);
+  }
+}
+
 // Sites after site: the list marks this plant by the site_id /api/site gives.
 loadSite().then(loadSites);
+refreshPush();
 loadReviews();
 connect();

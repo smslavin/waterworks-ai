@@ -34,6 +34,7 @@ from starlette.staticfiles import StaticFiles
 
 import audit
 import auth
+import push
 import claude_loop
 import control
 import metrics
@@ -117,6 +118,7 @@ def broadcast_alert(event: dict) -> int:
     recent_alerts.record(event)  # before delivery: stamps the event's ts
     for q in _alert_subs:
         q.put_nowait(event)
+    push.notify(event)  # wakes subscribed phones for the few that matter (gh-80)
     return len(_alert_subs)
 
 
@@ -917,6 +919,32 @@ async def reviews_endpoint(request: Request):
 
 
 @auth.require
+async def push_key_endpoint(request: Request):
+    """The VAPID public key the mobile page subscribes with (gh-80), or 503
+    saying what to configure."""
+    problem = push.configuration_problem()
+    if problem:
+        return JSONResponse({"error": problem}, status_code=503)
+    return JSONResponse({"public_key": push.public_key()})
+
+
+@auth.require
+async def push_subscribe_endpoint(request: Request):
+    try:
+        push.subscribe(await request.json())
+    except (ValueError, AttributeError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return JSONResponse({"ok": True})
+
+
+@auth.require
+async def push_unsubscribe_endpoint(request: Request):
+    body = await request.json()
+    push.unsubscribe(str(body.get("endpoint", "")))
+    return JSONResponse({"ok": True})
+
+
+@auth.require
 async def recent_alerts_endpoint(request: Request):
     """What the mobile page missed while disconnected (gh-6): alerts newest
     first, plus control actions still awaiting approval on the desktop."""
@@ -1032,6 +1060,9 @@ routes = [
     Route("/api/insight", insight_save_endpoint, methods=["POST"]),
     Route("/api/reviews", reviews_endpoint),
     Route("/api/alerts/recent", recent_alerts_endpoint),
+    Route("/api/push/key", push_key_endpoint),
+    Route("/api/push/subscribe", push_subscribe_endpoint, methods=["POST"]),
+    Route("/api/push/unsubscribe", push_unsubscribe_endpoint, methods=["POST"]),
     Route("/api/reactive", reactive_status_endpoint),
     Route("/api/reactive/toggle", reactive_toggle_endpoint, methods=["POST"]),
     Route("/api/events", events_endpoint),
